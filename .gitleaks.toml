@@ -1,0 +1,11 @@
+# gitleaks (https://github.com/gitleaks/gitleaks): its default rules, minus one
+# false positive. The recorded Claude Code sessions (tests/fixtures/claude,
+# docs/dev/research/samples/claude) carry Anthropic message ids
+# ("api_message_id": "msg_…"), which the generic-api-key rule takes for keys.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Anthropic message ids in recorded sessions"
+regexTarget = "match"
+regexes = ['''api_message_id"\s*:\s*"msg_[A-Za-z0-9]+''']

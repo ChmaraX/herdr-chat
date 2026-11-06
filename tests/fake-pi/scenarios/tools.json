@@ -1,0 +1,45 @@
+{
+  "description": "One prompt, every kind of tool: thinking, bash (streamed, exit code), read, edit (patch), write, grep, find, ls, an MCP tool, a failing tool; extension statuses with ANSI, a widget and a notify at startup.",
+  "startup": [
+    { "ui": { "method": "setStatus", "statusKey": "mcp", "statusText": "\u001b[38;2;202;158;230m🔌 MCP: 6 servers enabled\u001b[39m" } },
+    { "ui": { "method": "setStatus", "statusKey": "cached-compaction", "statusText": "\u001b[1m⏱\u001b[22m \u001b[32m59m\u001b[0m" } },
+    { "ui": { "method": "setWidget", "widgetKey": "queue-steer.timeline", "widgetLines": ["\u001b[2m── queue ──\u001b[0m", "\u001b[33m●\u001b[0m nothing queued"], "widgetPlacement": "belowEditor" } },
+    { "ui": { "method": "notify", "message": "\u001b[33mPlannotator:\u001b[0m Node is missing TLS fixes", "notifyType": "warning" } },
+    { "ui": { "method": "setTitle", "title": "\u001b]0;ignored\u0007pi - fake project" } }
+  ],
+  "prompts": [
+    {
+      "match": ".",
+      "steps": [
+        { "assistant": {
+            "thinking": "The user wants me to look around the repo. I'll list files, read the README, fix a typo, write a note, search, and call the figma MCP tool.",
+            "text": "Let me look around.",
+            "tools": [
+              { "id": "call_bash", "name": "bash", "args": { "command": "ls -la && echo done" } },
+              { "id": "call_read", "name": "read", "args": { "path": "README.md", "offset": 10, "limit": 31 } }
+            ] } },
+        { "tool": { "name": "bash", "updates": ["total 8\n", "\u001b[34mdrwxr-xr-x\u001b[0m  4 user staff 128 .\n", "-rw-r--r--  1 user staff  64 README.md\ndone\n"], "every": 40, "exitCode": 0 } },
+        { "tool": { "name": "read", "output": "# Fake project\n\nLine eleven\nLine twelve\n" } },
+        { "assistant": {
+            "text": "Fixing the typo and writing a note.",
+            "tools": [
+              { "id": "call_edit", "name": "edit", "args": { "path": "README.md", "edits": [ { "oldText": "Line eleven\n", "newText": "Line 11\n" } ] } },
+              { "id": "call_write", "name": "write", "args": { "path": "NOTES.md", "content": "notes\nmore notes\n" } },
+              { "id": "call_grep", "name": "grep", "args": { "pattern": "TODO", "path": "src" } },
+              { "id": "call_find", "name": "find", "args": { "pattern": "*.ts" } },
+              { "id": "call_ls", "name": "ls", "args": { "path": "src" } },
+              { "id": "call_mcp", "name": "mcp__figma__get_file", "args": { "fileKey": "abc123" } },
+              { "id": "call_bad", "name": "bash", "args": { "command": "false" } }
+            ] } },
+        { "tool": { "name": "edit", "output": "Successfully replaced 1 block(s) in README.md.", "details": { "diff": "  10 \n- 11 Line eleven\n+ 11 Line 11\n  12 Line twelve", "patch": "--- README.md\n+++ README.md\n@@ -10,3 +10,3 @@\n \n-Line eleven\n+Line 11\n Line twelve\n", "firstChangedLine": 11 } } },
+        { "tool": { "name": "write", "output": "Successfully wrote 17 bytes to NOTES.md" } },
+        { "tool": { "name": "grep", "output": "src/a.ts:3: // TODO fix\nsrc/b.ts:9: // TODO later\n" } },
+        { "tool": { "name": "find", "output": "src/a.ts\nsrc/b.ts\n" } },
+        { "tool": { "name": "ls", "output": "a.ts\nb.ts\n" } },
+        { "tool": { "id": "call_mcp", "output": "{\"name\":\"Design\",\"pages\":3}" } },
+        { "tool": { "id": "call_bad", "output": "Command exited with code 1", "isError": true, "exitCode": 1 } },
+        { "assistant": { "text": "Done. I listed the files, fixed **one** typo in `README.md`, wrote `NOTES.md`, found 2 TODOs, and fetched the Figma file.\n\n`false` failed, as expected." } }
+      ]
+    }
+  ]
+}

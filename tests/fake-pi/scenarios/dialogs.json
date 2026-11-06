@@ -1,0 +1,138 @@
+{
+ "description": "Dialogs: a dangerous command asks select (Allow/Block, 10 s timeout), then a confirm (5 s timeout), then an input. /rpc-input is an extension command (disposition handled) that opens an input dialog outside any run.",
+ "prompts": [
+  {
+   "match": ".",
+   "steps": [
+    {
+     "assistant": {
+      "text": "I need to delete the build folder.",
+      "tools": [
+       {
+        "id": "call_rm",
+        "name": "bash",
+        "args": {
+         "command": "rm -rf build"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "dialog": {
+      "method": "select",
+      "title": "Allow dangerous command?",
+      "message": "rm -rf build",
+      "options": [
+       "Allow",
+       "Block"
+      ],
+      "timeout": 10000
+     },
+     "then": {
+      "Allow": [
+       {
+        "tool": {
+         "id": "call_rm",
+         "output": "",
+         "exitCode": 0
+        }
+       }
+      ],
+      "*": [
+       {
+        "tool": {
+         "id": "call_rm",
+         "output": "Blocked by user ({answer})",
+         "isError": true
+        }
+       }
+      ]
+     }
+    },
+    {
+     "dialog": {
+      "method": "confirm",
+      "title": "Also clear the cache?",
+      "message": "This removes ~/.cache/fake.",
+      "timeout": 5000
+     },
+     "then": {
+      "true": [
+       {
+        "ui": {
+         "method": "notify",
+         "message": "Cache cleared",
+         "notifyType": "info"
+        }
+       }
+      ],
+      "*": [
+       {
+        "ui": {
+         "method": "notify",
+         "message": "Cache kept ({answer})",
+         "notifyType": "info"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "dialog": {
+      "method": "input",
+      "title": "Name for the backup?",
+      "placeholder": "backup-name"
+     },
+     "then": {
+      "cancelled": [
+       {
+        "assistant": {
+         "text": "No backup name given."
+        }
+       }
+      ],
+      "*": [
+       {
+        "assistant": {
+         "text": "Backup saved as {answer}."
+        }
+       }
+      ]
+     }
+    }
+   ]
+  }
+ ],
+ "extensionCommands": {
+  "rpc-input": [
+   {
+    "dialog": {
+     "method": "input",
+     "title": "What is your name?",
+     "placeholder": "type something..."
+    },
+    "then": {
+     "cancelled": [
+      {
+       "ui": {
+        "method": "notify",
+        "message": "Input cancelled",
+        "notifyType": "info"
+       }
+      }
+     ],
+     "*": [
+      {
+       "ui": {
+        "method": "notify",
+        "message": "You entered: {answer}",
+        "notifyType": "info"
+       }
+      }
+     ]
+    }
+   }
+  ]
+ }
+}

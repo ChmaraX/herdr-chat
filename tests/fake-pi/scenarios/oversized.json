@@ -1,0 +1,123 @@
+{
+ "description": "A tool update record of 9 MiB (over the 8 MiB cap) arrives mid-tool, plus a non-JSON line; then the tool ends normally and the answer continues.",
+ "prompts": [
+  {
+   "match": ".",
+   "steps": [
+    {
+     "assistant": {
+      "text": "Dumping a huge file.",
+      "tools": [
+       {
+        "id": "call_big",
+        "name": "bash",
+        "args": {
+         "command": "cat huge.log"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "emit": {
+      "type": "tool_execution_start",
+      "toolCallId": "call_big",
+      "toolName": "bash",
+      "args": {
+       "command": "cat huge.log"
+      }
+     }
+    },
+    {
+     "emit": {
+      "type": "tool_execution_update",
+      "toolCallId": "call_big",
+      "toolName": "bash",
+      "args": {
+       "command": "cat huge.log"
+      },
+      "partialResult": {
+       "content": [
+        {
+         "type": "text",
+         "text": "start\n"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "raw": "this is not json\n"
+    },
+    {
+     "big": {
+      "toolCallId": "call_big",
+      "bytes": 9437184
+     }
+    },
+    {
+     "wait": 50
+    },
+    {
+     "emit": [
+      {
+       "type": "tool_execution_end",
+       "toolCallId": "call_big",
+       "toolName": "bash",
+       "result": {
+        "content": [
+         {
+          "type": "text",
+          "text": "start\n...\nend\n"
+         }
+        ],
+        "structuredContent": {
+         "exit_code": 0
+        }
+       },
+       "isError": false,
+       "durationMs": 120
+      },
+      {
+       "type": "message_start",
+       "message": {
+        "role": "toolResult",
+        "toolCallId": "call_big",
+        "toolName": "bash",
+        "content": [
+         {
+          "type": "text",
+          "text": "start\n...\nend\n"
+         }
+        ],
+        "isError": false,
+        "timestamp": 0
+       }
+      },
+      {
+       "type": "message_end",
+       "message": {
+        "role": "toolResult",
+        "toolCallId": "call_big",
+        "toolName": "bash",
+        "content": [
+         {
+          "type": "text",
+          "text": "start\n...\nend\n"
+         }
+        ],
+        "isError": false,
+        "timestamp": 0
+       }
+      }
+     ]
+    },
+    {
+     "assistant": {
+      "text": "The log ends with `end`."
+     }
+    }
+   ]
+  }
+ ]
+}

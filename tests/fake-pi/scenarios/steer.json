@@ -1,0 +1,41 @@
+{
+ "description": "Steer during a tool: a 1.5 s bash; a steer sent meanwhile is delivered as a user message before the next model call, which answers it.",
+ "prompts": [
+  {
+   "match": ".",
+   "steps": [
+    {
+     "assistant": {
+      "text": "Sleeping first.",
+      "tools": [
+       {
+        "id": "call_sleep",
+        "name": "bash",
+        "args": {
+         "command": "sleep 3"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "tool": {
+      "id": "call_sleep",
+      "updates": [
+       "z\n",
+       "zz\n",
+       "zzz\n"
+      ],
+      "every": 500,
+      "exitCode": 0
+     }
+    },
+    {
+     "assistant": {
+      "text": "Slept. Changing course as you asked."
+     }
+    }
+   ]
+  }
+ ]
+}

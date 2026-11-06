@@ -1,0 +1,11 @@
+node_modules/
+/tests/artifacts/
+/.pi-subagents/
+*.log
+.DS_Store
+
+# written into mod folders by the Herdr app
+**/gpui-kit.d.ts
+**/herdr.d.ts
+**/jsconfig.json
+/dist/

@@ -1,0 +1,38 @@
+{
+ "description": "An autonomous run: 300 ms after startup an extension posts a display:true custom message (subagent-notify) and Pi starts a run nobody prompted, with an auto-retry and a threshold compaction inside it.",
+ "timers": [
+  {
+   "after": 300,
+   "steps": [
+    {
+     "run": [
+      {
+       "custom": {
+        "customType": "subagent-notify",
+        "content": "Subagent t7 review finished: 2 findings in /tmp/findings.md",
+        "display": true
+       }
+      },
+      {
+       "retry": {
+        "errorMessage": "529 overloaded",
+        "delayMs": 50
+       }
+      },
+      {
+       "assistant": {
+        "text": "The review subagent finished with 2 findings. I'll summarize them."
+       }
+      },
+      {
+       "compaction": {
+        "reason": "threshold",
+        "duration": 100
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

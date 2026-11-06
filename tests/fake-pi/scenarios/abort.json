@@ -1,0 +1,48 @@
+{
+ "description": "Abort mid-tool: a bash that ticks every 100 ms until aborted. Prompts containing 'quick' answer at once (use them to queue follow-ups).",
+ "prompts": [
+  {
+   "match": "quick",
+   "once": false,
+   "steps": [
+    {
+     "assistant": {
+      "text": "Quick answer."
+     }
+    }
+   ]
+  },
+  {
+   "match": ".",
+   "once": false,
+   "steps": [
+    {
+     "assistant": {
+      "text": "Running the long build.",
+      "tools": [
+       {
+        "name": "bash",
+        "args": {
+         "command": "make build"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "tool": {
+      "name": "bash",
+      "until": "abort",
+      "every": 100,
+      "tick": "compiling unit {n}\n"
+     }
+    },
+    {
+     "assistant": {
+      "text": "unreachable"
+     }
+    }
+   ]
+  }
+ ]
+}

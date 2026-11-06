@@ -1,0 +1,147 @@
+{
+ "description": "mod v2: a long streamed answer (~9 KB) with six code blocks (one of 60 lines, collapsed at 30), a mermaid sequence diagram, after a thinking block and two tools in a group; for the stick-to-bottom, code-card and FPS checks.",
+ "commands": [
+  {
+   "name": "review",
+   "description": "Review the current diff",
+   "source": "prompt"
+  },
+  {
+   "name": "skill:diagnose",
+   "description": "Diagnose a bug",
+   "source": "skill"
+  },
+  {
+   "name": "release-notes",
+   "description": "Draft release notes",
+   "source": "prompt"
+  },
+  {
+   "name": "plannotator",
+   "description": "Plan with annotations",
+   "source": "extension"
+  }
+ ],
+ "startup": [
+  {
+   "ui": {
+    "method": "setStatus",
+    "statusKey": "mcp",
+    "statusText": "\u001b[38;2;202;158;230m🔌 MCP: 6 servers enabled\u001b[39m"
+   }
+  },
+  {
+   "ui": {
+    "method": "setStatus",
+    "statusKey": "git",
+    "statusText": "\u001b[32m⎇ main\u001b[0m +3 −1 · 2 ahead of origin/main"
+   }
+  },
+  {
+   "ui": {
+    "method": "setStatus",
+    "statusKey": "plannotator",
+    "statusText": "📝 plan: 3 of 7 steps done, reviewing step 4 of the migration"
+   }
+  },
+  {
+   "ui": {
+    "method": "setStatus",
+    "statusKey": "empty",
+    "statusText": ""
+   }
+  },
+  {
+   "ui": {
+    "method": "setWidget",
+    "widgetKey": "todo",
+    "widgetLines": [
+     "\u001b[2m── todo ──\u001b[0m",
+     "\u001b[33m●\u001b[0m write the migration",
+     "\u001b[32m✓\u001b[0m add the column",
+     "\u001b[2m○\u001b[0m backfill"
+    ],
+    "widgetPlacement": "aboveEditor"
+   }
+  },
+  {
+   "ui": {
+    "method": "notify",
+    "message": "context is getting long",
+    "notifyType": "warning"
+   }
+  },
+  {
+   "ui": {
+    "method": "notify",
+    "message": "just info, not in the timeline",
+    "notifyType": "info"
+   }
+  }
+ ],
+ "prompts": [
+  {
+   "match": "long",
+   "steps": [
+    {
+     "assistant": {
+      "thinking": "Let me plan the long answer: six parts, a long code block, a diagram.",
+      "every": 30,
+      "tools": [
+       {
+        "id": "c1",
+        "name": "bash",
+        "args": {
+         "command": "ls src"
+        }
+       },
+       {
+        "id": "c2",
+        "name": "read",
+        "args": {
+         "path": "src/a.ts"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "tool": {
+      "name": "bash",
+      "updates": [
+       "a.ts\n",
+       "a.ts\nb.ts\n"
+      ],
+      "every": 200,
+      "exitCode": 0
+     }
+    },
+    {
+     "tool": {
+      "name": "read",
+      "output": "export const a = 1;\n"
+     }
+    },
+    {
+     "assistant": {
+      "text": "## Part 1\n\nThis part explains step 1 in some detail, with **bold** words, `inline code` and a list:\n\n- first point about part 1\n- second point, a little longer so it wraps when the column is narrow enough to wrap it\n- third point\n\n```python\nimport json, sys\n\ndef load(path):\n    with open(path) as f:\n        return json.load(f)\n\nfor p in sys.argv[1:]:\n    d = load(p)\n    print(p, len(d), 'keys')  # count\n```\n\n## Part 2\n\nThis part explains step 2 in some detail, with **bold** words, `inline code` and a list:\n\n- first point about part 2\n- second point, a little longer so it wraps when the column is narrow enough to wrap it\n- third point\n\n```ts\nexport function step1(x: number): number { return x * 1 + 1; } // step 1\nexport function step2(x: number): number { return x * 2 + 2; } // step 2\nexport function step3(x: number): number { return x * 3 + 3; } // step 3\nexport function step4(x: number): number { return x * 4 + 4; } // step 4\nexport function step5(x: number): number { return x * 5 + 5; } // step 5\nexport function step6(x: number): number { return x * 6 + 6; } // step 6\nexport function step7(x: number): number { return x * 7 + 0; } // step 7\nexport function step8(x: number): number { return x * 8 + 1; } // step 8\nexport function step9(x: number): number { return x * 9 + 2; } // step 9\nexport function step10(x: number): number { return x * 10 + 3; } // step 10\nexport function step11(x: number): number { return x * 11 + 4; } // step 11\nexport function step12(x: number): number { return x * 12 + 5; } // step 12\nexport function step13(x: number): number { return x * 13 + 6; } // step 13\nexport function step14(x: number): number { return x * 14 + 0; } // step 14\nexport function step15(x: number): number { return x * 15 + 1; } // step 15\nexport function step16(x: number): number { return x * 16 + 2; } // step 16\nexport function step17(x: number): number { return x * 17 + 3; } // step 17\nexport function step18(x: number): number { return x * 18 + 4; } // step 18\nexport function step19(x: number): number { return x * 19 + 5; } // step 19\nexport function step20(x: number): number { return x * 20 + 6; } // step 20\nexport function step21(x: number): number { return x * 21 + 0; } // step 21\nexport function step22(x: number): number { return x * 22 + 1; } // step 22\nexport function step23(x: number): number { return x * 23 + 2; } // step 23\nexport function step24(x: number): number { return x * 24 + 3; } // step 24\nexport function step25(x: number): number { return x * 25 + 4; } // step 25\nexport function step26(x: number): number { return x * 26 + 5; } // step 26\nexport function step27(x: number): number { return x * 27 + 6; } // step 27\nexport function step28(x: number): number { return x * 28 + 0; } // step 28\nexport function step29(x: number): number { return x * 29 + 1; } // step 29\nexport function step30(x: number): number { return x * 30 + 2; } // step 30\nexport function step31(x: number): number { return x * 31 + 3; } // step 31\nexport function step32(x: number): number { return x * 32 + 4; } // step 32\nexport function step33(x: number): number { return x * 33 + 5; } // step 33\nexport function step34(x: number): number { return x * 34 + 6; } // step 34\nexport function step35(x: number): number { return x * 35 + 0; } // step 35\nexport function step36(x: number): number { return x * 36 + 1; } // step 36\nexport function step37(x: number): number { return x * 37 + 2; } // step 37\nexport function step38(x: number): number { return x * 38 + 3; } // step 38\nexport function step39(x: number): number { return x * 39 + 4; } // step 39\nexport function step40(x: number): number { return x * 40 + 5; } // step 40\nexport function step41(x: number): number { return x * 41 + 6; } // step 41\nexport function step42(x: number): number { return x * 42 + 0; } // step 42\nexport function step43(x: number): number { return x * 43 + 1; } // step 43\nexport function step44(x: number): number { return x * 44 + 2; } // step 44\nexport function step45(x: number): number { return x * 45 + 3; } // step 45\nexport function step46(x: number): number { return x * 46 + 4; } // step 46\nexport function step47(x: number): number { return x * 47 + 5; } // step 47\nexport function step48(x: number): number { return x * 48 + 6; } // step 48\nexport function step49(x: number): number { return x * 49 + 0; } // step 49\nexport function step50(x: number): number { return x * 50 + 1; } // step 50\nexport function step51(x: number): number { return x * 51 + 2; } // step 51\nexport function step52(x: number): number { return x * 52 + 3; } // step 52\nexport function step53(x: number): number { return x * 53 + 4; } // step 53\nexport function step54(x: number): number { return x * 54 + 5; } // step 54\nexport function step55(x: number): number { return x * 55 + 6; } // step 55\nexport function step56(x: number): number { return x * 56 + 0; } // step 56\nexport function step57(x: number): number { return x * 57 + 1; } // step 57\nexport function step58(x: number): number { return x * 58 + 2; } // step 58\nexport function step59(x: number): number { return x * 59 + 3; } // step 59\nexport function step60(x: number): number { return x * 60 + 4; } // step 60\n```\n\n## Part 3\n\nThis part explains step 3 in some detail, with **bold** words, `inline code` and a list:\n\n- first point about part 3\n- second point, a little longer so it wraps when the column is narrow enough to wrap it\n- third point\n\n```python\nimport json, sys\n\ndef load(path):\n    with open(path) as f:\n        return json.load(f)\n\nfor p in sys.argv[1:]:\n    d = load(p)\n    print(p, len(d), 'keys')  # count\n```\n\n## Part 4\n\nThis part explains step 4 in some detail, with **bold** words, `inline code` and a list:\n\n- first point about part 4\n- second point, a little longer so it wraps when the column is narrow enough to wrap it\n- third point\n\n```mermaid\nsequenceDiagram\n  participant U as User\n  participant P as Pi\n  U->>P: prompt\n  P-->>U: answer\n```\n\n## Part 5\n\nThis part explains step 5 in some detail, with **bold** words, `inline code` and a list:\n\n- first point about part 5\n- second point, a little longer so it wraps when the column is narrow enough to wrap it\n- third point\n\n```python\nimport json, sys\n\ndef load(path):\n    with open(path) as f:\n        return json.load(f)\n\nfor p in sys.argv[1:]:\n    d = load(p)\n    print(p, len(d), 'keys')  # count\n```\n\n## Part 6\n\nThis part explains step 6 in some detail, with **bold** words, `inline code` and a list:\n\n- first point about part 6\n- second point, a little longer so it wraps when the column is narrow enough to wrap it\n- third point\n\n```python\nimport json, sys\n\ndef load(path):\n    with open(path) as f:\n        return json.load(f)\n\nfor p in sys.argv[1:]:\n    d = load(p)\n    print(p, len(d), 'keys')  # count\n```\n\nThat's everything.",
+      "chunk": 12,
+      "every": 25,
+      "inputTokens": 4000
+     }
+    }
+   ]
+  },
+  {
+   "match": ".",
+   "steps": [
+    {
+     "assistant": {
+      "text": "ok",
+      "inputTokens": 100
+     }
+    }
+   ]
+  }
+ ]
+}

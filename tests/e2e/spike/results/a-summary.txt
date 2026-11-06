@@ -1,0 +1,4 @@
+{"connects": 2, "failures": 4, "records": 9488, "bytes": 19906094, "gaps": 0, "dupes": 0, "bad": 0, "big": 94, "unicodeOk": 1342, "unicodeBad": 0, "latMax": 54}
+per connection: {"98826-1": {"last": 52, "n": 53}, "848-1": {"last": 9434, "n": 9435}}
+latency ms p50 0 p95 1 p99 2 max 54
+events: [{"at": 1793710119696, "ev": "connected", "port": 50715}, {"at": 1793710120824, "ev": "eof"}, {"at": 1793710121078, "ev": "error", "e": "no port file"}, {"at": 1793710121611, "ev": "error", "e": "no port file"}, {"at": 1793710122615, "ev": "error", "e": "no port file"}, {"at": 1793710124645, "ev": "error", "e": "no port file"}, {"at": 1793710126677, "ev": "connected", "port": 50741}]

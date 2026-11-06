@@ -1,0 +1,90 @@
+{
+  "description": "Rich content (v2): streamed prose with a ts code block, a mermaid flowchart and a ~~~ fence inside a list item; a bash with ANSI colors (exit 1), a read of a .ts file, an edit with a patch (+2 −1); a closing answer. Real Pi 1.5 durationMs/usage on message_end.",
+  "prompts": [
+    {
+      "match": ".",
+      "steps": [
+        {
+          "assistant": {
+            "text": "Here's the plan for **the parser**:\n\n```ts\nexport function parse(input: string): number {\n  // trim first\n  return input.trim().length * 2;\n}\n```\n\nThe flow:\n\n```mermaid\nflowchart LR\n  A[Read input] --> B{Valid?}\n  B -->|yes| C[Parse]\n  B -->|no| D[Error]\n```\n\nSteps:\n\n1. Install it:\n\n   ~~~sh\n   npm install parser\n   ~~~\n2. Run the checks below.",
+            "chunk": 6,
+            "every": 15,
+            "inputTokens": 1500,
+            "tools": [
+              {
+                "id": "call_bash",
+                "name": "bash",
+                "args": {
+                  "command": "npm test"
+                }
+              },
+              {
+                "id": "call_read",
+                "name": "read",
+                "args": {
+                  "path": "src/parse.ts"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "tool": {
+            "name": "bash",
+            "updates": [
+              "\u001b[1m> parser@1.0.0 test\u001b[0m\n",
+              "\u001b[32m✓\u001b[0m parses numbers\n\u001b[32m✓\u001b[0m trims input\n",
+              "\u001b[31m✗ rejects junk\u001b[0m\n\u001b[2m1 failing, 2 passing\u001b[0m\n"
+            ],
+            "every": 40,
+            "isError": true,
+            "exitCode": 1,
+            "output": "\u001b[1m> parser@1.0.0 test\u001b[0m\n\u001b[32m✓\u001b[0m parses numbers\n\u001b[32m✓\u001b[0m trims input\n\u001b[31m✗ rejects junk\u001b[0m\n\u001b[2m1 failing, 2 passing\u001b[0m\n\nCommand exited with code 1"
+          }
+        },
+        {
+          "tool": {
+            "name": "read",
+            "output": "export function parse(input: string): number {\n  // trim first\n  return input.trim().length * 2;\n}\n"
+          }
+        },
+        {
+          "assistant": {
+            "tools": [
+              {
+                "id": "call_edit",
+                "name": "edit",
+                "args": {
+                  "path": "src/parse.ts",
+                  "edits": [
+                    {
+                      "oldText": "  return input.trim().length * 2;\n",
+                      "newText": "  const s = input.trim();\n  return s.length * 2;\n"
+                    }
+                  ]
+                }
+              }
+            ],
+            "inputTokens": 2000
+          }
+        },
+        {
+          "tool": {
+            "name": "edit",
+            "output": "Successfully replaced 1 block(s) in src/parse.ts.",
+            "details": {
+              "patch": "--- src/parse.ts\n+++ src/parse.ts\n@@ -1,4 +1,5 @@\n export function parse(input: string): number {\n-  return input.trim().length * 2;\n+  const s = input.trim();\n+  return s.length * 2;\n }\n",
+              "firstChangedLine": 2
+            }
+          }
+        },
+        {
+          "assistant": {
+            "text": "Done: `parse` now trims once.",
+            "inputTokens": 2400
+          }
+        }
+      ]
+    }
+  ]
+}

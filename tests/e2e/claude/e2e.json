@@ -1,0 +1,232 @@
+{
+ "turns": [
+  {
+   "match": "slow start",
+   "once": false,
+   "startMs": 6000,
+   "steps": [
+    {
+     "text": "Started slowly."
+    }
+   ]
+  },
+  {
+   "match": "run the tests",
+   "once": false,
+   "steps": [
+    {
+     "text": "I'll run the tests."
+    },
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "npm test",
+      "description": "Run npm test"
+     },
+     "result": {
+      "content": "✓ parses numbers\n✓ trims input\n2 passing",
+      "is_error": false
+     }
+    },
+    {
+     "text": "All **2 tests** pass."
+    }
+   ]
+  },
+  {
+   "match": "clean",
+   "once": false,
+   "steps": [
+    {
+     "tool": "Bash",
+     "input": {
+      "command": "rm -rf build",
+      "description": "Run rm -rf build"
+     },
+     "result": {
+      "content": "",
+      "is_error": false
+     }
+    },
+    {
+     "text": "Result: {prompt}"
+    }
+   ]
+  },
+  {
+   "match": "edit",
+   "once": false,
+   "steps": [
+    {
+     "tool": "Edit",
+     "input": {
+      "file_path": "src/a.ts",
+      "old_string": "export const a = 1;",
+      "new_string": "export const a = 2;"
+     },
+     "result": {
+      "content": "The file has been updated."
+     }
+    },
+    {
+     "text": "Edited."
+    }
+   ]
+  },
+  {
+   "match": "ask me",
+   "once": false,
+   "steps": [
+    {
+     "question": {
+      "questions": [
+       {
+        "question": "Which database should the service use?",
+        "header": "Database",
+        "options": [
+         {
+          "label": "Postgres",
+          "description": "What the other services use"
+         },
+         {
+          "label": "SQLite",
+          "description": "One file, no server"
+         }
+        ],
+        "multiSelect": false
+       },
+       {
+        "question": "Which checks should run in CI?",
+        "header": "Checks",
+        "options": [
+         {
+          "label": "Unit tests"
+         },
+         {
+          "label": "Type check"
+         },
+         {
+          "label": "Lint"
+         }
+        ],
+        "multiSelect": true
+       }
+      ]
+     }
+    },
+    {
+     "text": "Got it."
+    }
+   ]
+  },
+  {
+   "match": "plan",
+   "once": false,
+   "steps": [
+    {
+     "plan": "# Plan\n\n1. Read the parser\n2. Fix the trimming\n3. Run the tests"
+    },
+    {
+     "text": "Plan handled in {mode} mode."
+    }
+   ]
+  },
+  {
+   "match": "agent",
+   "once": false,
+   "steps": [
+    {
+     "subagent": {
+      "description": "Find the flaky test",
+      "type": "Explore",
+      "prompt": "Find the flaky test.",
+      "steps": [
+       {
+        "tool": "Grep",
+        "input": {
+         "pattern": "flaky",
+         "path": "tests"
+        },
+        "result": {
+         "content": "tests/a.test.ts:12"
+        }
+       },
+       {
+        "tool": "Read",
+        "input": {
+         "file_path": "tests/a.test.ts"
+        },
+        "result": {
+         "content": "it('waits', async () => { await sleep(10) })"
+        }
+       },
+       {
+        "text": "The flaky one is `waits`: a fixed sleep."
+       }
+      ],
+      "report": "tests/a.test.ts: `waits` sleeps for a fixed 10 ms."
+     }
+    },
+    {
+     "todos": [
+      {
+       "content": "Find the flaky test",
+       "status": "completed",
+       "activeForm": "Finding"
+      },
+      {
+       "content": "Use fake timers",
+       "status": "in_progress",
+       "activeForm": "Switching"
+      },
+      {
+       "content": "Run the suite",
+       "status": "pending",
+       "activeForm": "Running"
+      }
+     ]
+    },
+    {
+     "text": "The subagent found it: **tests/a.test.ts** sleeps. Fake timers would fix it."
+    }
+   ]
+  },
+  {
+   "match": "long job",
+   "once": false,
+   "steps": [
+    {
+     "text": "Starting the long job."
+    },
+    {
+     "tool": "Bash",
+     "ask": false,
+     "input": {
+      "command": "make build"
+     },
+     "durationMs": 4000,
+     "result": {
+      "content": "built"
+     }
+    },
+    {
+     "text": "Done. Steers seen: {steers}"
+    }
+   ]
+  },
+  {
+   "match": "stall",
+   "once": false,
+   "steps": [
+    {
+     "hang": true
+    }
+   ]
+  }
+ ],
+ "default": [
+  {
+   "text": "ok: {prompt}"
+  }
+ ]
+}

@@ -1,0 +1,132 @@
+{
+ "description": "Spacing pass: an answer with headings, paragraphs, a list and a code block; a run with a tool group then prose; short turns; a warning notice before the next user message.",
+ "prompts": [
+  {
+   "match": "answer",
+   "steps": [
+    {
+     "assistant": {
+      "text": "## Setting up the parser\n\nThe parser reads one line at a time and keeps a small amount of state between lines, so a long file never sits in memory at once.\n\nIt has two parts: a tokenizer that splits the input, and a reducer that folds the tokens into the result. Each can be tested on its own.\n\n- the tokenizer never allocates per character\n- the reducer is pure, so a failing line can be replayed in a test without the rest of the file\n- both report the line number on errors\n\n```ts\nexport function parse(line: string, state: State): State {\n  const tokens = tokenize(line);\n  return tokens.reduce(step, state);\n}\n```\n\n### Next steps\n\nRun the checks, then wire it into the importer.",
+      "chunk": 40,
+      "every": 5,
+      "inputTokens": 1200
+     }
+    }
+   ]
+  },
+  {
+   "match": "tools",
+   "steps": [
+    {
+     "assistant": {
+      "text": "I'll look at the two source files first.",
+      "chunk": 20,
+      "every": 5,
+      "tools": [
+       {
+        "id": "s1",
+        "name": "bash",
+        "args": {
+         "command": "ls src"
+        }
+       },
+       {
+        "id": "s2",
+        "name": "read",
+        "args": {
+         "path": "src/a.ts"
+        }
+       },
+       {
+        "id": "s3",
+        "name": "read",
+        "args": {
+         "path": "src/b.ts"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "tool": {
+      "name": "bash",
+      "output": "a.ts\nb.ts\n",
+      "exitCode": 0
+     }
+    },
+    {
+     "tool": {
+      "name": "read",
+      "output": "export const a = 1;\n"
+     }
+    },
+    {
+     "tool": {
+      "name": "read",
+      "output": "export const b = 2;\n"
+     }
+    },
+    {
+     "assistant": {
+      "text": "Both files export one constant each: `a` is 1 and `b` is 2.\n\nNothing imports them yet, so renaming is safe.",
+      "chunk": 40,
+      "every": 5,
+      "inputTokens": 1500
+     }
+    }
+   ]
+  },
+  {
+   "match": "warn",
+   "steps": [
+    {
+     "assistant": {
+      "text": "Done, the cache is cleared.",
+      "chunk": 40,
+      "every": 5
+     }
+    },
+    {
+     "ui": {
+      "method": "notify",
+      "message": "context is getting long: 81% used",
+      "notifyType": "warning"
+     }
+    }
+   ]
+  },
+  {
+   "match": "first",
+   "steps": [
+    {
+     "assistant": {
+      "text": "The first answer, one short paragraph that ends the turn.",
+      "chunk": 40,
+      "every": 5
+     }
+    }
+   ]
+  },
+  {
+   "match": "second",
+   "steps": [
+    {
+     "assistant": {
+      "text": "The second answer: also short, so both turns fit on screen.",
+      "chunk": 40,
+      "every": 5
+     }
+    }
+   ]
+  }
+ ],
+ "default": [
+  {
+   "assistant": {
+    "text": "OK.",
+    "chunk": 40,
+    "every": 5
+   }
+  }
+ ]
+}

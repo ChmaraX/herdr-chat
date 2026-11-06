@@ -1,0 +1,13 @@
+{
+ "description": "An extension awaits a confirm inside session_start. Pi runs session_start before it reads stdin, so it never answers get_state while the dialog is open. No timeout: Pi hangs.",
+ "startupBlocksStdin": true,
+ "startup": [
+  {
+   "dialog": {
+    "method": "confirm",
+    "title": "Trust this project's extensions?",
+    "message": "fake-ext wants to run project code."
+   }
+  }
+ ]
+}

@@ -1,0 +1,23 @@
+{
+  "description": "Every Codex tool item in one turn: shell (output deltas, exit 1), reads/lists/searches through the shell, a file add and update, MCP, web search and open page, image view, a subagent, then the answer.",
+  "prompts": [
+    {
+      "match": "every tool",
+      "steps": [
+        { "text": "Running every tool.", "phase": "commentary" },
+        { "command": "npm test", "output": ["\u001b[32m✓\u001b[39m one\n", "\u001b[31m✗\u001b[39m two\n"], "exitCode": 1 },
+        { "command": "cat README.md", "output": "# Fixture project\n", "actions": [{ "type": "read", "command": "cat README.md", "name": "README.md", "path": "README.md" }] },
+        { "command": "ls -la", "output": "README.md\n", "actions": [{ "type": "listFiles", "command": "ls -la", "path": null }] },
+        { "command": "rg TODO src", "output": "src/a.ts:1: TODO\n", "actions": [{ "type": "search", "command": "rg TODO src", "query": "TODO", "path": "src" }] },
+        { "fileChange": [{ "path": "notes.txt", "kind": "add", "diff": "one\ntwo\n" }] },
+        { "fileChange": [{ "path": "notes.txt", "kind": "update", "diff": "@@ -1,2 +1,2 @@\n one\n-two\n+three\n" }] },
+        { "mcp": { "server": "echo", "tool": "echo", "arguments": { "text": "ping" }, "progress": ["working"], "content": [{ "type": "text", "text": "echo: ping" }] } },
+        { "webSearch": { "query": "node lts", "results": [{ "type": "text_result", "title": "Node.js", "url": "https://nodejs.org", "snippet": "Download Node.js" }] } },
+        { "webSearch": { "query": "", "action": { "type": "openPage", "url": "https://nodejs.org/en/download" } } },
+        { "imageView": "pic.png" },
+        { "subagent": { "prompt": "Reply with the digit 4 only.", "steps": [{ "reasoning": ["**Answering**"] }, { "command": "echo 4", "output": "4\n" }, { "text": "4" }], "answer": "4" } },
+        { "text": "All tools ran." }
+      ]
+    }
+  ]
+}

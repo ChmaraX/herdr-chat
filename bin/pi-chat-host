@@ -1,0 +1,14 @@
+#!/bin/sh
+# pi-chat-host shim: resolves its own symlinks, then runs the host: host/main.js in a
+# release (built, Node 20+), else host/main.ts in a clone (Node 24+ runs the TypeScript).
+self="$0"
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case "$link" in
+    /*) self="$link" ;;
+    *) self="$(dirname "$self")/$link" ;;
+  esac
+done
+root="$(cd "$(dirname "$self")/.." && pwd)"
+main="$root/host/main.js"; [ -f "$main" ] || main="$root/host/main.ts"
+exec "${PI_CHAT_NODE:-node}" "$main" "$@"

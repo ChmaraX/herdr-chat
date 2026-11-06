@@ -1,0 +1,39 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    # macOS only for 0.1: the Herdr app is macOS-first. No E2E here: it needs
+    # the app (tests/e2e, tests/release/install-e2e.sh run locally).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The release's minimum (scripts/build.mjs NODE_MIN): the built host's suite runs on it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: echo "NODE_MIN_BIN=$(command -v node)" >> "$GITHUB_ENV"
+      # A clone's Node: it runs the TypeScript itself.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: node --check the mods
+        run: for f in mod/*/*.js; do node --check "$f"; done
+      - name: shell syntax
+        run: sh -n install.sh && bash -n install/app.sh && bash -n tests/release/install-e2e.sh
+      - run: npm run build
+      - name: the archive matches SHA256SUMS
+        run: cd dist && shasum -a 256 -c SHA256SUMS
+      - name: smoke the built host on Node 20
+        run: PI_CHAT_NODE="$NODE_MIN_BIN" dist/herdr-chat-*/bin/pi-chat-host --help
+      - name: the host suite against the built host, on Node 20
+        run: npm run test:built
+        env:
+          PI_CHAT_TEST_NODE: ${{ env.NODE_MIN_BIN }}

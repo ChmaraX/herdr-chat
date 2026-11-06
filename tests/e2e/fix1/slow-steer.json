@@ -1,0 +1,48 @@
+{
+ "description": "fix1 reports: a 10 s bash (so an hc send report, which waits ~3 s for quiet, arrives while it runs and queues as a steer), then answers.",
+ "prompts": [
+  {
+   "match": ".",
+   "steps": [
+    {
+     "assistant": {
+      "text": "Sleeping first.",
+      "tools": [
+       {
+        "id": "call_sleep",
+        "name": "bash",
+        "args": {
+         "command": "sleep 10"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "tool": {
+      "id": "call_sleep",
+      "updates": [
+       "z\n",
+       "zz\n",
+       "zzz\n",
+       "zzzz\n",
+       "zzzzz\n",
+       "zzzzzz\n",
+       "zzzzzzz\n",
+       "zzzzzzzz\n",
+       "zzzzzzzzz\n",
+       "zzzzzzzzzz\n"
+      ],
+      "every": 1000,
+      "exitCode": 0
+     }
+    },
+    {
+     "assistant": {
+      "text": "Slept. Changing course as you asked."
+     }
+    }
+   ]
+  }
+ ]
+}

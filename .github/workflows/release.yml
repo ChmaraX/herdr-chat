@@ -1,0 +1,52 @@
+name: release
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "Tag to build and attach the release archive to (e.g. v0.1.0)"
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and attach the release archive to (e.g. v0.1.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # One archive for every platform: the host is JavaScript (built, Node 20+).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: echo "NODE_MIN_BIN=$(command -v node)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: the tag is package.json's version
+        run: test "v$(node -p 'require("./package.json").version')" = "${{ inputs.tag }}"
+      - run: npm test
+      - run: npm run build
+      - name: the host suite against the built host, on Node 20
+        run: npm run test:built
+        env:
+          PI_CHAT_TEST_NODE: ${{ env.NODE_MIN_BIN }}
+      # herdr-chat-<version>.tar.gz and SHA256SUMS: install.sh downloads both
+      # and checks the one against the other.
+      - name: upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          files: |
+            dist/herdr-chat-*.tar.gz
+            dist/SHA256SUMS

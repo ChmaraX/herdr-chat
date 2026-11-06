@@ -1,0 +1,14 @@
+{
+ "description": "Like startup-dialog.json, but the startup confirm has a 12 s timeout, so Pi resolves it itself and then starts normally.",
+ "startupBlocksStdin": true,
+ "startup": [
+  {
+   "dialog": {
+    "method": "confirm",
+    "title": "Trust this project's extensions?",
+    "message": "fake-ext wants to run project code.",
+    "timeout": 12000
+   }
+  }
+ ]
+}

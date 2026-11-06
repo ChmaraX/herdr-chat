@@ -1,0 +1,3 @@
+list cpu idle 6.0% streaming 11.3%
+flex cpu idle 18.9% streaming 44.3%
+measured cpu idle 4.1% streaming 18.7%

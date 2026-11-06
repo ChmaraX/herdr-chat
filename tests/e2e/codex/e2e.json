@@ -1,0 +1,275 @@
+{
+ "description": "E2E (mod): approvals (command allow / for the session / decline with a reason, file change), a permissions grant, requestUserInput questions, a plan and a todo list, a subagent, a steer, an interrupt.",
+ "model": "gpt-5.6-luna",
+ "effort": "low",
+ "approvalPolicy": "untrusted",
+ "sandbox": "workspace-write",
+ "approvalsReviewer": "user",
+ "prompts": [
+  {
+   "match": "run the tests",
+   "once": false,
+   "steps": [
+    {
+     "text": "Running the tests.",
+     "phase": "commentary"
+    },
+    {
+     "command": "npm test",
+     "output": [
+      "\u001b[32m✓\u001b[39m parses numbers\n",
+      "\u001b[32m✓\u001b[39m trims input\n"
+     ],
+     "approval": {
+      "availableDecisions": [
+       "accept",
+       "acceptForSession",
+       "decline",
+       "cancel"
+      ],
+      "reason": "Runs the test suite"
+     }
+    },
+    {
+     "text": "All tests pass."
+    }
+   ]
+  },
+  {
+   "match": "clean",
+   "once": false,
+   "steps": [
+    {
+     "command": "rm -rf build",
+     "approval": {
+      "availableDecisions": [
+       "accept",
+       "acceptForSession",
+       "decline",
+       "cancel"
+      ],
+      "reason": "Deletes the build folder"
+     },
+     "onDecline": [
+      {
+       "text": "Left the build folder alone."
+      }
+     ]
+    },
+    {
+     "text": "Cleaned."
+    }
+   ]
+  },
+  {
+   "match": "edit",
+   "once": false,
+   "steps": [
+    {
+     "fileChange": [
+      {
+       "path": "src/a.ts",
+       "kind": "update",
+       "diff": "@@ -1 +1 @@\n-export const a = 1;\n+export const a = 2;\n"
+      }
+     ],
+     "approval": {
+      "reason": "Bump a"
+     }
+    },
+    {
+     "text": "Edited src/a.ts."
+    }
+   ]
+  },
+  {
+   "match": "network",
+   "once": false,
+   "steps": [
+    {
+     "permissions": {
+      "reason": "Needs the network to fetch the schema",
+      "permissions": {
+       "network": {
+        "enabled": true
+       },
+       "fileSystem": null
+      }
+     },
+     "then": {
+      "session": [
+       {
+        "text": "Network granted for the session."
+       }
+      ],
+      "turn": [
+       {
+        "text": "Network granted for this turn."
+       }
+      ],
+      "*": [
+       {
+        "text": "No network, then."
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "match": "ask me",
+   "once": false,
+   "steps": [
+    {
+     "question": {
+      "questions": [
+       {
+        "id": "db",
+        "header": "Database",
+        "question": "Which database should the service use?",
+        "isOther": true,
+        "isSecret": false,
+        "options": [
+         {
+          "label": "Postgres",
+          "description": "What the other services use"
+         },
+         {
+          "label": "SQLite",
+          "description": "One file, no server"
+         }
+        ]
+       },
+       {
+        "id": "name",
+        "header": "Name",
+        "question": "What should the service be called?",
+        "isOther": false,
+        "isSecret": false,
+        "options": null
+       }
+      ]
+     },
+     "then": {
+      "*": [
+       {
+        "text": "Using {answer}."
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "match": "make a plan",
+   "once": false,
+   "steps": [
+    {
+     "todo": {
+      "explanation": "Fix the parser and prove it.",
+      "plan": [
+       {
+        "step": "Read the parser",
+        "status": "completed"
+       },
+       {
+        "step": "Fix the trimming",
+        "status": "inProgress"
+       },
+       {
+        "step": "Run the tests",
+        "status": "pending"
+       }
+      ]
+     }
+    },
+    {
+     "plan": "# Plan\n\n1. Read the parser\n2. Fix the trimming\n3. Run the tests"
+    },
+    {
+     "text": "That's the plan."
+    }
+   ]
+  },
+  {
+   "match": "agent",
+   "once": false,
+   "steps": [
+    {
+     "subagent": {
+      "prompt": "Find the flaky test.",
+      "steps": [
+       {
+        "reasoning": [
+         "**Looking**"
+        ]
+       },
+       {
+        "command": "rg flaky tests",
+        "output": "tests/a.test.ts:12\n"
+       },
+       {
+        "text": "tests/a.test.ts sleeps."
+       }
+      ],
+      "answer": "tests/a.test.ts: a fixed sleep."
+     }
+    },
+    {
+     "text": "The subagent found it: tests/a.test.ts sleeps."
+    }
+   ]
+  },
+  {
+   "match": "long job",
+   "once": false,
+   "steps": [
+    {
+     "text": "Starting the long job.",
+     "phase": "commentary"
+    },
+    {
+     "command": "make build",
+     "output": [
+      "compiling\n",
+      "linking\n"
+     ]
+    },
+    {
+     "waitFor": "steer",
+     "timeout": 8000
+    },
+    {
+     "text": "Done with the long job."
+    }
+   ]
+  },
+  {
+   "match": "also check the logs",
+   "once": false,
+   "steps": [
+    {
+     "text": "Checked the logs too."
+    }
+   ]
+  },
+  {
+   "match": "stall",
+   "once": false,
+   "steps": [
+    {
+     "command": "sleep 100",
+     "output": "",
+     "until": "interrupt",
+     "tick": "waiting {n}\n",
+     "every": 300
+    }
+   ]
+  }
+ ],
+ "default": [
+  {
+   "text": "ok: {prompt}"
+  }
+ ]
+}

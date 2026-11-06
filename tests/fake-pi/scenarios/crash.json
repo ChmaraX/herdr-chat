@@ -1,0 +1,68 @@
+{
+ "description": "Pi crashes mid-run: a prompt starting with 'Run' starts a tool, prints a line, then the process exits with code 1. Other prompts get the default answer. The extension command /die makes Pi exit with code 3 while idle (a crash between turns).",
+ "prompts": [
+  {
+   "match": "^Run",
+   "steps": [
+    {
+     "assistant": {
+      "text": "Starting.",
+      "tools": [
+       {
+        "id": "call_c",
+        "name": "bash",
+        "args": {
+         "command": "npm test"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "emit": {
+      "type": "tool_execution_start",
+      "toolCallId": "call_c",
+      "toolName": "bash",
+      "args": {
+       "command": "npm test"
+      }
+     }
+    },
+    {
+     "emit": {
+      "type": "tool_execution_update",
+      "toolCallId": "call_c",
+      "toolName": "bash",
+      "args": {
+       "command": "npm test"
+      },
+      "partialResult": {
+       "content": [
+        {
+         "type": "text",
+         "text": "running 12 tests\n"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "wait": 300
+    },
+    {
+     "crash": 1
+    }
+   ]
+  }
+ ],
+ "extensionCommands": {
+  "die": [
+   {
+    "wait": 50
+   },
+   {
+    "crash": 3
+   }
+  ]
+ }
+}
