@@ -26,7 +26,7 @@
 #     marked with a .herdr-chat file) and writes mods/chat/config.json
 #     (absolute paths of the host, node, hc and each agent it finds on PATH,
 #     and herdr-chat's version; your own settings go in data/herdr-chat/settings.json,
-#     which install never writes: README "Settings")
+#     which install never writes: README "Configuration")
 #   - checks Herdr's and herdr-core's versions against the tested ones
 #     (package.json "herdr"): newer warns, older than the minimum is refused
 #   - runs `herdr-app check` on each mod before changing anything else

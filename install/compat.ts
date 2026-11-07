@@ -1,6 +1,6 @@
 // The Herdr versions this was tested with, against the ones installed. The
 // tested and minimum versions live in package.json's "herdr" entry. The mods
-// lean on Herdr internals (README "Limits": the hidden host pane, the copies
+// lean on Herdr internals (README "Limitations": the hidden host pane, the copies
 // of the shipped agents list and menu, the floating new-chat block,
 // terminal_menu), so a newer Herdr is a warning and one older than the
 // minimum is refused.

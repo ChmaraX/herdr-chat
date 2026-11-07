@@ -120,7 +120,7 @@ install changed, and removes the unpacked release.
 - **Config**: `mods/chat/config.json` (install writes it) names the host
   (`…/herdr-chat/current/bin/herdr-chat-host`), node, `hc`, each agent found
   on `PATH` and the version. The person's own settings are in
-  `data/herdr-chat/settings.json` (README "Settings"; install never writes it).
+  `data/herdr-chat/settings.json` (README "Configuration"; install never writes it).
 - **The install** (`install.sh` → `install/app.sh`, `install/*.ts`): each
   change recorded under `data/herdr-chat/` in the app home, so the uninstall
   undoes exactly that.

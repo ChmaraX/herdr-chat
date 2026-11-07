@@ -2,7 +2,7 @@
 // the host, node, hc and each agent's command) with the person's settings over
 // it (<app home>/data/herdr-chat/settings.json, which install never writes).
 // The chat mod reads the same two files the same way (mod/chat/connection.js
-// readConfig); README "Settings" documents the person's file.
+// readConfig); README "Configuration" documents the person's file.
 //
 //   {
 //     "env": {"KEY": "value"},                  every agent's environment

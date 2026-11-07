@@ -19,7 +19,7 @@ async function readJson(path) {
   }
 }
 
-/** Where the person's settings live (README "Settings"); install never writes it. */
+/** Where the person's settings live (README "Configuration"); install never writes it. */
 export const settingsPath = () => `${stateDir()}/settings.json`;
 
 /**

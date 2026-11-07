@@ -2,8 +2,8 @@
 
 ## Setup
 
-You need what [the README](README.md#install) lists (macOS, the Herdr app,
-herdr-core, `pi`), plus git and **Node 24 or later**: a checkout runs the
+You need what [the README](README.md#requirements) lists (macOS, the Herdr app,
+herdr-core, an agent), plus git and **Node 24 or later**: a checkout runs the
 host's TypeScript directly, where a release ships it built and runs on Node
 20. With the Herdr app open:
 
