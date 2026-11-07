@@ -9,7 +9,7 @@
 // replaces the block where it is; uninstall takes out the block and the
 // separator it added, so the file is byte for byte what it was, and a file
 // the install created goes when nothing else is left in it. What it added is
-// recorded in data/pi-chat/install-instructions.json.
+// recorded in data/herdr-chat/install-instructions.json.
 //
 //   node install/instructions.ts install|uninstall <app home>
 //   (Pi: $PI_CODING_AGENT_DIR else ~/.pi/agent; Claude Code: $CLAUDE_CONFIG_DIR
@@ -119,12 +119,12 @@ if (import.meta.main) {
     process.stderr.write("usage: node install/instructions.ts install|uninstall <app home>\n");
     process.exit(2);
   }
-  const recFile = join(home, "data", "pi-chat", "install-instructions.json");
+  const recFile = join(home, "data", "herdr-chat", "install-instructions.json");
   try {
     const lines = cmd === "install" ? install(recFile, agents(process.env)) : uninstall(recFile, agents(process.env));
-    for (const l of lines) process.stdout.write(`pi-chat: ${l}\n`);
+    for (const l of lines) process.stdout.write(`herdr-chat: ${l}\n`);
   } catch (e) {
-    process.stderr.write(`pi-chat: instructions: ${e instanceof Error ? e.message : e}\n`);
+    process.stderr.write(`herdr-chat: instructions: ${e instanceof Error ? e.message : e}\n`);
     process.exit(1);
   }
 }

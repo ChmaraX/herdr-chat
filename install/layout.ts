@@ -163,7 +163,7 @@ function editJson(path: string, edit: (v: Json) => boolean): boolean {
     const before = readFileSync(path, "utf8");
     const v = JSON.parse(before);
     if (!edit(v)) return false;
-    const tmp = join(path, "..", `.${path.split("/").pop()}.pi-chat.tmp`);
+    const tmp = join(path, "..", `.${path.split("/").pop()}.herdr-chat.tmp`);
     writeFileSync(tmp, JSON.stringify(v, null, 2) + "\n");
     if (readFileSync(path, "utf8") !== before) { rmSync(tmp, { force: true }); continue; }
     renameSync(tmp, path);
@@ -252,12 +252,12 @@ if (import.meta.main) {
     process.stderr.write("usage: node install/layout.ts install|uninstall <app home> [--app <herdr-app>] [--no-agents] [--no-menu] [--no-commands] [--take-agents-slot] [--take-menu] [--record <file>]\n");
     process.exit(2);
   }
-  const record = value("--record") ?? join(home, "data", "pi-chat", "install-layout.json");
+  const record = value("--record") ?? join(home, "data", "herdr-chat", "install-layout.json");
   try {
     const lines = cmd === "install" ? install(home, { app: value("--app"), agents: !flag("--no-agents"), menu: !flag("--no-menu"), commands: !flag("--no-commands"), take: { agents: flag("--take-agents-slot"), menu: flag("--take-menu") }, record }) : uninstall(home, record);
-    for (const l of lines) process.stdout.write(`pi-chat: ${l}\n`);
+    for (const l of lines) process.stdout.write(`herdr-chat: ${l}\n`);
   } catch (e) {
-    process.stderr.write(`pi-chat: layout: ${e instanceof Error ? e.message : e}\n`);
+    process.stderr.write(`herdr-chat: layout: ${e instanceof Error ? e.message : e}\n`);
     process.exit(1);
   }
 }

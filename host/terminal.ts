@@ -11,7 +11,7 @@ export function osc0(title: string): string {
   return `\u001b]0;${title.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")}\u0007`;
 }
 
-export function osc7501(state: TermState, msg?: string, app = "pi"): string {
+export function osc7501(state: TermState, app: string, msg?: string): string {
   const m = msg ? `:msg=${Buffer.from(msg.split("\n")[0]!.slice(0, 200), "utf8").toString("base64")}` : "";
   return `\u001b]7501;state=${state}:app=${app}${m}\u001b\\`;
 }
@@ -151,7 +151,7 @@ export class Terminal {
   onSubmit: (text: string, from?: string) => void = () => {};
   onAbort: () => void = () => {};
 
-  constructor(out: Writable, input: Readable | null, app = "pi") {
+  constructor(out: Writable, input: Readable | null, app: string) {
     this.out = out;
     this.app = app;
     this.input = input;
@@ -187,7 +187,7 @@ export class Terminal {
   }
 
   status(state: TermState, msg?: string): void {
-    const s = osc7501(state, msg, this.app);
+    const s = osc7501(state, this.app, msg);
     if (s === this.lastStatus) return;
     this.lastStatus = s;
     this.out.write(s);

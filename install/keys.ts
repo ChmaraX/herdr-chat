@@ -1,5 +1,5 @@
 // The global keys that open a chat, from the person's chat key file
-// (<app home>/data/pi-chat/keys.json, its "global" part) into Herdr's keys.json
+// (<app home>/data/herdr-chat/keys.json, its "global" part) into Herdr's keys.json
 // (its global section), and their exact undo.
 //
 //   "global": {"open": "cmd-i", "pi": null, "claude": null, "codex": null, "continue": null}
@@ -11,7 +11,7 @@
 //   right-click menu's Continue as chat).
 // - Left out: the default (open: cmd-i, the others unbound); null: unbound.
 // - A chord the person chose replaces what had it; the old action is kept in
-//   the record (data/pi-chat/install.json), so uninstall puts it back. The
+//   the record (data/herdr-chat/install.json), so uninstall puts it back. The
 //   default cmd-i, when taken, falls back to cmd-j a, and says so.
 // - Every install first undoes the bindings the last one made (an older
 //   install's `cmd-j shift-p → mod.open:new-chat` too), then binds again: a
@@ -28,7 +28,6 @@ export const NAMES = ["open", "pi", "claude", "codex", "continue"] as const;
 export type Name = (typeof NAMES)[number];
 export const ACTION: Record<Name, string> = { open: "mod.open:new-chat", pi: "new-chat.pi", claude: "new-chat.claude", codex: "new-chat.codex", continue: "new-chat.continue" };
 export const TITLE: Record<Name, string> = { open: "New chat", pi: "Pi chat", claude: "Claude Code chat", codex: "Codex chat", continue: "Continue as chat" };
-const OLD_ACTIONS = ["mod.open:new-chat", "mod.open:open-pi-chat"]; // what older installs bound (record "added")
 
 export type Own = { [chord: string]: { action: string; was: string | null } };
 export type Record2 = { version: 2; global: Own };
@@ -68,14 +67,9 @@ export function readPrefs(raw: Json): { prefs: Partial<Record<Name, string[] | n
   return { prefs, errors };
 }
 
-/** The bindings this install owns now, an older install's record included (its "added" and "replaced"). */
-export function owned(g: Json, rec: Json): Own {
-  const own: Own = { ...(rec?.global ?? {}) };
-  for (const k of rec?.added ?? []) if (OLD_ACTIONS.includes(g[k]) && !own[k]) own[k] = { action: g[k], was: null };
-  for (const k of rec?.replaced ?? []) if (g[k] === ACTION.open && !own[k]) own[k] = { action: ACTION.open, was: "mod.open:open-pi" };
-  // The launcher's first name: bound by installs before the record existed.
-  for (const [k, v] of Object.entries(g)) if (v === "mod.open:open-pi-chat" && !own[k]) own[k] = { action: v as string, was: null };
-  return own;
+/** The bindings this install owns now (its record). */
+export function owned(rec: Json): Own {
+  return { ...(rec?.global ?? {}) };
 }
 
 /** Pure: undo `own` in the global section `g` (a chord the person rebound since stays theirs). */
@@ -95,7 +89,7 @@ export type Plan = { own: Own; lines: string[]; bound: Partial<Record<Name, stri
 /** Pure: bind the person's choices into `doc` (after restoring what the last install owned). */
 export function apply(doc: Json, rec: Json, o: { prefs: Partial<Record<Name, string[] | null>>; platform: string; direct: boolean }): Plan {
   const g = (doc.global ??= {});
-  restore(g, owned(g, rec));
+  restore(g, owned(rec));
   const own: Own = {};
   const lines: string[] = [];
   const bound: Partial<Record<Name, string>> = {};
@@ -121,9 +115,9 @@ export function apply(doc: Json, rec: Json, o: { prefs: Partial<Record<Name, str
     const free = (c: string) => g[c] === undefined || g[c] === ACTION.open;
     if (free(d.open)) bind(n, d.open);
     else if (d.fallback && free(d.fallback)) {
-      lines.push(`${p(d.open)} is taken (${g[d.open]}): New chat is ${p(d.fallback)} instead. To choose: "global": {"open": "<chord>"} in data/pi-chat/keys.json, then install again`);
+      lines.push(`${p(d.open)} is taken (${g[d.open]}): New chat is ${p(d.fallback)} instead. To choose: "global": {"open": "<chord>"} in data/herdr-chat/keys.json, then install again`);
       bind(n, d.fallback);
-    } else lines.push(`${p(d.open)}${d.fallback ? ` and ${p(d.fallback)} are` : " is"} taken: New chat has no key. To choose: "global": {"open": "<chord>"} in data/pi-chat/keys.json, then install again`);
+    } else lines.push(`${p(d.open)}${d.fallback ? ` and ${p(d.fallback)} are` : " is"} taken: New chat has no key. To choose: "global": {"open": "<chord>"} in data/herdr-chat/keys.json, then install again`);
   }
   return { own, lines, bound };
 }
@@ -142,7 +136,7 @@ function editKeys(path: string, edit: (doc: Json) => void): boolean {
     const was = JSON.stringify(doc);
     edit(doc);
     if (JSON.stringify(doc) === was) return false;
-    const tmp = join(path, "..", ".keys.json.pi-chat.tmp");
+    const tmp = join(path, "..", ".keys.json.herdr-chat.tmp");
     writeFileSync(tmp, JSON.stringify(doc, null, 2) + "\n");
     if ((existsSync(path) ? readFileSync(path, "utf8") : null) !== before) { rmSync(tmp, { force: true }); continue; }
     renameSync(tmp, path);
@@ -154,13 +148,13 @@ function editKeys(path: string, edit: (doc: Json) => void): boolean {
 const readJson = (f: string): Json => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };
 
 export function install(home: string, o: { direct: boolean; platform: string }): string[] {
-  const state = join(home, "data", "pi-chat");
+  const state = join(home, "data", "herdr-chat");
   const recFile = join(state, "install.json");
   const mine = existsSync(join(state, "keys.json")) ? readJson(join(state, "keys.json")) : {};
   const lines: string[] = [];
-  if (mine === null) lines.push("data/pi-chat/keys.json isn't valid JSON: the default keys apply");
+  if (mine === null) lines.push("data/herdr-chat/keys.json isn't valid JSON: the default keys apply");
   const { prefs, errors } = readPrefs(mine ?? {});
-  lines.push(...errors.map((e) => `data/pi-chat/keys.json: ${e}`));
+  lines.push(...errors.map((e) => `data/herdr-chat/keys.json: ${e}`));
   let plan: Plan = { own: {}, lines: [], bound: {} };
   const rec = readJson(recFile);
   editKeys(join(home, "keys.json"), (doc) => { plan = apply(doc, rec, { prefs, platform: o.platform, direct: o.direct }); });
@@ -169,10 +163,10 @@ export function install(home: string, o: { direct: boolean; platform: string }):
 }
 
 export function uninstall(home: string): string[] {
-  const recFile = join(home, "data", "pi-chat", "install.json");
+  const recFile = join(home, "data", "herdr-chat", "install.json");
   const rec = readJson(recFile);
   let undone: string[] = [];
-  if (existsSync(join(home, "keys.json"))) editKeys(join(home, "keys.json"), (doc) => { undone = restore(doc.global ?? {}, owned(doc.global ?? {}, rec)); });
+  if (existsSync(join(home, "keys.json"))) editKeys(join(home, "keys.json"), (doc) => { undone = restore(doc.global ?? {}, owned(rec)); });
   rmSync(recFile, { force: true });
   return [undone.length ? `keys: ${undone.join(", ")} back to what they were` : "keys: nothing of ours in keys.json"];
 }
@@ -187,9 +181,9 @@ if (import.meta.main) {
   try {
     const lines = cmd === "install" ? install(home, { direct: !rest.includes("--no-direct"), platform: value("--platform") ?? process.platform }) : uninstall(home);
     // "=" marks the summary: printed as it is, the install's last line.
-    for (const l of lines) process.stdout.write(l.startsWith("=") ? `${l.slice(1)}\n` : `pi-chat: ${l}\n`);
+    for (const l of lines) process.stdout.write(l.startsWith("=") ? `${l.slice(1)}\n` : `herdr-chat: ${l}\n`);
   } catch (e) {
-    process.stderr.write(`pi-chat: keys: ${e instanceof Error ? e.message : e}\n`);
+    process.stderr.write(`herdr-chat: keys: ${e instanceof Error ? e.message : e}\n`);
     process.exit(1);
   }
 }

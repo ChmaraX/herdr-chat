@@ -32,7 +32,7 @@ async function forkRecall(h: Host): Promise<void> {
 }
 
 test("live: Claude Code forks before a message", { skip: !LIVE, timeout: 300_000 }, async () => {
-  const h = await startHost({ name: "fork-live-claude", provider: "claude", agent: process.env.PI_CHAT_CLAUDE ?? "claude", piArgs: ["--model", "haiku"] });
+  const h = await startHost({ name: "fork-live-claude", provider: "claude", agent: process.env.HERDR_CHAT_CLAUDE ?? "claude", piArgs: ["--model", "haiku"] });
   try {
     await h.client.waitFor(idle, 60_000, "claude started");
     await forkRecall(h);

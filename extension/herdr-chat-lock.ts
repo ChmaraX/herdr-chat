@@ -1,18 +1,18 @@
 // herdr-chat-lock: keeps Pi's TUI from writing a session that a Herdr chat
-// (pi-chat-host) has open. Pi has no session-file lock, and two Pi processes
+// (herdr-chat-host) has open. Pi has no session-file lock, and two Pi processes
 // appending to one session JSONL corrupt it.
 //
-// pi-chat-host writes `<sessionFile>.herdr-chat.lock` ({pid, chat, terminal,
+// herdr-chat-host writes `<sessionFile>.herdr-chat.lock` ({pid, chat, terminal,
 // startedAt}) while its Pi child runs and removes it when the child stops.
 // This extension, installed into the person's normal Pi, checks that lock:
 //   - on `/resume` into a locked session: cancels the switch, says why;
 //   - when a session opens locked (`pi --session <file>`, `-c`): asks whether
 //     to quit, and warns if the person stays.
 // A lock whose pid is dead is stale and ignored. The host's own Pi child runs
-// with PI_CHAT_HOST=1, where this extension does nothing.
+// with HERDR_CHAT_HOST=1, where this extension does nothing.
 //
 // In a herdr-core terminal (HC_TERMINAL_ID), it also labels that terminal
-// with the session it opens (`pi-chat.session=<file>`, on start and on every
+// with the session it opens (`herdr-chat.session=<file>`, on start and on every
 // switch): Herdr's right-click menu (mod chat-menu) offers Continue as chat
 // for a Pi sub-agent with that label, which resumes the session in a chat.
 //
@@ -49,12 +49,12 @@ function where(lock: Lock): string {
   return lock.terminal ? `a Herdr chat (terminal ${lock.terminal})` : "a Herdr chat";
 }
 
-// A TUI opened by a chat's hand-off (`/tui`, `/fork`…) runs with PI_CHAT_HANDOFF
+// A TUI opened by a chat's hand-off (`/tui`, `/fork`…) runs with HERDR_CHAT_HANDOFF
 // set to a file. Every session it opens (the hand-off's, then a fork or a
 // /resume) is written there, so the chat continues on the session the TUI
 // ended on.
 function reportHandoffSession(file: string | undefined) {
-  const out = process.env.PI_CHAT_HANDOFF;
+  const out = process.env.HERDR_CHAT_HANDOFF;
   if (!out || !file) return;
   try {
     mkdirSync(dirname(out), { recursive: true });
@@ -73,10 +73,10 @@ let labelling: Promise<void> = Promise.resolve();
 function labelSession(file: string | undefined) {
   const terminal = process.env.HC_TERMINAL_ID;
   if (!terminal || !file) return;
-  const hc = process.env.PI_CHAT_HC || "hc";
+  const hc = process.env.HERDR_CHAT_HC || "hc";
   labelling = labelling.then(() => new Promise<void>((done) => {
     try {
-      execFile(hc, ["label", terminal, `pi-chat.session=${file}`], { timeout: 5000 }, () => done());
+      execFile(hc, ["label", terminal, `herdr-chat.session=${file}`], { timeout: 5000 }, () => done());
     } catch {
       done(); // no hc: nothing to label
     }
@@ -84,7 +84,7 @@ function labelSession(file: string | undefined) {
 }
 
 export default function herdrChatLock(pi: ExtensionAPI) {
-  if (process.env.PI_CHAT_HOST === "1") return;
+  if (process.env.HERDR_CHAT_HOST === "1") return;
 
   pi.on("session_before_switch", async (event, ctx) => {
     if (event.reason !== "resume") return;

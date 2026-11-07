@@ -11,14 +11,14 @@
 # (install/app.sh --help); a `--` before them is fine too.
 #
 # In a clone (this file beside install/app.sh, no --version or --from): runs
-# install/app.sh on the clone; the chat's host is the clone's bin/pi-chat-host.
+# install/app.sh on the clone; the chat's host is the clone's bin/herdr-chat-host.
 #
 # Otherwise a release, with no clone, no TypeScript and no npm install: it
 # downloads herdr-chat-<version>.tar.gz and SHA256SUMS from the latest release
 # (--version picks one), checks the archive's SHA-256, unpacks it to
 # ~/.local/share/herdr-chat/<version> ($XDG_DATA_HOME if set), points
 # `current` there, and runs that version's install/app.sh: the chat's host is
-# current/bin/pi-chat-host. Run it again to update. --from takes a local
+# current/bin/herdr-chat-host. Run it again to update. --from takes a local
 # archive (its SHA256SUMS beside it) or a folder of them instead of a download.
 #
 # --uninstall: from a clone, the clone's uninstall; otherwise the installed

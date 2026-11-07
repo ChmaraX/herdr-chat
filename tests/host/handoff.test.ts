@@ -20,7 +20,7 @@ async function handoffHost(name: string, graceMs = 60_000): Promise<{ h: Host; h
   mkdirSync(hc, { recursive: true });
   const h = await startHost({
     name, dir, speed: 4,
-    env: { PI_CHAT_HC: FAKE_HC, FAKE_HC_DIR: hc, PI_CHAT_HANDOFF_POLL_MS: "100", PI_CHAT_HANDOFF_GRACE_MS: String(graceMs) },
+    env: { HERDR_CHAT_HC: FAKE_HC, FAKE_HC_DIR: hc, HERDR_CHAT_HANDOFF_POLL_MS: "100", HERDR_CHAT_HANDOFF_GRACE_MS: String(graceMs) },
   });
   return { h, hc };
 }
@@ -35,7 +35,7 @@ function setTerminal(hc: string, address: string, state: "live" | "finished" | n
 /** Runs the hand-off argv (fake-pi standing in for Pi's TUI, `env K=V` prefix honoured) and drives it over RPC. */
 function runTui(h: Host, argv: string[], opts: { reportSession?: boolean } = {}): { proc: ChildProcess; send: (cmd: object) => void; settled: (n: number) => Promise<void> } {
   const env: Record<string, string> = { ...(process.env as Record<string, string>), FAKE_PI_SPEED: "4" };
-  delete env.PI_CHAT_HOST;
+  delete env.HERDR_CHAT_HOST;
   let i = 0;
   if (argv[0] === "env") for (i = 1; argv[i]!.includes("="); i++) {
     const [k, ...v] = argv[i]!.split("=");
@@ -73,7 +73,7 @@ test("hand-off: the TUI forks and exits; the host resumes by itself on the sessi
 
     const { argv } = await c.req("handoff");
     const report = join(h.stateDir, "handoff", "c-test.json");
-    assert.deepEqual(argv, ["env", `PI_CHAT_HANDOFF=${report}`, FAKE_PI, "--session", original]);
+    assert.deepEqual(argv, ["env", `HERDR_CHAT_HANDOFF=${report}`, FAKE_PI, "--session", original]);
     assert.equal(c.state.phase, "handoff");
     assert.equal(readLock(original), null, "lock released for the TUI");
     assert.deepEqual({ ...c.state.handoff, since: typeof c.state.handoff.since }, { argv, terminal: null, since: "number" });

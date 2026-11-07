@@ -5,7 +5,7 @@
 // provider}) for the focused terminal's folder (else the space's). Keys:
 // p / c / x pick (only an agent that is installed; the launcher has no text
 // field, so letters are always picks), 1/2/3 too, ↑↓ move, Enter opens the
-// selected one (the last choice, kept in <appHome>/data/pi-chat/launcher.json),
+// selected one (the last choice, kept in <appHome>/data/herdr-chat/launcher.json),
 // Esc closes. Its commands: `new-chat.pick:<provider>`, `new-chat.enter`.
 //
 // As the layout's empty floating block (props {role: "commands"},
@@ -28,7 +28,7 @@ const CHOICES = [
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
 ];
-const PREFS = () => `${appHome()}/data/pi-chat/launcher.json`;
+const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
 
 /** A chat with `provider` in a new tab, in the focused terminal's folder (else the space's). */
 async function openChat(provider) {
@@ -37,7 +37,7 @@ async function openChat(provider) {
   const cwd = f?.cwd || space?.folder || null;
   const chat = `c-${randomBytes(4).toString("hex")}`;
   run("tab.new", { name: provider, mod: "chat", props: { chat, provider, ...(cwd ? { cwd } : {}) } });
-  await fs.mkdir(`${appHome()}/data/pi-chat`, { recursive: true });
+  await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
   await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
 }
 
@@ -48,14 +48,14 @@ const base = (p) => String(p ?? "").split("/").pop();
 
 /**
  * Why a terminal can't continue as a chat (null: it can): a live Pi TUI whose
- * session the herdr-chat-lock extension labelled (pi-chat.session), idle or
+ * session the herdr-chat-lock extension labelled (herdr-chat.session), idle or
  * done. `working: true`: it can once its run ends (chat-menu shows the item
  * disabled). Shared with chat-menu (a copy there: mods can't import each other).
  */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
-  if (t.labels?.["pi-chat.chat"]) return { why: "already a chat" };
-  if (!t.labels?.["pi-chat.session"]) return { why: "no pi-chat.session label (the herdr-chat-lock extension labels it)" };
+  if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
+  if (!t.labels?.["herdr-chat.session"]) return { why: "no herdr-chat.session label (the herdr-chat-lock extension labels it)" };
   if (!isPi(t)) return { why: "not Pi" };
   const st = word(t.status);
   if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
@@ -97,24 +97,24 @@ const alive = async (pid) => (await exec("kill", ["-0", String(pid)])).code === 
  * host on the same session, model and thinking.
  * - A sub-agent (a parent): a core terminal runs one program, so the TUI ends
  *   (`hc kill`), and a host starts in its place with the same parent, name and
- *   folder (`hc run --parent <p> --name <n>`, bin/pi-chat-subagent --session
+ *   folder (`hc run --parent <p> --name <n>`, bin/herdr-chat-subagent --session
  *   <file>): the parent sees one exit note, then its `hc send/wait <name>`
  *   reach the host. Then the chat dialog.
  * - A top-level TUI (continueInPlace): the chat takes its pane's place.
- * The session file is the herdr-chat-lock extension's label `pi-chat.session`.
+ * The session file is the herdr-chat-lock extension's label `herdr-chat.session`.
  * `addr` empty: the focused terminal (the "continue" key).
  */
 export async function continueAsChat(addr, cx) {
   const t = term(addr || focused()?.terminal);
   const no = cantContinue(t);
   if (no) throw new Error(no.working ? "Wait for the run to end, then Continue as chat." : `Not a Pi TUI that can continue as a chat: ${no.why}.`);
-  const session = t.labels["pi-chat.session"];
+  const session = t.labels["herdr-chat.session"];
   const { model, thinking } = await sessionSettings(session);
   if (!t.parent) return continueInPlace(t, session, { model, thinking }, cx);
   let cfg = {};
   try { cfg = JSON.parse((await readTextFile(`${appHome()}/mods/chat/config.json`)) ?? "{}"); } catch {}
   if (!cfg.host) throw new Error("mods/chat/config.json names no host (install again)");
-  const launcher = cfg.host.replace(/pi-chat-host$/, "pi-chat-subagent");
+  const launcher = cfg.host.replace(/herdr-chat-host$/, "herdr-chat-subagent");
   const kill = await hc(["kill", t.address]);
   if (kill.code !== 0) throw new Error(`hc kill ${t.address}: ${kill.stderr.trim()}`);
   // Its name is free once the old terminal has ended.
@@ -128,8 +128,8 @@ export async function continueAsChat(addr, cx) {
   const next = JSON.parse(r.stdout).address;
   // The launcher labels its terminal with the chat id once it starts.
   let chat = null;
-  for (let i = 0; i < 100 && !chat; i++) { chat = term(next)?.labels?.["pi-chat.chat"] ?? null; if (!chat) await cx.sleep(100); }
-  if (!chat) throw new Error(`the chat host ${next} didn't label itself (pi-chat.chat)`);
+  for (let i = 0; i < 100 && !chat; i++) { chat = term(next)?.labels?.["herdr-chat.chat"] ?? null; if (!chat) await cx.sleep(100); }
+  if (!chat) throw new Error(`the chat host ${next} didn't label itself (herdr-chat.chat)`);
   run("overlay.close", { id: "terminal-peek" });
   openOverlay({ mod: "chat", kind: "dialog", width: 0.8, height: 0.8, props: { chat, peek: next, provider: "pi" } });
   return next;

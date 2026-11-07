@@ -17,7 +17,7 @@ test("codex: thinking and text stream into their items, then the turn settles wi
     await c.waitFor(idle, 10_000);
     assert.equal(c.state.provider, "codex");
     assert.equal(c.state.providerName, "Codex");
-    assert.equal(c.state.piVersion, "0.163.0");
+    assert.equal(c.state.agentVersion, "0.163.0");
     assert.deepEqual(c.state.model, { provider: "openai", id: "gpt-5.6-luna", name: "GPT-5.6-Luna", reasoning: true, contextWindow: null, input: ["text", "image"] });
     assert.equal(c.state.thinking, "low");
     const caps = c.state.capabilities;

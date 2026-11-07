@@ -1,4 +1,4 @@
-// The sub-agent launcher (bin/pi-chat-subagent → pi-chat-host run), started the
+// The sub-agent launcher (bin/herdr-chat-subagent → herdr-chat-host run), started the
 // way herdr-core starts a template's command for a parent's `hc run`: in the
 // terminal's folder, with HC_TERMINAL_ID and the core's environment (no login
 // PATH: the agent comes from the chat mod's config.json). The parent's side is
@@ -15,7 +15,7 @@ import { ChatClient } from "../../host/client.ts";
 import { readRegistry } from "../../host/registry.ts";
 import { FAKE_PI, ROOT, SCENARIOS, plain, sleep } from "./harness.ts";
 
-const LAUNCHER = join(ROOT, "bin", "pi-chat-subagent");
+const LAUNCHER = join(ROOT, "bin", "herdr-chat-subagent");
 const FAKE_HC = join(ROOT, "tests", "fake-hc", "hc.mjs");
 // Each wait's budget. A host start or a turn takes ~0.3 s alone, but the
 // suite runs four files at once, and on a busy machine a 10 s budget failed
@@ -24,7 +24,7 @@ const LOAD_MS = 45_000;
 const statuses = (s: string) => [...s.matchAll(/\u001b\]7501;state=(\w+):app=(\w+)/g)].map((m) => `${m[1]}:${m[2]}`);
 
 function launch(name: string, opts: { args?: string[]; env?: Record<string, string>; dir?: string } = {}) {
-  const dir = opts.dir ?? realpathSync(mkdtempSync(join(tmpdir(), `pi-chat-sub-${name}-`)));
+  const dir = opts.dir ?? realpathSync(mkdtempSync(join(tmpdir(), `herdr-chat-sub-${name}-`)));
   const app = join(dir, "app");
   const cwd = join(dir, "repo");
   const hcDir = join(dir, "hc");
@@ -32,15 +32,18 @@ function launch(name: string, opts: { args?: string[]; env?: Record<string, stri
   mkdirSync(join(app, "mods", "chat"), { recursive: true });
   mkdirSync(cwd, { recursive: true });
   mkdirSync(hcDir, { recursive: true });
-  // What install.sh writes (plus test plumbing in "env", as the e2e config has).
+  // What install.sh writes, and the person's settings (test plumbing in "env", as the e2e's).
   writeFileSync(join(app, "mods", "chat", "config.json"), JSON.stringify({
-    host: join(ROOT, "bin", "pi-chat-host"), node: process.execPath, hc: FAKE_HC, pi: FAKE_PI,
-    piArgs: ["--session-dir", join(dir, "sessions")],
+    host: join(ROOT, "bin", "herdr-chat-host"), node: process.execPath, hc: FAKE_HC, pi: FAKE_PI,
+  }));
+  mkdirSync(join(app, "data", "herdr-chat"), { recursive: true });
+  writeFileSync(join(app, "data", "herdr-chat", "settings.json"), JSON.stringify({
     env: { FAKE_PI_SCENARIO: join(SCENARIOS, "abort.json"), FAKE_PI_SPEED: "2", FAKE_PI_LOG: piLog, FAKE_HC_DIR: hcDir },
+    pi: { args: ["--session-dir", join(dir, "sessions")] },
   }));
   // A core terminal's environment: no HERDR_*/HC_* of the runner, the app home, its own address.
   const env: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("HC_") && !k.startsWith("HERDR_") && !k.startsWith("PI_CHAT_")) env[k] = v;
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("HC_") && !k.startsWith("HERDR_") && !k.startsWith("HERDR_CHAT_")) env[k] = v;
   Object.assign(env, { HERDR_APP_HOME: app, HC_TERMINAL_ID: "t99" }, opts.env ?? {});
   const proc = spawn(LAUNCHER, opts.args ?? [], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
   let screen = "";
@@ -48,7 +51,7 @@ function launch(name: string, opts: { args?: string[]; env?: Record<string, stri
   proc.stderr!.on("data", (d) => (screen += d.toString("utf8")));
   let exitCode: number | null | undefined;
   const exited = new Promise<number | null>((r) => proc.on("exit", (c) => { exitCode = c; r(c); }));
-  const stateDir = join(app, "data", "pi-chat");
+  const stateDir = join(app, "data", "herdr-chat");
   const h = {
     dir, app, cwd, hcDir, piLog, stateDir, proc, exited,
     get screen() { return screen; },
@@ -76,7 +79,7 @@ function launch(name: string, opts: { args?: string[]; env?: Record<string, stri
   return h;
 }
 
-test("a template launch of pi-chat-subagent: own labels, the app's state dir, config's agent and args first; the parent's paste, wait, read, send and kill work", async () => {
+test("a template launch of herdr-chat-subagent: own labels, the app's state dir, config's agent and args first; the parent's paste, wait, read, send and kill work", async () => {
   const h = launch("template", { args: ["--", "--model", "fake/sub-model"] });
   try {
     // Core waits for the first status, then pastes the template's body and the task, and presses Enter.
@@ -94,8 +97,8 @@ test("a template launch of pi-chat-subagent: own labels, the app's state dir, co
     assert.equal(reg.cwd, h.cwd, "the terminal's folder ($PWD) is the chat's");
     assert.equal(reg.provider, "pi");
 
-    // Its own terminal labeled once: the mod finds it by pi-chat.chat, sweepOrphans skips role=subagent.
-    assert.deepEqual(h.labelCalls(), [{ terminal: "t99", labels: [`pi-chat.chat=${chat}`, "pi-chat.role=subagent", "pi-chat.provider=pi"] }]);
+    // Its own terminal labeled once: the mod finds it by herdr-chat.chat, sweepOrphans skips role=subagent.
+    assert.deepEqual(h.labelCalls(), [{ terminal: "t99", labels: [`herdr-chat.chat=${chat}`, "herdr-chat.role=subagent", "herdr-chat.provider=pi"] }]);
 
     // The agent from config.json, its config args first, then the caller's.
     const start = JSON.parse(readFileSync(h.piLog, "utf8").split("\n")[0]!);
@@ -107,7 +110,7 @@ test("a template launch of pi-chat-subagent: own labels, the app's state dir, co
 
     // hc read: the header, the hint, the prompt and the answer.
     const lines = h.transcript.split("\n");
-    assert.match(lines[0]!, new RegExp(`^pi-chat-host · chat ${chat} · `));
+    assert.match(lines[0]!, new RegExp(`^herdr-chat-host · chat ${chat} · `));
     assert.match(lines[1]!, /right-click → Open as chat/);
     assert.match(h.transcript, /^> You run as a sub-agent\./m);
     assert.match(h.transcript, /^Quick answer\.$/m);
@@ -150,7 +153,7 @@ test("a template launch of pi-chat-subagent: own labels, the app's state dir, co
   }
 });
 
-test("pi-chat-subagent: a failed self-label is a warning on the transcript, the host still serves; --chat is refused", async () => {
+test("herdr-chat-subagent: a failed self-label is a warning on the transcript, the host still serves; --chat is refused", async () => {
   const h = launch("nolabel", { env: { FAKE_HC_LABEL_FAIL: "1" } });
   try {
     await h.waitStatus(/^idle:pi$/, LOAD_MS, "first status");
@@ -173,8 +176,8 @@ test("pi-chat-subagent: a failed self-label is a warning on the transcript, the 
 });
 
 // Continue as chat (mod new-chat's continueAsChat): a Pi TUI sub-agent's session, handed to the launcher.
-test("pi-chat-subagent --session <file>: the host resumes that session (its history in the chat), and the next prompt goes on in the same file", async () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), "pi-chat-sub-resume-")));
+test("herdr-chat-subagent --session <file>: the host resumes that session (its history in the chat), and the next prompt goes on in the same file", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "herdr-chat-sub-resume-")));
   const session = join(dir, "tui-session.jsonl");
   const msg = (role: string, text: string, i: number) => JSON.stringify({ type: "message", id: `m${i}`, parentId: i ? `m${i - 1}` : null, timestamp: new Date().toISOString(),
     message: role === "user" ? { role, content: [{ type: "text", text }], timestamp: Date.now() }

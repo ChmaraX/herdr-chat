@@ -13,7 +13,7 @@ DEV=/tmp/pcdev
 mkdir -p "$DEV"
 . "$(dirname "$0")/lib.sh" "$DEV/art"
 FAKE="$REPO/tests/fake-pi"
-CONFIG='{"pi": "'"$FAKE"'/fake-pi.mjs", "claude": "'"$REPO"'/tests/fake-claude/fake-claude.mjs", "codex": "'"$REPO"'/tests/fake-codex/fake-codex.mjs", "env": {"FAKE_CODEX_HOME": "'"$BASE"'/codex-home", "FAKE_CODEX_LOG": "'"$BASE"'/fake-codex.log", "FAKE_CODEX_SPEED": "2", "CLAUDE_CONFIG_DIR": "'"$BASE"'/claude-config", "FAKE_CLAUDE_LOG": "'"$BASE"'/fake-claude.log", "FAKE_CLAUDE_SPEED": "2", "FAKE_PI_SPEED": "'"${FAKE_PI_SPEED:-1}"'", "FAKE_PI_SCENARIO": "'"$FAKE"'/scenarios/tools.json", "FAKE_PI_LOG": "'"$BASE"'/fake-pi.log"}}'
+CONFIG='{"pi": {"command": "'"$FAKE"'/fake-pi.mjs"}, "claude": {"command": "'"$REPO"'/tests/fake-claude/fake-claude.mjs"}, "codex": {"command": "'"$REPO"'/tests/fake-codex/fake-codex.mjs"}, "env": {"FAKE_CODEX_HOME": "'"$BASE"'/codex-home", "FAKE_CODEX_LOG": "'"$BASE"'/fake-codex.log", "FAKE_CODEX_SPEED": "2", "CLAUDE_CONFIG_DIR": "'"$BASE"'/claude-config", "FAKE_CLAUDE_LOG": "'"$BASE"'/fake-claude.log", "FAKE_CLAUDE_SPEED": "2", "FAKE_PI_SPEED": "'"${FAKE_PI_SPEED:-1}"'", "FAKE_PI_SCENARIO": "'"$FAKE"'/scenarios/tools.json", "FAKE_PI_LOG": "'"$BASE"'/fake-pi.log"}}'
 install_mods "$CONFIG"
 PROJ="$BASE/project"
 mkdir -p "$PROJ/src"

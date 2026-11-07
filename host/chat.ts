@@ -55,7 +55,7 @@ export type ChatState = {
   cwd: string;
   sessionFile: string | null;
   sessionName: string | null;
-  piVersion: string | null;
+  agentVersion: string | null;
   model: ModelInfo | null;
   thinking: string | null;
   usage: { contextTokens: number | null; contextWindow: number | null; percent: number | null; cost: number | null } | null;
@@ -201,7 +201,7 @@ export class Chat {
     this.render = new Renderer(opts.imageDir ?? null, (id) => this.timeline.rawOutput.get(id), opts.log);
     this.files = new FileIndex(opts.cwd);
     this.state = {
-      phase: "starting", error: null, cwd: opts.cwd, sessionFile: opts.session, sessionName: null, piVersion: null,
+      phase: "starting", error: null, cwd: opts.cwd, sessionFile: opts.session, sessionName: null, agentVersion: null,
       model: null, thinking: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
       statuses: [], widgets: [], title: null, editorText: null, commands: [],
       provider: this.adapter.id, providerName: this.adapter.name, capabilities: structuredClone(this.adapter.capabilities), permissionMode: null,
@@ -217,7 +217,7 @@ export class Chat {
   private menu(): Command[] {
     const a = this.adapter;
     const builtin = builtins({
-      name: a.name, capabilities: this.state.capabilities, tuiOnly: a.tuiOnlyCommands ?? [],
+      name: a.name, capabilities: this.state.capabilities, tuiCommands: a.tuiCommands?.() ?? [],
       utility: (n) => a.utilityCommand?.(n) ?? null,
       tuiInput: (n) => a.tuiInput?.(n) ?? null,
     });
@@ -231,7 +231,7 @@ export class Chat {
 
   private newTimeline(): Timeline {
     const dir = this.opts.imageDir;
-    if (!dir) return new Timeline(this.opts.cwd, null, this.adapter.id);
+    if (!dir) return new Timeline(this.opts.cwd, null, this.adapter.tools);
     const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/webp": "webp" };
     return new Timeline(this.opts.cwd, (itemId: string, n: number, img: ImageBlock) => {
       const ext = EXT[img.mimeType.toLowerCase()];
@@ -245,7 +245,7 @@ export class Chat {
         this.opts.log(`could not save an image: ${errText(e)}`);
         return null;
       }
-    }, this.adapter.id);
+    }, this.adapter.tools);
   }
 
   // ---------------------------------------------------------------- publishing
@@ -692,7 +692,7 @@ export class Chat {
         this.set({ commands: this.menu() });
         return;
       case "version":
-        this.set({ piVersion: ev.version });
+        this.set({ agentVersion: ev.version });
         this.opts.onVersion?.(ev.version);
         return;
       case "exited":
@@ -888,25 +888,26 @@ export class Chat {
 
   private onAsk(ask: Ask): void {
     const id = ask.id;
+    const title = stripAnsi(ask.title) || `${this.agent} asks`;
     let d: Dialog;
     switch (ask.kind) {
       case "permission": {
         let tool: PermissionDialog["tool"];
         if (ask.tool) {
-          const p = presentTool(this.adapter.id, ask.tool.name, ask.tool.args, this.opts.cwd);
+          const p = presentTool(this.adapter.tools, ask.tool.name, ask.tool.args, this.opts.cwd);
           tool = { name: ask.tool.name, title: p.title, detail: p.detail, ...(ask.tool.args !== undefined ? { args: prettyArgs(ask.tool.args) } : {}) };
         }
         d = {
-          id, method: "permission", title: stripAnsi(ask.title), ...(ask.message !== undefined ? { message: stripAnsi(ask.message) } : {}),
+          id, method: "permission", title, ...(ask.message !== undefined ? { message: stripAnsi(ask.message) } : {}),
           ...(tool ? { tool } : {}), choices: ask.choices.map((c) => ({ ...c, label: stripAnsi(c.label) })),
         };
         break;
       }
       case "questions":
-        d = { id, method: "questions", title: stripAnsi(ask.title), questions: ask.questions };
+        d = { id, method: "questions", title, questions: ask.questions };
         break;
       default: {
-        const x: ExtensionDialog = { id, method: ask.kind, title: stripAnsi(ask.title) };
+        const x: ExtensionDialog = { id, method: ask.kind, title };
         if (typeof ask.message === "string") x.message = stripAnsi(ask.message);
         if (Array.isArray(ask.options)) x.options = ask.options.map((o) => stripAnsi(o));
         if (typeof ask.placeholder === "string") x.placeholder = ask.placeholder;
@@ -1286,6 +1287,7 @@ export class Chat {
   async compact(instructions?: string): Promise<void> {
     const agent = this.requireAgent();
     if (this.runActive) throw new Error(`Wait until ${this.agent} is done, or press Esc, before compacting.`);
+    if (instructions && !this.state.capabilities.compactInstructions) throw new Error(`${this.agent} compacts without instructions: send /compact alone.`);
     agent.compact(instructions).catch((e) => {
       if (this.state.phase === "compacting") this.set({ phase: "idle" });
       this.drainHeld();
@@ -1404,7 +1406,7 @@ export class Chat {
 
   // ---------------------------------------------------------------- hand-off to the agent's TUI
 
-  /** Where the TUI reports the session it is on (Pi's lock extension, PI_CHAT_HANDOFF). */
+  /** Where the TUI reports the session it is on (Pi's lock extension, HERDR_CHAT_HANDOFF). */
   private handoffPath(): string | null {
     return this.opts.stateDir ? join(this.opts.stateDir, "handoff", `${this.opts.chat}.json`) : null;
   }
@@ -1510,7 +1512,7 @@ export class Chat {
           const pid = Number(m[1]);
           const args = m[2]!.split(/\s+/);
           if (pid === process.pid || !args.includes(token)) continue;
-          if (args.some((a) => /pi-chat-host$|host\/main\.ts$/.test(a))) continue; // a chat host, not a TUI
+          if (args.some((a) => /herdr-chat-host$|host\/main\.ts$/.test(a))) continue; // a chat host, not a TUI
           if (args.slice(0, 3).some((a) => names.has(base(a)))) return resolve(pid);
         }
         resolve(null);

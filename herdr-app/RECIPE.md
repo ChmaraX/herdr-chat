@@ -29,7 +29,7 @@ Tell the person first what it does:
   checks it against the release's `SHA256SUMS`, and unpacks it to
   `~/.local/share/herdr-chat/<version>`, with a `current` link to it;
 - needs macOS, Herdr 0.1.12 or later with `hc` on `PATH`, Node 20 or
-  later, and `pi` on `PATH` (and `claude` or `codex` for those agents). A
+  later, and at least one agent on `PATH`: `pi`, `claude` or `codex`. A
   Herdr newer than the tested 0.1.13 gets a warning; an older one than
   0.1.12 is refused;
 - adds the mods `chat`, `new-chat`, `chat-agents` and `chat-menu`;
@@ -99,13 +99,13 @@ install changed, and removes the unpacked release.
 - **The chat outlives the window**: its host runs in herdr-core. Reopening
   the app reattaches the chat to it. Closing the chat's tab ends it.
 - **Keys** work only while the chat has the keyboard. They are rebound in
-  `data/pi-chat/keys.json` in the app home (`mod/chat/KEYS.md` in the
+  `data/herdr-chat/keys.json` in the app home (`mod/chat/KEYS.md` in the
   repo). Its `"global"` part sets the keys that open a chat, applied by the
   next install.
 
 ## Built from
 
-- **The host**, `pi-chat-host` (`host/`, TypeScript; built to one JS file
+- **The host**, `herdr-chat-host` (`host/`, TypeScript; built to one JS file
   for a release): it runs `pi --mode rpc`, `claude -p` (stream-json) or
   `codex app-server`, turns their output into one timeline, the same for
   every agent, and serves it to the mod on TCP 127.0.0.1 with a token
@@ -117,11 +117,12 @@ install changed, and removes the unpacked release.
   - `chat-agents` and `chat-menu`: install-time copies of Herdr's agents
     list and right-click menu, with the chat's entries (a mod can't import
     another, and Herdr restores its own mods on every start).
-- **Config**: `mods/chat/config.json` names the host
-  (`…/herdr-chat/current/bin/pi-chat-host`), node, `pi`, `hc` and the
-  version.
+- **Config**: `mods/chat/config.json` (install writes it) names the host
+  (`…/herdr-chat/current/bin/herdr-chat-host`), node, `hc`, each agent found
+  on `PATH` and the version. The person's own settings are in
+  `data/herdr-chat/settings.json` (README "Settings"; install never writes it).
 - **The install** (`install.sh` → `install/app.sh`, `install/*.ts`): each
-  change recorded under `data/pi-chat/` in the app home, so the uninstall
+  change recorded under `data/herdr-chat/` in the app home, so the uninstall
   undoes exactly that.
 - More: `docs/dev/architecture.md`.
 

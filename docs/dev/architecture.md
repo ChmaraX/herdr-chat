@@ -9,14 +9,14 @@ Herdr tab
  ├─ mod pane "chat"   mods/chat   (GPUI, JS: timeline, composer, dialogs, pickers)
  │      │  TCP 127.0.0.1, a token, JSONL (protocol.md)
  └─ hidden pane: a herdr-core terminal (outlives the window)
-        └─ pi-chat-host  (a release: built JS, Node 20+; a checkout: the TypeScript, Node 24+)
+        └─ herdr-chat-host  (a release: built JS, Node 20+; a checkout: the TypeScript, Node 24+)
                │  one adapter per agent (providers.md)
                ├─ pi --mode rpc
                ├─ claude -p  (stream-json + control protocol)
                └─ codex app-server  (JSON-RPC)
 ```
 
-## The host (`host/`, `bin/pi-chat-host`)
+## The host (`host/`, `bin/herdr-chat-host`)
 
 - Runs in a herdr-core terminal, so it keeps running when the window closes,
   and Herdr lists it as an agent: status, notifications, `hc send`, `hc read`.
@@ -69,7 +69,7 @@ Quitting the app doesn't change the document, so the host keeps running.
 ## Sub-agent chats
 
 An agent that runs `hc run … pi-chat "<task>"` starts a host in place of a
-TUI (`bin/pi-chat-subagent`, `host/subagent.ts`). The core records the
+TUI (`bin/herdr-chat-subagent`, `host/subagent.ts`). The core records the
 caller as its parent, so the parent's `hc wait`, `hc send`, `hc read` and
 `hc kill` work as with a TUI. The chat opens in a dialog from the agents list
 (`chat-agents`). Design and the experiments behind it:
@@ -86,7 +86,7 @@ the row under the parent is.
 ## Continue as chat
 
 The lock extension labels a Pi TUI's terminal with its session file
-(`pi-chat.session`); `chat-menu` offers **Continue as chat** when that label
+(`herdr-chat.session`); `chat-menu` offers **Continue as chat** when that label
 is there and Pi is idle or done.
 
 - **A TUI in its own pane:** the chat opens beside it. Pi (only Pi, not the
@@ -108,7 +108,7 @@ nothing tells which session one has open without a hook in their settings.
 
 ## The install (`install.sh`, `install/app.sh`, `install/`)
 
-Each change is recorded under `data/pi-chat/` in the app home, so
+Each change is recorded under `data/herdr-chat/` in the app home, so
 `--uninstall` undoes exactly that:
 
 - `mods.ts`: the copies of the shipped agents list and menu;

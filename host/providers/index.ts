@@ -12,13 +12,16 @@ export const PROVIDERS: Record<string, Factory> = {
   codex: { command: "codex", create: (o) => new CodexAdapter(o) },
 };
 
+/** The agent a chat runs when none is named (a new chat with no --provider and no registry entry). */
+export const DEFAULT_PROVIDER = "pi";
+
 export function providerNames(): string[] {
   return Object.keys(PROVIDERS);
 }
 
-/** The agent command: `--<provider> <cmd>`, else `PI_CHAT_<PROVIDER>`, else the provider's own CLI. */
+/** The agent command: `--<provider> <cmd>`, else `HERDR_CHAT_<PROVIDER>`, else the provider's own CLI. */
 export function createAdapter(provider: string, opts: Omit<AdapterOptions, "command"> & { command?: string }): ProviderAdapter {
   const f = PROVIDERS[provider];
   if (!f) throw new Error(`Unknown provider "${provider}" (known: ${providerNames().join(", ")})`);
-  return f.create({ ...opts, command: opts.command ?? process.env[`PI_CHAT_${provider.toUpperCase()}`] ?? f.command });
+  return f.create({ ...opts, command: opts.command ?? process.env[`HERDR_CHAT_${provider.toUpperCase()}`] ?? f.command });
 }

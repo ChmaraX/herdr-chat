@@ -13,6 +13,8 @@ import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AssistantBlock, AskAnswer, ImageBlock,
   ModelInfo, AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, StopReason, Usage, EventOf, ForkPoint,
 } from "../types.ts";
+import { PI_TOOLS } from "./tools.ts";
+import { userText } from "./skill.ts";
 
 type Rec = Record<string, any>;
 
@@ -95,7 +97,7 @@ export function historyEvents(messages: Rec[]): NormalizedEvent[] {
     const ts = num(m.timestamp) ?? Date.now();
     switch (m.role) {
       case "user":
-        out.push({ type: "user_message", text: contentText(m.content), images: countImages(m.content), imageBlocks: imageBlocks(m.content), source: "composer", ts });
+        out.push({ type: "user_message", ...userText(contentText(m.content)), images: countImages(m.content), imageBlocks: imageBlocks(m.content), source: "composer", ts });
         break;
       case "assistant":
         out.push({ ...assistantEnd(m), ts });
@@ -137,9 +139,10 @@ export function historyEvents(messages: Rec[]): NormalizedEvent[] {
 export class PiAdapter implements ProviderAdapter {
   readonly id = "pi";
   readonly name = "Pi";
+  readonly tools = PI_TOOLS;
   readonly capabilities: Capabilities = {
     steer: true, followUp: true, thinkingLevels: PI_THINKING_LEVELS, permissions: false, permissionModes: [],
-    extensionUi: true, compact: true, rename: true, fork: true, images: true, cost: true, tui: true,
+    extensionUi: true, compact: true, compactInstructions: true, rename: true, fork: true, images: true, cost: true, tui: true,
   };
   private opts: AdapterOptions;
   private proc: PiProcess | null = null;
@@ -182,7 +185,7 @@ export class PiAdapter implements ProviderAdapter {
     this.queueOurs = false;
     const args = ["--mode", "rpc", ...this.opts.args, ...(session ? ["--session", session] : [])];
     host.log(`spawn ${this.opts.command} ${args.join(" ")}`);
-    const env = { ...process.env, PI_CHAT_HOST: "1" };
+    const env = { ...process.env, HERDR_CHAT_HOST: "1" };
     const pi = new PiProcess({ command: this.opts.command, args, cwd: this.opts.cwd, env });
     this.proc = pi;
     pi.onEvent = (rec) => this.proc === pi && this.onRecord(rec);
@@ -208,7 +211,7 @@ export class PiAdapter implements ProviderAdapter {
   }
 
   private probeVersion(host: AdapterHost): void {
-    execFile(this.opts.command, ["--version"], { timeout: 10_000, env: { ...process.env, PI_CHAT_HOST: "1" } }, (err, stdout) => {
+    execFile(this.opts.command, ["--version"], { timeout: 10_000, env: { ...process.env, HERDR_CHAT_HOST: "1" } }, (err, stdout) => {
       const v = err ? null : (/\d+\.\d+\.\d+[\w.-]*/.exec(stdout)?.[0] ?? null);
       host.emit({ type: "version", version: v });
       if (v && /^(0\.|1\.[0-4]\.)/.test(v)) host.emit({ type: "notice", level: "warning", source: "host", text: `Pi ${v} is older than 1.5; the chat needs Pi 1.5 or newer.` });
@@ -280,7 +283,7 @@ export class PiAdapter implements ProviderAdapter {
         const m: Rec = ev.message ?? {};
         if (m.role === "user") {
           const clientId = this.takeEchoed();
-          this.emit({ type: "user_message", text: echoText(m.content), images: countImages(m.content), imageBlocks: imageBlocks(m.content), ...(clientId ? { clientId } : {}) });
+          this.emit({ type: "user_message", ...userText(echoText(m.content)), images: countImages(m.content), imageBlocks: imageBlocks(m.content), ...(clientId ? { clientId } : {}) });
         } else if (m.role === "custom" && m.display !== false) {
           this.emit({ type: "custom", customType: String(m.customType ?? "custom"), text: contentText(m.content) });
           this.emit({ type: "run_cause", text: `Started by ${m.customType ?? "an extension"}.` });
@@ -624,12 +627,18 @@ export class PiAdapter implements ProviderAdapter {
   }
 
   tuiCommand(session: string, ctx?: { handoffFile?: string | null }): string[] {
-    // The lock extension writes the session the TUI ends on to PI_CHAT_HANDOFF (a fork, a /resume).
-    const env = ctx?.handoffFile ? ["env", `PI_CHAT_HANDOFF=${ctx.handoffFile}`] : [];
+    // The lock extension writes the session the TUI ends on to HERDR_CHAT_HANDOFF (a fork, a /resume).
+    const env = ctx?.handoffFile ? ["env", `HERDR_CHAT_HANDOFF=${ctx.handoffFile}`] : [];
     return [...env, this.opts.command, "--session", session];
   }
 
-  readonly tuiOnlyCommands = ["tree", "export", "hotkeys"];
+  tuiCommands(): { name: string; description: string }[] {
+    return [
+      { name: "tree", description: "Browse the session tree" },
+      { name: "export", description: "Export the session" },
+      { name: "hotkeys", description: "Show Pi's hotkeys" },
+    ];
+  }
   readonly unsentMessageCause = "Started by an extension message.";
 
   /** /login, /settings and /scoped-models run in Pi's TUI with no session. */
@@ -637,9 +646,9 @@ export class PiAdapter implements ProviderAdapter {
     return ["login", "settings", "scoped-models"].includes(name) ? [this.opts.command, "--no-session"] : null;
   }
 
-  /** Pi's TUI has a command for each: typed, it opens that screen. */
+  /** Pi's TUI has a command for each utility: typed, it opens that screen. */
   tuiInput(name: string): string | null {
-    return ["login", "settings", "scoped-models", "tree", "export", "hotkeys"].includes(name) ? `/${name}` : null;
+    return ["login", "settings", "scoped-models"].includes(name) ? `/${name}` : null;
   }
 
   async setModel(provider: string, id: string): Promise<void> {

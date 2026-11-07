@@ -163,7 +163,7 @@ if want keys; then
   step "the person's keys.json overrides a default and unbinds one (null)"
   echo '{"model": "cmd-shift-y", "stop": null}' >"$STATE/keys.json"
   reload_mod
-  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"cmd-shift-y\"]" ] && [ "$(d "d[\"shortcuts\"][\"stop\"]")" = "[]" ]' "the reloaded chat reads data/pi-chat/keys.json" 15
+  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"cmd-shift-y\"]" ] && [ "$(d "d[\"shortcuts\"][\"stop\"]")" = "[]" ]' "the reloaded chat reads data/herdr-chat/keys.json" 15
   do_ tab.select --id "$(d 'd["place"]["tab"]')"; sleep 0.5; cmd focus; sleep 0.3
   press_sc 16:cmd,shift model '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
   expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "⇧⌘Y" ]' "⇧⌘Y now opens the model picker" 5
@@ -222,8 +222,8 @@ if want handoff2; then
   expect '[ "$(phase)" = handoff ]' "phase handoff" 10
   handoff_tui
   expect '[ "$(d "d[\"hostHandoff\"][\"terminal\"]")" = "$TUI" ]' "the host knows the TUI's terminal (handoff_started $TUI)" 10
-  grep -q "^env PI_CHAT_HANDOFF=" <(hc get "$TUI" --json | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["argv"]))') \
-    && ok "the tui override kept the env prefix (PI_CHAT_HANDOFF=…)" || fail "TUI argv: $(hc get "$TUI" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["argv"])')"
+  grep -q "^env HERDR_CHAT_HANDOFF=" <(hc get "$TUI" --json | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["argv"]))') \
+    && ok "the tui override kept the env prefix (HERDR_CHAT_HANDOFF=…)" || fail "TUI argv: $(hc get "$TUI" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["argv"])')"
   HT=$(host_of "$CHAT"); TAB=$(d 'd["place"]["tab"]')
   expect 'overlay_open layout && ! tab_panes "$TAB" | grep -q " $TUI$" && hidden_in "$TAB" "$HT"' "the TUI in a dialog (no pane in the tab), the host's pane still hidden" 10
   # The dialog's own way back is its bar (flows.sh handoff); here the banner's, once the dialog is closed.

@@ -9,7 +9,7 @@ Records are shaped like the real CLI's (`docs/dev/research/samples/claude/`):
 - `can_use_tool` control requests that block until answered;
 - `command_lifecycle`, `session_state_changed`, and `result`.
 
-The host picks it with `--claude <path>` or `PI_CHAT_CLAUDE`. The tests start
+The host picks it with `--claude <path>` or `HERDR_CHAT_CLAUDE`. The tests start
 it through `tests/fake-claude/host.ts` (`startClaude`).
 
 ## Flags and environment

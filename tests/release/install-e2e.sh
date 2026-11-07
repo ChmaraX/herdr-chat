@@ -7,7 +7,7 @@
 # Builds two release archives (this tree as package.json's version, and as the next patch),
 # then, the way the curl one-liner runs it (install.sh on stdin, `sh -s --`):
 #   1. installs the first from --from <archive>: the files land, the chat's host
-#      is …/herdr-chat/current/bin/pi-chat-host, `current` is that version, the
+#      is …/herdr-chat/current/bin/herdr-chat-host, `current` is that version, the
 #      summary names the layout, notes, templates, extension and keys;
 #   2. the unpacked mods pass `herdr-app check`; the installed host (built JS, on
 #      the node the install found) serves fake-pi and answers one prompt;
@@ -53,7 +53,7 @@ check "the archive has no TypeScript to run and no node_modules" sh -c "! tar -t
 
 # --- a scratch home ---------------------------------------------------------------------
 export HOME="$D/home" HERDR_APP_HOME="$D/app" XDG_CONFIG_HOME="$D/config" PI_CODING_AGENT_DIR="$D/pi"
-unset XDG_DATA_HOME CLAUDE_CONFIG_DIR CODEX_HOME HERDR_APP_BIN PI_CHAT_NODE
+unset XDG_DATA_HOME CLAUDE_CONFIG_DIR CODEX_HOME HERDR_APP_BIN HERDR_CHAT_NODE
 for v in $(env | sed -nE 's/^((HC|HERDR)_[A-Z_]*)=.*/\1/p'); do [ "$v" = HERDR_APP_HOME ] || unset "$v"; done
 BIN="$D/bin"
 mkdir -p "$BIN" "$HOME/.codex" "$XDG_CONFIG_HOME" "$PI_CODING_AGENT_DIR" "$HERDR_APP_HOME/layouts" "$D/work"
@@ -106,9 +106,9 @@ CFG="$HERDR_APP_HOME/mods/chat/config.json"
 cfg() { "$NODE" -p "require(process.argv[1])[process.argv[2]]" "$CFG" "$1"; }
 check "unpacked to $BASE/$V1, current → $V1" test "$(readlink "$BASE/current")" = "$V1" -a -f "$BASE/$V1/host/main.js"
 check "mods chat and new-chat installed, ours (.herdr-chat)" test -f "$HERDR_APP_HOME/mods/chat/.herdr-chat" -a -f "$HERDR_APP_HOME/mods/new-chat/.herdr-chat"
-check "config.json host is current's pi-chat-host" test "$(cfg host)" = "$BASE/current/bin/pi-chat-host"
+check "config.json host is current's herdr-chat-host" test "$(cfg host)" = "$BASE/current/bin/herdr-chat-host"
 check "config.json version $V1, node the one the install found" test "$(cfg version)" = "$V1" -a "$(cfg node)" = "$BIN/node"
-check "templates start current's pi-chat-subagent" grep -qx "command: '$BASE/current/bin/pi-chat-subagent' --provider pi" "$XDG_CONFIG_HOME/herdr-core/templates/pi-chat.md"
+check "templates start current's herdr-chat-subagent" grep -qx "command: '$BASE/current/bin/herdr-chat-subagent' --provider pi" "$XDG_CONFIG_HOME/herdr-core/templates/pi-chat.md"
 check "the Pi lock extension installed" cmp "$PI_CODING_AGENT_DIR/extensions/herdr-chat-lock.ts" "$REPO/extension/herdr-chat-lock.ts"
 check "the sub-agents note in Codex's AGENTS.md" grep -q "herdr-chat:subagents begin" "$HOME/.codex/AGENTS.md"
 check "the layout gets new-chat's floating copy" grep -q '"mod": "new-chat"' "$HERDR_APP_HOME/layouts/mine.json"
@@ -130,7 +130,7 @@ done
 check "the install said why chat-agents and chat-menu are left out" grep -q "not installing mods/chat-agents: .*start the app once" "$ART/install-1.out"
 HOST="$(cfg host)"
 STATE="$D/state"
-PI_CHAT_NODE="$(cfg node)" "$HOST" serve --chat e2e --cwd "$D/work" --state-dir "$STATE" --pi "$BIN/pi" -- --session-dir "$D/sessions" >"$ART/host.out" 2>&1 &
+HERDR_CHAT_NODE="$(cfg node)" "$HOST" serve --chat e2e --cwd "$D/work" --state-dir "$STATE" --pi "$BIN/pi" -- --session-dir "$D/sessions" >"$ART/host.out" 2>&1 &
 HOST_PID=$!
 "$HOST" send --chat e2e --state-dir "$STATE" "hello from the release" >>"$LOG" 2>&1 || fail "send a prompt to the built host"
 answered() { "$HOST" inspect --chat e2e --state-dir "$STATE" 2>/dev/null | grep -q '"ok: hello from the release"'; }
@@ -154,7 +154,7 @@ step "update to $V2 (sh -s -- --app --from <dir>: its newest)"
 oneliner --app --from "$DIST" >"$ART/install-2.out" 2>&1 || { cat "$ART/install-2.out" >>"$LOG"; fail "update to $V2"; }
 cat "$ART/install-2.out" >>"$LOG"
 check "current → $V2, $V1 kept beside it" test "$(readlink "$BASE/current")" = "$V2" -a -d "$BASE/$V1"
-check "config.json: version $V2, host still current's" test "$(cfg version)" = "$V2" -a "$(cfg host)" = "$BASE/current/bin/pi-chat-host"
+check "config.json: version $V2, host still current's" test "$(cfg version)" = "$V2" -a "$(cfg host)" = "$BASE/current/bin/herdr-chat-host"
 check "it says open chats keep the old version" grep -q "updated $V1 → $V2 .*open chats keep the old version until you reopen them" "$ART/install-2.out"
 "$HOST" send --chat e2e --state-dir "$STATE" "still there" >>"$LOG" 2>&1 || fail "send after the update"
 still() { "$HOST" inspect --chat e2e --state-dir "$STATE" 2>/dev/null | grep -q '"ok: still there"'; }
@@ -168,8 +168,8 @@ step "uninstall (sh -s -- --uninstall)"
 oneliner --uninstall >"$ART/uninstall.out" 2>&1 || { cat "$ART/uninstall.out" >>"$LOG"; fail "uninstall"; }
 cat "$ART/uninstall.out" >>"$LOG"
 check "the share dir is gone" test ! -e "$BASE"
-# What stays by design: the chat's own records in data/pi-chat (the README's uninstall says so).
-snap | grep -v ' app/data/pi-chat/' >"$ART/after.sha256"
+# What stays by design: the chat's own records in data/herdr-chat (the README's uninstall says so).
+snap | grep -v ' app/data/herdr-chat/' >"$ART/after.sha256"
 check "every other file byte for byte as before (before.sha256 = after.sha256)" diff "$ART/before.sha256" "$ART/after.sha256"
 check "no mods of ours left" sh -c "! ls -d '$HERDR_APP_HOME'/mods/* 2>/dev/null"
 (cd "$D" && find app/data -type f 2>/dev/null) >"$ART/left-in-data.txt" || true

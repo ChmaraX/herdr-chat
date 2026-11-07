@@ -2,11 +2,11 @@
 
 A scriptable stand-in for `codex app-server`: JSON-RPC 2.0 over LF-framed
 JSONL on stdio. Node, no dependencies. The host picks it with
-`--codex tests/fake-codex/fake-codex.mjs` or `PI_CHAT_CODEX`:
+`--codex tests/fake-codex/fake-codex.mjs` or `HERDR_CHAT_CODEX`:
 
 ```sh
 FAKE_CODEX_SCENARIO=tests/fake-codex/scenarios/tools.json \
-  bin/pi-chat-host serve --provider codex --chat c-test --cwd /tmp/x --state-dir /tmp/s --codex tests/fake-codex/fake-codex.mjs
+  bin/herdr-chat-host serve --provider codex --chat c-test --cwd /tmp/x --state-dir /tmp/s --codex tests/fake-codex/fake-codex.mjs
 ```
 
 Tests start it through `host.ts` (`codexHost({name, scenario | replay, speed, session, dir, stallMs})`),

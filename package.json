@@ -28,8 +28,8 @@
     }
   },
   "bin": {
-    "pi-chat-host": "bin/pi-chat-host",
-    "pi-chat-subagent": "bin/pi-chat-subagent"
+    "herdr-chat-host": "bin/herdr-chat-host",
+    "herdr-chat-subagent": "bin/herdr-chat-subagent"
   },
   "files": [
     "bin/",
@@ -44,7 +44,7 @@
   ],
   "scripts": {
     "test": "node --test --test-concurrency=4 'tests/host/*.test.ts'",
-    "test:built": "PI_CHAT_TEST_HOST=\"dist/herdr-chat-$npm_package_version/host/main.js\" npm test",
+    "test:built": "HERDR_CHAT_TEST_HOST=\"dist/herdr-chat-$npm_package_version/host/main.js\" npm test",
     "test:install": "tests/release/install-e2e.sh",
     "typecheck": "tsc --noEmit -p .",
     "build": "node scripts/build.mjs",

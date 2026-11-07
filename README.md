@@ -44,8 +44,9 @@ You need:
   Tested with Herdr 0.1.13 (core 0.1.18): a newer Herdr gets a warning, an
   older one is refused;
 - Node 20 or later;
-- `pi` (1.5 or later) on `PATH`, and `claude` or `codex` if you want those,
-  signed in.
+- at least one agent on `PATH`, signed in: `pi` (1.5 or later), `claude`
+  or `codex`. Install records where each one is; run it again after you add
+  an agent.
 
 **Update:** run the same command again. Open chats keep the old version
 until you reopen them. **Uninstall:**
@@ -75,9 +76,10 @@ there. Chats that are open keep running until you close their tabs.
   `codex-chat`, and a short marked note in each installed agent's
   instruction file (`~/.pi/agent/AGENTS.md`, `~/.claude/CLAUDE.md`,
   `~/.codex/AGENTS.md`) asking it to start its sub-agents as chats.
-- **A Pi extension**, `~/.pi/agent/extensions/herdr-chat-lock.ts`: a Pi TUI
-  won't write a session a chat has open, and labels its terminal with its
-  session for Continue as chat.
+- **A Pi extension** (only when Pi is installed),
+  `~/.pi/agent/extensions/herdr-chat-lock.ts`: a Pi TUI won't write a
+  session a chat has open, and labels its terminal with its session for
+  Continue as chat.
 
 Options go after `--app`, for example
 `curl … | sh -s -- --app --no-subagents`:
@@ -180,7 +182,7 @@ prints its transcript.
 | Esc | chat | Close a menu, cancel a dialog, or stop the run |
 | ⌃C | chat | Stop the run |
 | ⇧⌘M / ⇧⌘T / ⇧⌘A | chat | Model, effort, permission-mode picker |
-| ⇧Tab | composer | Next permission mode |
+| ⇧Tab | composer | Next permission mode (next thinking level for Pi, which has none) |
 | ⌥⌘T | chat | `/tui` |
 | ⇧⌘R | chat | Resume another session |
 | ⇧⌘B | chat | Scroll to the latest message |
@@ -188,7 +190,7 @@ prints its transcript.
 | ⇧⌘N | chat | A new chat with the same agent, same folder |
 
 The chat's keys work only while the chat has the keyboard, never in a
-terminal. Change them in `~/.config/herdr-app/data/pi-chat/keys.json`; the
+terminal. Change them in `~/.config/herdr-app/data/herdr-chat/keys.json`; the
 full list and the format are in [mod/chat/KEYS.md](mod/chat/KEYS.md).
 
 The keys that open a chat are Herdr's global keys. Set them in the
@@ -201,6 +203,36 @@ The keys that open a chat are Herdr's global keys. Set them in the
 `open` is the launcher; `pi`, `claude` and `codex` open that agent's chat
 at once; `continue` turns the focused Pi TUI into a chat. A key you choose
 replaces what had it, and uninstall puts that back.
+
+## Settings
+
+The chat only configures the chat. The model, effort, permissions,
+MCP servers and the rest stay in each agent's own settings (Pi's
+`settings.json`, Claude Code's settings, Codex's `config.toml`), because the
+chat runs the same CLI you use in a terminal.
+
+Your settings go in `~/.config/herdr-app/data/herdr-chat/settings.json`.
+Install never writes this file. Every key is optional:
+
+```json
+{
+  "env": { "KEY": "value" },
+  "pi":     { "command": "/path/to/pi", "args": ["--model", "anthropic/claude-sonnet-4-5"] },
+  "claude": { "env": { "CLAUDE_CONFIG_DIR": "/path/to/config" } },
+  "codex":  { "tui": ["my-wrapper", "codex"] }
+}
+```
+
+| Key | Does |
+|---|---|
+| `env` | Environment variables for every agent |
+| `<agent>.command` | The agent's program, instead of the one install found on `PATH` |
+| `<agent>.args` | Arguments added after the chat's own (`pi`, `claude` or `codex`) |
+| `<agent>.env` | Environment variables for that agent only |
+| `<agent>.tui` | The program `/tui` and the terminal commands run, keeping the agent's arguments |
+
+A new chat picks up a change; an open one when you close and reopen it.
+The keys are in their own file ([Keys](#keys)).
 
 ## Known limits
 
@@ -223,13 +255,13 @@ replaces what had it, and uninstall puts that back.
 ## How it works
 
 ```
-Herdr tab ── chat mod (GPUI, JS) ──TCP 127.0.0.1 + token, JSONL── pi-chat-host (Node)
+Herdr tab ── chat mod (GPUI, JS) ──TCP 127.0.0.1 + token, JSONL── herdr-chat-host (Node)
                                                                    ├── pi --mode rpc
                                                                    ├── claude -p (stream-json)
                                                                    └── codex app-server
 ```
 
-Each chat has a host process, `pi-chat-host`, that runs the agent's CLI in
+Each chat has a host process, `herdr-chat-host`, that runs the agent's CLI in
 its structured mode and turns its output into one timeline, the same for
 every agent. The host lives in a hidden pane of the chat's tab, so Herdr
 lists it as an agent and it outlives the window. The chat mod only draws

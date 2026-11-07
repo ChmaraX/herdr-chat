@@ -15,6 +15,7 @@ import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, ModelInfo,
   AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, ForkPoint,
 } from "../types.ts";
+import { CLAUDE_TOOLS } from "./tools.ts";
 
 type Rec = Record<string, any>;
 
@@ -26,21 +27,27 @@ export const CLAUDE_PERMISSION_MODES: PermissionMode[] = [
 ];
 const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"];
 /** Commands that only work in the TUI (or make no sense here); the slash menu hides them. */
+// Claude Code's commands that work only in its TUI (with `terminal_slash_commands`
+// from its init). Offered through the TUI (tuiCommands), except those the chat has
+// its own way for (HANDLED).
 const TUI_ONLY = new Set(["doctor", "color", "focus", "reload-plugins", "theme", "login", "logout", "config", "terminal-setup", "statusline", "vim", "ide", "resume", "exit", "quit", "install-github-app", "keybindings"]);
 
+const HANDLED = new Set(["login", "config", "resume", "exit", "quit"]);
+
 const num = (v: string | undefined, d: number) => (v && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
-const STALL_MS = () => num(process.env.PI_CHAT_CLAUDE_STALL_MS, 90_000);
-const INTERRUPT_MS = () => num(process.env.PI_CHAT_CLAUDE_INTERRUPT_MS, 8_000);
-const POLL_MS = () => num(process.env.PI_CHAT_CLAUDE_POLL_MS, 1_000);
+const STALL_MS = () => num(process.env.HERDR_CHAT_CLAUDE_STALL_MS, 90_000);
+const INTERRUPT_MS = () => num(process.env.HERDR_CHAT_CLAUDE_INTERRUPT_MS, 8_000);
+const POLL_MS = () => num(process.env.HERDR_CHAT_CLAUDE_POLL_MS, 1_000);
 
 type PendingAsk = { requestId: string; kind: "permission" | "plan" | "questions"; request: Rec };
 
 export class ClaudeAdapter implements ProviderAdapter {
   readonly id = "claude";
   readonly name = "Claude Code";
+  readonly tools = CLAUDE_TOOLS;
   readonly capabilities: Capabilities = {
     steer: true, followUp: true, thinkingLevels: EFFORT_LEVELS, permissions: true, permissionModes: CLAUDE_PERMISSION_MODES,
-    extensionUi: false, compact: true, rename: true, fork: true, images: true, cost: true, tui: true,
+    extensionUi: false, compact: true, compactInstructions: true, rename: true, fork: true, images: true, cost: true, tui: true,
   };
   private opts: AdapterOptions;
   private proc: ClaudeProcess | null = null;
@@ -586,6 +593,14 @@ export class ClaudeAdapter implements ProviderAdapter {
     // Before the first turn there's no transcript to resume: open the TUI on that id instead.
     const file = this.file && sessionIdOf(this.file) === id ? this.file : sessionPath(this.opts.cwd, id);
     return [this.opts.command, existsSync(file) ? "--resume" : "--session-id", id];
+  }
+
+  tuiCommands(): { name: string; description: string }[] {
+    const names = [...new Set([...TUI_ONLY, ...this.mapper.terminalCommands])].filter((n) => !HANDLED.has(n));
+    return names.map((name) => {
+      const c = this.commandList.find((x) => x?.name === name);
+      return { name, description: typeof c?.description === "string" ? c.description : "" };
+    });
   }
 
   /** /login: `claude auth login`; /settings: the TUI (its /config lives there). */

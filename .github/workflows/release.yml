@@ -40,7 +40,7 @@ jobs:
       - name: the host suite against the built host, on Node 20
         run: npm run test:built
         env:
-          PI_CHAT_TEST_NODE: ${{ env.NODE_MIN_BIN }}
+          HERDR_CHAT_TEST_NODE: ${{ env.NODE_MIN_BIN }}
       # herdr-chat-<version>.tar.gz and SHA256SUMS: install.sh downloads both
       # and checks the one against the other.
       - name: upload to release

@@ -60,13 +60,13 @@ if [[ " $FLOWS " == *" spacing-peek "* ]]; then
   cat >"$XDG_CONFIG_HOME/herdr-core/templates/pi-chat.md" <<TPL
 ---
 description: Pi as a sub-agent (spacing e2e)
-command: env FAKE_PI_SCENARIO='$SCEN/spacing.json' '$REPO/bin/pi-chat-subagent' --provider pi
+command: env FAKE_PI_SCENARIO='$SCEN/spacing.json' '$REPO/bin/herdr-chat-subagent' --provider pi
 ---
 TPL
   RUN=$(hc run --bg --json --parent "$SHELL_T" --name review --cwd "$PROJ" pi-chat "use the tools" 2>>"$LOG") || fail "hc run pi-chat"
   SUB=$(echo "$RUN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  until_ '[ -n "$(hc get "$SUB" --json | python3 -c "import json,sys; print(json.load(sys.stdin)[\"labels\"].get(\"pi-chat.chat\", \"\"))")" ]' 10 || fail "no pi-chat.chat label"
-  CHAT="$(hc get "$SUB" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["labels"]["pi-chat.chat"])').peek"
+  until_ '[ -n "$(hc get "$SUB" --json | python3 -c "import json,sys; print(json.load(sys.stdin)[\"labels\"].get(\"herdr-chat.chat\", \"\"))")" ]' 10 || fail "no herdr-chat.chat label"
+  CHAT="$(hc get "$SUB" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["labels"]["herdr-chat.chat"])').peek"
   do_ "chat-agents.peek:$SUB"
   expect 'overlay_open chat' "the peek dialog opened" 8
   expect '[ "$(d "d[\"peekMode\"]")" = true ] && [ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 2 ]' "peek mode, the run settled" 25

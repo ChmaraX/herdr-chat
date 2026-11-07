@@ -1,5 +1,5 @@
 // chat-agents: Herdr's agents list with one change. A sub-agent that is a chat
-// host (bin/pi-chat-subagent labels its terminal pi-chat.chat) opens as the chat,
+// host (bin/herdr-chat-subagent labels its terminal herdr-chat.chat) opens as the chat,
 // in a dialog where and as large as the peek opens (0.8 × 0.8, dimmed, a click
 // beside it closes it), instead of its TUI peek. Every other row, and every
 // other sub-agent, is the shipped list's.
@@ -16,11 +16,11 @@ let shown = null; // the chat dialog this list opened last
 
 export function openChatPeek(addr) {
   const t = terminals().find((x) => x.address === addr);
-  const chat = t?.labels?.["pi-chat.chat"];
+  const chat = t?.labels?.["herdr-chat.chat"];
   if (!chat) return false;
   run("overlay.close", { id: "terminal-peek" }); // a Rust peek open meanwhile
   if (shown) closeOverlay(shown);
-  const provider = t.labels["pi-chat.provider"];
+  const provider = t.labels["herdr-chat.provider"];
   shown = openOverlay({ mod: "chat", kind: "dialog", width: 0.8, height: 0.8, props: { chat, peek: addr, ...(provider ? { provider } : {}) } });
   return true;
 }

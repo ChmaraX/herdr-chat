@@ -43,14 +43,14 @@ export function footerTier(width) {
 
 export function footerControls(v, t, { width }) {
   const s = v.store.state;
-  const caps = s.capabilities ?? null; // v3: what this agent can do; absent: a Pi host (v1/v2)
+  const caps = s.capabilities ?? null; // what this agent can do (null until the host says)
   const tier = footerTier(width);
   v.footerTier = tier;
   const drawn = []; // the chips drawn, by name (the dump: footerChips)
   const tiny = tier === "xs";
   const left = [];
   const name = s.model?.name ?? s.model?.id ?? "Model";
-  const provider = s.provider ?? v.provider ?? "pi";
+  const provider = v.providerId();
   const small = tiny || tier === "sm";
   const chevron = () => (small ? div() : icon("chevron-down", 11).text_color(t.dim));
   const modelTip = withKey(`${v.providerName()}${s.model ? ` · ${name} (${s.model.provider}/${s.model.id})` : ""} · /model`, "model");
@@ -59,8 +59,8 @@ export function footerControls(v, t, { width }) {
     .when(!tiny, (e) => e.child(div().max_w(tier === "sm" ? 72 : tier === "md" ? 120 : 180).truncate().child(tier === "sm" ? shortModel(name) : name)))
     .child(chevron()));
   drawn.push("model");
-  const thinkingChip = caps ? caps.thinkingLevels?.length > 0 : s.model?.reasoning || (s.thinking && s.thinking !== "off");
-  const level = s.thinking ?? (caps ? "default" : "off");
+  const thinkingChip = caps?.thinkingLevels?.length > 0;
+  const level = s.thinking ?? "default";
   if (thinkingChip) {
     left.push(chipEl("chip-thinking", t, { tip: withKey(withKey(`Thinking level: ${level} · /thinking`, "effort"), "cycleEffort"), onClick: (_e, cx) => v.control("chip:thinking", cx) }).when(tiny, (e) => e.px(6))
       .child(icon("sparkles", 12.5)).when(!tiny, (e) => e.child(level)).child(chevron()));
@@ -243,7 +243,7 @@ export function emptyState(v, t) {
   const cwd = (s.cwd || v.cwd || "").replace(v.homeDir, "~");
   return v_flex().items_center().gap(6).pb(20)
     .child(h_flex().gap(10).items_center().text_color(t.foreground)
-      .child(providerIcon(s.provider ?? v.provider ?? "pi", 26))
+      .child(providerIcon(v.providerId(), 26))
       .child(div().text_size(28).font_semibold().child(v.providerName())))
     .child(div().text_size(12.5).text_color(t.dim).child(cwd));
 }

@@ -3,13 +3,13 @@
 // the menus do (main.js `actions`); this keeps the text state and the keys.
 //
 // Keys (spike d): the Textarea takes Up/Down/Enter before any on_key_down,
-// but bindings in a context of ours *around* it ("PiChatMenu > Input") win,
+// but bindings in a context of ours *around* it ("HerdrChatMenu > Input") win,
 // so the wrapper's key_context says which keys we want right now:
-//   PiChatMenu     a menu is open: ↑ ↓ Enter Tab Esc drive it
-//   PiChatEmpty    nothing typed (or a recalled prompt): ↑ ↓ walk history
-//   PiChatComposer text typed: Enter sends (steers while working), Alt+Enter
+//   HerdrChatMenu     a menu is open: ↑ ↓ Enter Tab Esc drive it
+//   HerdrChatEmpty    nothing typed (or a recalled prompt): ↑ ↓ walk history
+//   HerdrChatComposer text typed: Enter sends (steers while working), Alt+Enter
 //                  queues a follow-up, Shift+Enter is a newline
-//   PiChatAsk      a permission or questions card is open and nothing is
+//   HerdrChatAsk      a permission or questions card is open and nothing is
 //                  typed: 1–9 choose, ↑ ↓ move, Enter answers, Esc denies
 // Esc is ours in all three.
 
@@ -19,9 +19,9 @@ import { alpha, icon } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
 
-const CONTEXTS = ["PiChatMenu", "PiChatEmpty", "PiChatComposer", "PiChatAsk"];
+const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk"];
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
-export const ACTIONS = ["pichat_enter", "pichat_up", "pichat_down", "pichat_tab", "pichat_escape", ...DIGITS.map((d) => `pichat_digit_${d}`)];
+export const ACTIONS = ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape", ...DIGITS.map((d) => `herdrchat_digit_${d}`)];
 
 // Once per build of the mod (module state resets on reload, like the keymap
 // entries the old build installed may).
@@ -33,22 +33,22 @@ export function bindKeys(cx) {
   for (const ctx of CONTEXTS) {
     // Sending (Enter steers, Alt+Enter queues a follow-up) is the `steer` and `followUp` shortcuts
     // (shortcuts.js), so the person can rebind them; in a menu and on an approval card Enter stays ours.
-    if (ctx === "PiChatMenu" || ctx === "PiChatAsk") b.push({ keystroke: "enter", action: "pichat_enter", context: `${ctx} > Input` });
-    b.push({ keystroke: "escape", action: "pichat_escape", context: ctx });
+    if (ctx === "HerdrChatMenu" || ctx === "HerdrChatAsk") b.push({ keystroke: "enter", action: "herdrchat_enter", context: `${ctx} > Input` });
+    b.push({ keystroke: "escape", action: "herdrchat_escape", context: ctx });
     // An Input's own Esc (a picker's filter field) would win over the context around it.
-    b.push({ keystroke: "escape", action: "pichat_escape", context: `${ctx} > Input` });
+    b.push({ keystroke: "escape", action: "herdrchat_escape", context: `${ctx} > Input` });
   }
-  for (const d of DIGITS) b.push({ keystroke: d, action: `pichat_digit_${d}`, context: "PiChatAsk > Input" });
-  for (const ctx of ["PiChatMenu", "PiChatEmpty", "PiChatAsk"]) {
-    b.push({ keystroke: "up", action: "pichat_up", context: `${ctx} > Input` });
-    b.push({ keystroke: "down", action: "pichat_down", context: `${ctx} > Input` });
+  for (const d of DIGITS) b.push({ keystroke: d, action: `herdrchat_digit_${d}`, context: "HerdrChatAsk > Input" });
+  for (const ctx of ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatAsk"]) {
+    b.push({ keystroke: "up", action: "herdrchat_up", context: `${ctx} > Input` });
+    b.push({ keystroke: "down", action: "herdrchat_down", context: `${ctx} > Input` });
   }
-  b.push({ keystroke: "tab", action: "pichat_tab", context: "PiChatMenu" });
+  b.push({ keystroke: "tab", action: "herdrchat_tab", context: "HerdrChatMenu" });
   // The dialog card: Enter submits an input; Esc cancels (an editor keeps Enter).
-  b.push({ keystroke: "enter", action: "pichat_dialog_enter", context: "PiChatDialog > Input" });
-  b.push({ keystroke: "escape", action: "pichat_dialog_escape", context: "PiChatDialog" });
-  b.push({ keystroke: "escape", action: "pichat_dialog_escape", context: "PiChatEditor" });
-  b.push({ keystroke: "cmd-enter", action: "pichat_dialog_enter", context: "PiChatEditor > Input" });
+  b.push({ keystroke: "enter", action: "herdrchat_dialog_enter", context: "HerdrChatDialog > Input" });
+  b.push({ keystroke: "escape", action: "herdrchat_dialog_escape", context: "HerdrChatDialog" });
+  b.push({ keystroke: "escape", action: "herdrchat_dialog_escape", context: "HerdrChatEditor" });
+  b.push({ keystroke: "cmd-enter", action: "herdrchat_dialog_enter", context: "HerdrChatEditor > Input" });
   cx.bind_keys(b);
 }
 
@@ -180,10 +180,10 @@ export class Composer {
 
   context() {
     // A menu, or a select/confirm dialog while nothing is typed: ↑ ↓ Enter choose.
-    if (this.menu?.items?.length || (this.dialogKeys && !this.value.trim())) return "PiChatMenu";
-    if (this.askKeys && !this.value.trim()) return "PiChatAsk";
-    if (!this.value.trim() || (this.history && this.value === this.history.text)) return "PiChatEmpty";
-    return "PiChatComposer";
+    if (this.menu?.items?.length || (this.dialogKeys && !this.value.trim())) return "HerdrChatMenu";
+    if (this.askKeys && !this.value.trim()) return "HerdrChatAsk";
+    if (!this.value.trim() || (this.history && this.value === this.history.text)) return "HerdrChatEmpty";
+    return "HerdrChatComposer";
   }
 
   // Up/Down through the prompts sent before (newest first).
@@ -261,7 +261,7 @@ export class Composer {
       .text_color(stop ? t.background : typed ? t.solid_foreground : t.dim)
       .hover((s) => s.opacity(0.85))
       .tooltip(stop ? `Stop (Esc${keyHint("stop") ? ` · ${keyHint("stop")}` : ""})` : working ? "Steer (Enter)" : "Send (Enter)")
-      .on_click((_e, cx) => c.action(stop ? "pichat_stop" : "pichat_enter", cx))
+      .on_click((_e, cx) => c.action(stop ? "herdrchat_stop" : "herdrchat_enter", cx))
       .child(icon(stop ? "square" : "arrow-up", stop ? 11 : 15));
     return v_flex().w_full().rounded(14).border_1().border_color(this.focused ? alpha(t.accent, 0.55) : t.input).bg(t.surface)
       .when(this.focused, (e) => e.shadow_sm())

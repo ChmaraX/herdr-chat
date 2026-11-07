@@ -2,7 +2,8 @@
 import { readdirSync, statSync, openSync, readSync, closeSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { parsePiSkill, typedText } from "../../skill.ts";
+import { typedText } from "../../skill.ts";
+import { parsePiSkill } from "./skill.ts";
 
 export type SessionInfo = { path: string; name: string | null; firstMessage: string; modified: number; messageCount: number };
 

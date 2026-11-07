@@ -41,7 +41,7 @@ export async function openFile(o) {
   const argv = /(^|\/)(n?vim?|vi|hx|helix|kak|micro|nano|emacs)$/.test(ed[0]) ? [...ed, `+${o.line || 1}`, o.path] : [...ed, o.path];
   if (!o.space || !o.tab) throw new Error("no tab to open the editor in");
   const r = await hc(["run", "--bg", "--json", "--no-parent", "--cwd", o.cwd ?? "/", "--label", `herdr.space=${o.space}`,
-    "--label", `herdr.tab=${o.tab}`, "--label", "pi-chat.editor=1", "--", ...argv]);
+    "--label", `herdr.tab=${o.tab}`, "--label", "herdr-chat.editor=1", "--", ...argv]);
   if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || "hc run failed");
   return { how: "editor", terminal: JSON.parse(r.stdout).address, argv };
 }

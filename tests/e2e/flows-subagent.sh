@@ -1,12 +1,12 @@
 # Sub-agent chats (docs/dev/research/subagent-chat.md), sourced by run.sh last (it
 # switches the private app to a clone of `main`): flow `subagent`. A parent (the
 # project's shell terminal) starts a chat host with `hc run … pi-chat "<task>"`
-# (an hc template running bin/pi-chat-subagent, as install.sh writes it); the
+# (an hc template running bin/herdr-chat-subagent, as install.sh writes it); the
 # layout's agents list is chat-agents and its terminal_menu chat-menu
 # (install/layout.ts, as install.sh runs it). A sub-agent row's click is
 # `chat-agents.peek:<address>` (the code the row's on_click runs: this.peek),
 # the dialog's buttons `chat.click:peek:tab|close`, a right-click menu item
-# `chat-menu.pick:<n>`. Checks read the dumps (data/pi-chat/debug/<chat>.peek.json
+# `chat-menu.pick:<n>`. Checks read the dumps (data/herdr-chat/debug/<chat>.peek.json
 # for the dialog, <chat>.json for its tab), `hc get`/`hc read` of the sub-agent,
 # and the app's status and layout document.
 
@@ -46,7 +46,7 @@ EOF
   cat >"$XDG_CONFIG_HOME/herdr-core/templates/pi-chat.md" <<EOF
 ---
 description: Pi as a sub-agent the person can open as a chat in Herdr (its row in the agents list). Give it the task in hc run.
-command: env FAKE_PI_SCENARIO='$SCEN/abort.json' '$REPO/bin/pi-chat-subagent' --provider pi
+command: env FAKE_PI_SCENARIO='$SCEN/abort.json' '$REPO/bin/herdr-chat-subagent' --provider pi
 installed-by: herdr-chat
 ---
 You are a sub-agent: another agent started you with hc run and gave you the task below. Stay within it. The person may also write to you here.
@@ -55,8 +55,8 @@ EOF
   echo "hc run: $RUN" >>"$LOG"
   SUB=$(echo "$RUN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
   [ "$(echo "$RUN" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("first_message", {}).get("sent"))')" = True ] && ok "the core sent the template's first message (first_message.sent)" || fail "first_message not sent: $RUN"
-  expect '[ "$(term_field "$SUB" "t[\"labels\"].get(\"pi-chat.role\")")" = subagent ] && [ -n "$(term_field "$SUB" "t[\"labels\"].get(\"pi-chat.chat\")")" ]' "the launcher labeled its terminal (pi-chat.chat, pi-chat.role=subagent)" 10
-  SUBCHAT=$(term_field "$SUB" 't["labels"]["pi-chat.chat"]')
+  expect '[ "$(term_field "$SUB" "t[\"labels\"].get(\"herdr-chat.role\")")" = subagent ] && [ -n "$(term_field "$SUB" "t[\"labels\"].get(\"herdr-chat.chat\")")" ]' "the launcher labeled its terminal (herdr-chat.chat, herdr-chat.role=subagent)" 10
+  SUBCHAT=$(term_field "$SUB" 't["labels"]["herdr-chat.chat"]')
   [ "$(term_field "$SUB" 't.get("parent")')" = "$SHELL_T" ] && ok "its parent is the shell ($SHELL_T): a tree row under it, no pane" || fail "parent $(term_field "$SUB" 't.get("parent")')"
   expect '[ "$(answers "$SUB")" -ge 1 ]' "hc read: the task's answer (Quick answer.)" 20
   screen "$SUB" | grep -q 'right-click → Open as chat' && ok "hc read: the transcript's hint line" || fail "no hint line"
@@ -67,7 +67,7 @@ EOF
   expect 'overlay_open chat' "a dialog overlay with the chat mod" 8
   "$APP" status | python3 -c 'import json,sys; print("overlays:", json.dumps(json.load(sys.stdin)["overlays"]))' >>"$LOG"
   has_overlay terminal-peek && fail "the Rust peek opened too" || ok "no Rust peek (the TUI transcript) opened"
-  expect connected "the dialog's chat connected to the sub-agent's host (by its pi-chat.chat label)" 15
+  expect connected "the dialog's chat connected to the sub-agent's host (by its herdr-chat.chat label)" 15
   [ "$(d 'd["peekMode"]')" = true ] && [ "$(d 'd["sub"]')" = "$SUB" ] && ok "peek mode, for $SUB" || fail "peek mode"
   [ "$(d 'd["placeFrom"]')" = null ] && [ "$(d 'd["hideWrites"]')" = 0 ] && [ "$(d 'd["host"]["address"]')" = "$SUB" ] && ok "no place, no layout-document writes; its host is the sub-agent" || fail "place $(d 'd["placeFrom"]') writes $(d 'd["hideWrites"]')"
   expect '[ "$(d "[i[\"text\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][0].endswith(\"quick: review src/a.ts only\")")" = true ] && [ "$(count_kind assistant)" -ge 1 ]' "the dialog shows the task (template body + task) and its answer" 10
@@ -155,7 +155,7 @@ for l in sys.stdin:
 close_chat() { local t; t=$(chat_tab "$1"); [ -z "$t" ] || do_ tab.close --id "$t" --confirmed true; }
 
 if want journey; then
-  step "journey: the layout gets new-chat's floating copy (install/layout.ts), the keys come from data/pi-chat/keys.json (install/keys.ts)"
+  step "journey: the layout gets new-chat's floating copy (install/layout.ts), the keys come from data/herdr-chat/keys.json (install/keys.ts)"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
   sleep 1
   LNAME=$("$APP" status | python3 -c 'import json,sys; print(json.load(sys.stdin)["layout"])')
@@ -226,7 +226,7 @@ SH
   chmod +x "$BASE/fake-pi-tui.sh"
   TRUN=$(hc run --bg --json --parent "$SHELL_T" --name tuisub --cwd "$PROJ" -- "$BASE/fake-pi-tui.sh" 2>>"$LOG") || fail "hc run the fake TUI"
   TUI=$(echo "$TRUN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  hc label "$TUI" "pi-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
+  hc label "$TUI" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
   expect '[ "$(term_field "$TUI" "(t.get(\"status\") or {}).get(\"state\")")" = idle ] && [ "$(term_field "$TUI" "(t.get(\"status\") or {}).get(\"app\")")" = pi ]' "the TUI reports idle, as pi, under $SHELL_T" 10
   do_ "chat-agents.menu:$TUI"
   expect 'overlay_open chat-menu' "its right-click menu (chat-menu)" 5
@@ -234,15 +234,15 @@ SH
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("chat-menu:", json.dumps({"cantContinue": d.get("cantContinue"), "terminal": {k: (d.get("terminal") or {}).get(k) for k in ("address","state","status","parent","program","app","agent","report","labels")}}))' "$STATE/debug/chat-menu.json" >>"$LOG" 2>&1 || true
   do_ chat-menu.pick:0
   expect '[ "$(term_field "$TUI" "t[\"state\"]" 2>/dev/null)" != live ]' "Continue as chat ended the TUI (hc kill)" 10
-  expect '[ -n "$(term_field tuisub "t[\"labels\"].get(\"pi-chat.chat\")" 2>/dev/null)" ]' "a chat host answers to the same name (tuisub), labeled pi-chat.chat" 15
+  expect '[ -n "$(term_field tuisub "t[\"labels\"].get(\"herdr-chat.chat\")" 2>/dev/null)" ]' "a chat host answers to the same name (tuisub), labeled herdr-chat.chat" 15
   NT=$(term_field tuisub 't["address"]')
-  [ "$NT" != "$TUI" ] && [ "$(term_field "$NT" 't.get("parent")')" = "$SHELL_T" ] && [ "$(term_field "$NT" 't["labels"].get("pi-chat.role")')" = subagent ] &&
+  [ "$NT" != "$TUI" ] && [ "$(term_field "$NT" 't.get("parent")')" = "$SHELL_T" ] && [ "$(term_field "$NT" 't["labels"].get("herdr-chat.role")')" = subagent ] &&
     ok "the host $NT: the TUI's parent ($SHELL_T), role subagent" || fail "the host: $(hc get tuisub --json)"
-  CHAT="$(term_field "$NT" 't["labels"]["pi-chat.chat"]').peek"
+  CHAT="$(term_field "$NT" 't["labels"]["herdr-chat.chat"]').peek"
   expect 'overlay_open chat' "the chat dialog opened for it" 10
   expect connected "the dialog connected" 15
   expect '[ "$(d "[i[\"text\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][0]")" = "check the README (asked in the TUI)" ] && [ "$(d "[i[\"len\"] for i in d[\"items\"] if i[\"kind\"]==\"assistant\"][0]")" = 27 ]' "the dialog shows the TUI session's history (its question, and its 27-character answer)" 10
-  inspect_chat "${CHAT%.peek}" | grep -q '"The README has one heading."' && ok "the host has the TUI's answer (pi-chat-host inspect)" || fail "the host's items: $(inspect_chat "${CHAT%.peek}" | head -c 600)"
+  inspect_chat "${CHAT%.peek}" | grep -q '"The README has one heading."' && ok "the host has the TUI's answer (herdr-chat-host inspect)" || fail "the host's items: $(inspect_chat "${CHAT%.peek}" | head -c 600)"
   hc send tuisub "after the hand-over" >>"$LOG" 2>&1 || fail "hc send tuisub"
   expect '[ "$(d "[i[\"text\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][-1].endswith(\"after the hand-over\")")" = true ]' "hc send tuisub reached the new host (the dialog shows it)" 10
   expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 2 ]' "and it answered" 40
@@ -292,7 +292,7 @@ JS
   OUT=$(hc run --bg --json --keep --no-parent --cwd "$PROJ" --label "herdr.space=$SP" --label herdr.tab=tbtip0000 -- /bin/zsh -lic "$NODE $BASE/fake-pi-shell-tui.mjs; exec /bin/zsh -li" 2>>"$LOG") || fail "hc run the TUI"
   note "hc run: $OUT"
   TIP=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  hc label "$TIP" "pi-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
+  hc label "$TIP" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
   expect '[ "$(term_field "$TIP" "(t.get(\"foreground\") or {}).get(\"argv\",[None])[0]")" = pi ] && [ "$(term_field "$TIP" "(t.get(\"status\") or {}).get(\"state\")")" = idle ]' "the shell's foreground is pi, idle" 10
   TIPTAB=$(app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print([t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])][0])' "$TIP")
   PIPID=$(term_field "$TIP" 't["foreground"]["pid"]')
@@ -331,15 +331,15 @@ if [[ " ${FLOWS:-} " == *" subagent-exp "* ]]; then
   cat >"$XDG_CONFIG_HOME/herdr-core/templates/pi-chat.md" <<TPL
 ---
 description: test
-command: env FAKE_PI_SCENARIO='$SCEN/abort.json' '$REPO/bin/pi-chat-subagent' --provider pi
+command: env FAKE_PI_SCENARIO='$SCEN/abort.json' '$REPO/bin/herdr-chat-subagent' --provider pi
 ---
 You are a sub-agent.
 TPL
   RUN=$(hc run --bg --json --parent "$SHELL_T" --name r pi-chat "quick: task") || fail "hc run"
   SUB=$(echo "$RUN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  finding "E2: hc run pi-chat: first_message $(echo "$RUN" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("first_message")))')"
-  until_ '[ -n "$(term_field "$SUB" "t[\"labels\"].get(\"pi-chat.chat\")")" ]' 10 || fail "labels"
-  SUBCHAT=$(term_field "$SUB" 't["labels"]["pi-chat.chat"]')
+  finding "E2: hc run herdr-chat: first_message $(echo "$RUN" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("first_message")))')"
+  until_ '[ -n "$(term_field "$SUB" "t[\"labels\"].get(\"herdr-chat.chat\")")" ]' 10 || fail "labels"
+  SUBCHAT=$(term_field "$SUB" 't["labels"]["herdr-chat.chat"]')
   t0=$SECONDS; hc wait r >>"$LOG" 2>&1; finding "E2: hc wait r returned after $((SECONDS - t0)) s, status $(term_field "$SUB" 't.get("status")'), agent $(term_field "$SUB" 't.get("agent")'), parent $(term_field "$SUB" 't.get("parent")')"
   finding "E2: hc read r: $(screen "$SUB" | grep -c '^Quick answer') answer(s)"
 
@@ -377,14 +377,14 @@ TPL
   finding "E2: hc interrupt r: status $(term_field "$SUB" 't.get("status")')"
   P2=$(hc run --bg --json --name p2 -- sh -c 'sleep 600' | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
   C2=$(hc run --bg --json --parent "$P2" --name c2 pi-chat "quick: x" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  until_ '[ -n "$(term_field "$C2" "t[\"labels\"].get(\"pi-chat.chat\")")" ]' 10 || true
+  until_ '[ -n "$(term_field "$C2" "t[\"labels\"].get(\"herdr-chat.chat\")")" ]' 10 || true
   hc kill "$P2" >>"$LOG" 2>&1
   until_ '[ "$(term_field "$C2" "t[\"state\"]" 2>/dev/null)" != live ]' 10 || true
   finding "E2: the parent killed: child state $(term_field "$C2" 't["state"]' 2>/dev/null || echo gone)"
   cat >"$XDG_CONFIG_HOME/herdr-core/templates/pi-chat-dialog.md" <<TPL
 ---
 description: test
-command: env FAKE_PI_SCENARIO='$SCEN/startup-dialog.json' '$REPO/bin/pi-chat-subagent' --provider pi
+command: env FAKE_PI_SCENARIO='$SCEN/startup-dialog.json' '$REPO/bin/herdr-chat-subagent' --provider pi
 ---
 x
 TPL
@@ -393,7 +393,7 @@ TPL
   finding "E2: a dialog in the sub-agent: status $(term_field "$C3" 't.get("status")'), msg $(term_field "$C3" 't.get("msg") or t.get("message")')"
   hc kill "$C3" >>"$LOG" 2>&1
   C4=$(hc run --bg --json --parent "$OTHERHOST" --name c4 pi-chat "quick: x" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  until_ '[ -n "$(term_field "$C4" "t[\"labels\"].get(\"pi-chat.chat\")")" ]' 10 || true
+  until_ '[ -n "$(term_field "$C4" "t[\"labels\"].get(\"herdr-chat.chat\")")" ]' 10 || true
   finding "E2: a chat as the parent (its hidden host $OTHERHOST): child parent $(term_field "$C4" 't.get("parent")'); the chat host listed as an agent: $(dbg "$OTHER" 'd["hostAgent"]')"
   hc kill "$C4" >>"$LOG" 2>&1
 

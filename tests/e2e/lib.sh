@@ -1,4 +1,4 @@
-# Shared by the pi-chat e2e scripts: a private Herdr app + herdr-core (its own
+# Shared by the herdr-chat e2e scripts: a private Herdr app + herdr-core (its own
 # app home, core session and XDG dirs; nothing touches yours), cleanup on
 # exit, and the step/assert/screenshot helpers. Adapted from herdr-gitview's
 # herdr-app/e2e/lib.sh. Source it with the artifacts dir as $1; it starts the
@@ -16,7 +16,7 @@
 #
 # The mods are copied from this checkout's mod/ into the private home
 # (install_mods), with mods/chat/config.json pointing at this checkout's
-# bin/pi-chat-host. The mod's debug dumps are on (data/pi-chat/debug/enabled).
+# bin/herdr-chat-host. The mod's debug dumps are on (data/herdr-chat/debug/enabled).
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 E2E="$REPO/tests/e2e"
 ART="${1:-$REPO/tests/artifacts/e2e-$(date +%Y%m%d-%H%M%S)}"
@@ -54,7 +54,7 @@ if display: w["display"] = display
 json.dump(w, open(sys.argv[2], "w"))
 EOF
 declare -p HERDR_APP_HOME HC_SESSION XDG_STATE_HOME XDG_CONFIG_HOME XDG_DATA_HOME | sed 's/^declare -x/export/' >"$BASE/env.sh"
-STATE="$HERDR_APP_HOME/data/pi-chat" # the mod's --state-dir: chats/, debug/
+STATE="$HERDR_APP_HOME/data/herdr-chat" # the mod's --state-dir: chats/, debug/
 
 find_app() {
   if [ -n "${HERDR_APP_BIN:-}" ]; then echo "$HERDR_APP_BIN"; return; fi
@@ -96,7 +96,7 @@ cleanup() {
   # Hosts and fake Pis this run started (their command lines name this run's state dir).
   for p in $(pgrep -f "$STATE"); do kill "$p" 2>/dev/null; done
   rm -rf "$ART/final" && mkdir -p "$ART/final"
-  cp -R "$STATE" "$ART/final/pi-chat" 2>/dev/null
+  cp -R "$STATE" "$ART/final/herdr-chat" 2>/dev/null
   cp "$HERDR_APP_HOME/keys.json" "$ART/final/" 2>/dev/null
   cp "$BASE/app.log" "$ART/app.log" 2>/dev/null
   if [ -n "${E2E_KEEP_BASE:-}" ]; then echo "kept $BASE"; else rm -rf "$BASE"; fi
@@ -284,9 +284,10 @@ shot() {
   LAST_SHOT=$sum
 }
 
-# --- pi-chat --------------------------------------------------------------------------
+# --- herdr-chat --------------------------------------------------------------------------
 # Copy this checkout's mods into the private home (hot reload picks them up)
-# and write mods/chat/config.json. Extra config keys as JSON in $1.
+# and write mods/chat/config.json (what install writes) and the person's
+# settings (data/herdr-chat/settings.json, host/settings.ts) from the JSON in $1.
 install_mods() {
   local extra="${1:-}"
   [ -n "$extra" ] || extra='{}'
@@ -304,12 +305,12 @@ install_mods() {
   # Their install-time copies of the shipped mods (install/mods.ts, as install.sh makes them).
   [ ! -d "$HERDR_APP_HOME/mods/chat-agents" ] || "$NODE" "$REPO/install/mods.ts" bases "$HERDR_APP_HOME/mods" "$HERDR_APP_HOME/mods" >>"$LOG"
   if [ -d "$HERDR_APP_HOME/mods/chat" ]; then
-    python3 - "$HERDR_APP_HOME/mods/chat/config.json" "$REPO/bin/pi-chat-host" "$NODE" "$extra" "$(command -v hc)" <<'EOF'
+    mkdir -p "$STATE"
+    python3 - "$HERDR_APP_HOME/mods/chat/config.json" "$STATE/settings.json" "$REPO/bin/herdr-chat-host" "$NODE" "$extra" "$(command -v hc)" <<'EOF'
 import json, sys
-path, host, node, extra, hc = sys.argv[1:]
-cfg = {"host": host, "node": node, "hc": hc}
-cfg.update(json.loads(extra))
-json.dump(cfg, open(path, "w"), indent=1)
+path, settings, host, node, extra, hc = sys.argv[1:]
+json.dump({"host": host, "node": node, "hc": hc}, open(path, "w"), indent=1)
+json.dump(json.loads(extra), open(settings, "w"), indent=1)
 EOF
   fi
   mkdir -p "$STATE/debug" && touch "$STATE/debug/enabled"
@@ -319,8 +320,8 @@ EOF
 dbg() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); v=eval(sys.argv[2]); print(v if isinstance(v,str) else json.dumps(v))' "$STATE/debug/$1.json" "$2" 2>/dev/null; }
 # The chat registry entry: reg c-1234abcd port
 reg() { python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]); print("" if v is None else v)' "$STATE/chats/$1.json" "$2" 2>/dev/null; }
-# The host's view of a chat (pi-chat-host inspect), as JSON.
-inspect_chat() { "$REPO/bin/pi-chat-host" inspect --chat "$1" --state-dir "$STATE" "${@:2}"; }
+# The host's view of a chat (herdr-chat-host inspect), as JSON.
+inspect_chat() { "$REPO/bin/herdr-chat-host" inspect --chat "$1" --state-dir "$STATE" "${@:2}"; }
 
 # Quit the private app (a signal, like closing the window for good) and start
 # it again: terminals and hosts live on in the core.
@@ -339,7 +340,7 @@ restart_app() {
 # --- start -------------------------------------------------------------------------
 step "private app + core (HERDR_APP_HOME=$HERDR_APP_HOME, HC_SESSION=$HC_SESSION)"
 { echo "herdr-app: $("$APP" --version 2>&1 | head -1) ($APP)"; echo "hc: $(hc --version 2>&1 | head -1) ($(command -v hc))"
-  echo "node: $("$NODE" --version) ($NODE)"; echo "pi-chat: $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
+  echo "node: $("$NODE" --version) ($NODE)"; echo "herdr-chat: $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
   echo "macOS: $(sw_vers -productVersion 2>/dev/null)"; } | tee -a "$LOG"
 [ -n "${E2E_NO_INSTALL:-}" ] || install_mods
 hc server start >>"$LOG" 2>&1

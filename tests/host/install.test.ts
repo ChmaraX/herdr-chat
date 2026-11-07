@@ -32,9 +32,9 @@ const personal = () => ({
 });
 
 function home(shown: string, layouts: Record<string, object>) {
-  const h = mkdtempSync(join(tmpdir(), "pi-chat-install-"));
+  const h = mkdtempSync(join(tmpdir(), "herdr-chat-install-"));
   mkdirSync(join(h, "layouts"));
-  mkdirSync(join(h, "data", "pi-chat"), { recursive: true });
+  mkdirSync(join(h, "data", "herdr-chat"), { recursive: true });
   writeFileSync(join(h, "installed.json"), JSON.stringify({ "layout:main": { json: "x" }, "layout:terminals": { json: "y" }, agents: {} }));
   writeFileSync(join(h, "shared.json"), JSON.stringify({ layout: shown }));
   writeFileSync(join(h, "layouts", "main.json"), JSON.stringify({ type: "row", id: "root", children: [{ type: "block", id: "agents", content: { mod: "agents" } }] }, null, 2) + "\n");
@@ -63,7 +63,7 @@ test("layout: the personal layout on screen gets the chat agents list and menu; 
 
   assert.match(run("uninstall", h), /layout main-mods: the agents list and right-click menu are Herdr's again/);
   assert.equal(read(h, "main-mods"), before);
-  assert.ok(!existsSync(join(h, "data", "pi-chat", "install-layout.json")), "the record goes with the uninstall");
+  assert.ok(!existsSync(join(h, "data", "herdr-chat", "install-layout.json")), "the record goes with the uninstall");
 });
 
 test("layout: a layout with no floating list gets one for new-chat's copy, and loses it again on uninstall", () => {
@@ -131,7 +131,7 @@ export default class Agents extends View {
   assert.match((inline as { why: string }).why, /no longer calls this\.peek/);
 
   // writeBases: the failing mod gets no base (install.sh then leaves it and its layout edit out).
-  const dir = mkdtempSync(join(tmpdir(), "pi-chat-bases-"));
+  const dir = mkdtempSync(join(tmpdir(), "herdr-chat-bases-"));
   for (const m of ["agents", "menu"]) mkdirSync(join(dir, "shipped", m), { recursive: true });
   for (const m of ["chat-agents", "chat-menu"]) mkdirSync(join(dir, "stage", m), { recursive: true });
   writeFileSync(join(dir, "shipped", "agents", "main.js"), shipped(`.on_click(() => run("terminal.peek", { terminal: k.address }))`));
@@ -151,12 +151,12 @@ const herdrKeys = () => ({
   terminal: { "cmd-c": "terminal.copy" },
 });
 function keysHome(o: { keys?: object; mine?: object; record?: object } = {}) {
-  const h = mkdtempSync(join(tmpdir(), "pi-chat-keys-"));
-  mkdirSync(join(h, "data", "pi-chat"), { recursive: true });
+  const h = mkdtempSync(join(tmpdir(), "herdr-chat-keys-"));
+  mkdirSync(join(h, "data", "herdr-chat"), { recursive: true });
   writeFileSync(join(h, "keys.json"), JSON.stringify(o.keys ?? herdrKeys(), null, 2) + "\n");
-  if (o.mine) writeFileSync(join(h, "data", "pi-chat", "keys.json"), JSON.stringify(o.mine));
+  if (o.mine) writeFileSync(join(h, "data", "herdr-chat", "keys.json"), JSON.stringify(o.mine));
   // What the older install recorded for its cmd-j shift-p.
-  writeFileSync(join(h, "data", "pi-chat", "install.json"), JSON.stringify(o.record ?? { added: ["cmd-j shift-p"], replaced: [] }));
+  writeFileSync(join(h, "data", "herdr-chat", "install.json"), JSON.stringify(o.record ?? { version: 2, global: { "cmd-j shift-p": { action: "mod.open:new-chat", was: null } } }));
   return h;
 }
 const keys = (cmd: string, h: string, ...a: string[]) => execFileSync(process.execPath, [KEYS, cmd, h, "--platform", "darwin", ...a], { encoding: "utf8" });
@@ -185,13 +185,13 @@ test("keys: chords the person chose replace what had them; uninstall gives back 
   assert.match(out.trim().split("\n").at(-1)!, /^New chat: ⌘I · Pi chat: ⌘J P$/);
   assert.equal(global(h)["cmd-j p"], "new-chat.pi");
   // The person moves Pi's chat elsewhere: the next install gives cmd-j p back to Pi's TUI.
-  writeFileSync(join(h, "data", "pi-chat", "keys.json"), JSON.stringify({ global: { pi: "cmd-alt-p" } }));
+  writeFileSync(join(h, "data", "herdr-chat", "keys.json"), JSON.stringify({ global: { pi: "cmd-alt-p" } }));
   keys("install", h);
   assert.equal(global(h)["cmd-j p"], "mod.open:open-pi");
   assert.equal(global(h)["cmd-alt-p"], "new-chat.pi");
   assert.match(keys("uninstall", h), /back to what they were/);
   assert.equal(readFileSync(join(h, "keys.json"), "utf8"), JSON.stringify(want, null, 2) + "\n");
-  assert.ok(!existsSync(join(h, "data", "pi-chat", "install.json")));
+  assert.ok(!existsSync(join(h, "data", "herdr-chat", "install.json")));
 });
 
 test("keys: the default ⌘I taken by something else falls back to ⌘J A, and says so; uninstall leaves ⌘I to it", () => {
@@ -224,9 +224,9 @@ test("keys: without the layout's new-chat copy (--no-direct) only the launcher k
 // --- the sub-agents note: install/instructions.ts ---------------------------------------
 const INSTR = join(ROOT, "install", "instructions.ts");
 function agentHomes(o: { pi?: string | null; claude?: string | null; codex?: string | null }) {
-  const d = mkdtempSync(join(tmpdir(), "pi-chat-instr-"));
+  const d = mkdtempSync(join(tmpdir(), "herdr-chat-instr-"));
   const env = { ...process.env, HOME: join(d, "home"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
-  mkdirSync(join(d, "app", "data", "pi-chat"), { recursive: true });
+  mkdirSync(join(d, "app", "data", "herdr-chat"), { recursive: true });
   const files = { pi: join(d, "pi", "AGENTS.md"), claude: join(d, "home", ".claude", "CLAUDE.md"), codex: join(d, "home", ".codex", "AGENTS.md") };
   for (const [k, f] of Object.entries(files)) {
     const v = o[k as keyof typeof o];
@@ -278,7 +278,7 @@ test("sub-agents note: uninstall touches only the current agents' files, never a
   other.run("install"); // the other home: its files carry the note, its record names them
   const theirs = Object.values(other.files).map((f) => readFileSync(f, "utf8"));
   const a = agentHomes({ pi: "# mine\n" });
-  copyFileSync(join(other.d, "app", "data", "pi-chat", "install-instructions.json"), join(a.d, "app", "data", "pi-chat", "install-instructions.json"));
+  copyFileSync(join(other.d, "app", "data", "herdr-chat", "install-instructions.json"), join(a.d, "app", "data", "herdr-chat", "install-instructions.json"));
   a.run("uninstall");
   assert.deepEqual(Object.values(other.files).map((f) => readFileSync(f, "utf8")), theirs, "the other home's files are untouched");
   assert.equal(readFileSync(a.files.pi, "utf8"), "# mine\n");
@@ -286,8 +286,8 @@ test("sub-agents note: uninstall touches only the current agents' files, never a
 
 // --- install.sh on a scratch home --------------------------------------------------------
 const has = (c: string) => spawnSync("sh", ["-c", `command -v ${c}`]).status === 0;
-test("install.sh: --no-subagents writes no templates and no notes; a plain install adds both; --uninstall gives back every file as it was", { skip: !(has("hc") && has("pi") && has("herdr-app")) && "needs hc, pi and herdr-app" }, () => {
-  const d = mkdtempSync(join(tmpdir(), "pi-chat-installsh-"));
+test("install.sh: --no-subagents writes no templates and no notes; a plain install adds both; --uninstall gives back every file as it was", { skip: !(has("hc") && has("herdr-app")) && "needs hc and herdr-app" }, () => {
+  const d = mkdtempSync(join(tmpdir(), "herdr-chat-installsh-"));
   const app = join(d, "app");
   mkdirSync(join(app, "layouts"), { recursive: true });
   writeFileSync(join(app, "installed.json"), JSON.stringify({ "layout:main": {} }));
@@ -297,18 +297,12 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   mkdirSync(join(d, "home", ".codex"), { recursive: true });
   writeFileSync(join(d, "home", ".codex", "AGENTS.md"), "codex rules\n");
   mkdirSync(join(d, "pi"));
-  // An older install's copy of the chat under its old name `pi`, which no tab uses (the stub hc's document).
-  mkdirSync(join(app, "mods", "pi"), { recursive: true });
-  writeFileSync(join(app, "mods", "pi", "mod.json"), "{}");
-  writeFileSync(join(app, "mods", "pi", ".herdr-chat"), "");
-  // herdr-app as a newer Herdr (its --version; everything else the real one); hc whose connect answers doc.get.
+  // herdr-app as a newer Herdr (its --version; everything else the real one); the three agents as stubs on PATH.
   const bin = join(d, "bin");
   mkdirSync(bin);
   const realApp = execFileSync("sh", ["-c", "command -v herdr-app"], { encoding: "utf8" }).trim();
-  const realHc = execFileSync("sh", ["-c", "command -v hc"], { encoding: "utf8" }).trim();
   const appAs = (v: string) => { const f = join(bin, `herdr-app-${v}`); writeFileSync(f, `#!/bin/sh\n[ "$1" = --version ] && { echo 'herdr-app ${v}'; exit 0; }\nexec '${realApp}' "$@"\n`, { mode: 0o755 }); return f; };
-  writeFileSync(join(bin, "doc.json"), JSON.stringify({ jsonrpc: "2.0", id: 2, result: { value: docWith("chat"), version: 1 } }));
-  writeFileSync(join(bin, "hc"), `#!/bin/sh\nif [ "$1" = connect ]; then cat >/dev/null; cat '${join(bin, "doc.json")}'; exit 0; fi\nexec '${realHc}' "$@"\n`, { mode: 0o755 });
+  for (const a of ["pi", "claude", "codex"]) writeFileSync(join(bin, a), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_APP_BIN: appAs("9.0.0"), HOME: join(d, "home"), HERDR_APP_HOME: app, XDG_CONFIG_HOME: join(d, "config"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
   const sh = (...a: string[]) => {
     const r = spawnSync(join(ROOT, "install.sh"), a, { encoding: "utf8", env });
@@ -327,14 +321,15 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   const quiet = sh("--no-subagents");
   assert.equal(quiet.trim().split("\n").at(-1), "  keys       New chat: ⌘I", "the summary's last line: the real chord");
   assert.match(quiet, /^ {2}templates  none \(--no-subagents\)$/m);
-  assert.match(quiet, /^pi-chat: Herdr 9\.0\.0 is newer than the tested .*\n/, "the warning first, then the install");
-  assert.match(quiet, /removed old mods\/pi \(no tab uses it\)/);
-  assert.ok(!existsSync(join(app, "mods", "pi")));
+  assert.match(quiet, /^herdr-chat: Herdr 9\.0\.0 is newer than the tested .*\n/, "the warning first, then the install");
   assert.ok(!existsSync(join(tpl, "pi-chat.md")), "no templates");
   assert.ok(!existsSync(join(d, "pi", "AGENTS.md")) && readFileSync(join(d, "home", ".codex", "AGENTS.md"), "utf8") === "codex rules\n", "no notes");
 
   const out = sh();
   for (const p of ["pi", "claude", "codex"]) assert.ok(existsSync(join(tpl, `${p}-chat.md`)), `${p}-chat template`);
+  // Each agent install found, by path (a core terminal lacks the login PATH).
+  const cfg = JSON.parse(readFileSync(join(app, "mods", "chat", "config.json"), "utf8"));
+  for (const p of ["pi", "claude", "codex"]) assert.equal(cfg[p], join(bin, p));
   assert.match(readFileSync(join(d, "pi", "AGENTS.md"), "utf8"), NOTE);
   assert.match(readFileSync(join(d, "home", ".codex", "AGENTS.md"), "utf8"), /^codex rules\n\n<!-- herdr-chat:subagents begin -->/);
   assert.match(out, /Claude Code: no .* \(not installed\)/);
@@ -415,7 +410,7 @@ function stubBin(dir: string, name: string, version: string | null) {
   return f;
 }
 function compat(app: string | null, core: string | null) {
-  const d = mkdtempSync(join(tmpdir(), "pi-chat-compat-"));
+  const d = mkdtempSync(join(tmpdir(), "herdr-chat-compat-"));
   const r = spawnSync(process.execPath, [COMPAT, "check", "--app", stubBin(d, "herdr-app", app), "--hc", stubBin(d, "hc", core)], { encoding: "utf8" });
   return { status: r.status, out: r.stdout + r.stderr };
 }
@@ -424,10 +419,10 @@ test("version: the tested versions install quietly; a newer Herdr warns in one l
   assert.deepEqual(compat(TESTED.tested.app, TESTED.tested.core), { status: 0, out: "" });
   const newer = compat("9.0.0", TESTED.tested.core);
   assert.equal(newer.status, 0);
-  assert.equal(newer.out, `pi-chat: Herdr 9.0.0 is newer than the tested ${TESTED.tested.app}. If something breaks, \`./install.sh --uninstall\`\n`);
+  assert.equal(newer.out, `herdr-chat: Herdr 9.0.0 is newer than the tested ${TESTED.tested.app}. If something breaks, \`./install.sh --uninstall\`\n`);
   const old = compat("0.0.1", TESTED.tested.core);
   assert.equal(old.status, 1);
-  assert.match(old.out, new RegExp(`^pi-chat: Herdr 0\\.0\\.1 is older than ${TESTED.minimum.app.replace(/\./g, "\\.")}, the oldest the chat works with \\(.+\\)\\. Update Herdr, then run \\./install\\.sh again\\.\\n$`));
+  assert.match(old.out, new RegExp(`^herdr-chat: Herdr 0\\.0\\.1 is older than ${TESTED.minimum.app.replace(/\./g, "\\.")}, the oldest the chat works with \\(.+\\)\\. Update Herdr, then run \\./install\\.sh again\\.\\n$`));
   // A version compares by number, not text: 0.1.9 is older than 0.1.12.
   assert.equal(compat("0.1.9", TESTED.tested.core).status, 1);
   const core = compat(TESTED.tested.app, "9.1.0");
@@ -438,30 +433,6 @@ test("version: the tested versions install quietly; a newer Herdr warns in one l
 test("version: a Herdr that won't say its version is a warning, not a refusal", () => {
   const r = compat(null, null);
   assert.equal(r.status, 0);
-  assert.match(r.out, new RegExp(`pi-chat: can't tell Herdr's version \\(.*--version.*\\): tested with ${TESTED.tested.app.replace(/\./g, "\\.")}\\. If something breaks, \`\\./install\\.sh --uninstall\``));
+  assert.match(r.out, new RegExp(`herdr-chat: can't tell Herdr's version \\(.*--version.*\\): tested with ${TESTED.tested.app.replace(/\./g, "\\.")}\\. If something breaks, \`\\./install\\.sh --uninstall\``));
   assert.match(r.out, /can't tell herdr-core's version/);
-});
-
-// --- the old `pi` mod copy: install/mods.ts legacy --------------------------------------
-const MODS = join(ROOT, "install", "mods.ts");
-// An hc whose `connect` answers doc.get with `doc` (null: the core isn't there).
-function docHc(dir: string, doc: object | null) {
-  const f = join(dir, "hc");
-  writeFileSync(join(dir, "doc.json"), JSON.stringify({ jsonrpc: "2.0", id: 2, result: { value: doc, version: 3 } }));
-  writeFileSync(f, `#!/bin/sh\n[ "$1" = connect ] || exit 2\n${doc === null ? "echo 'no core' >&2; exit 1" : `cat >/dev/null; echo '{"jsonrpc":"2.0","id":1,"result":{}}'; cat '${join(dir, "doc.json")}'`}\n`, { mode: 0o755 });
-  return f;
-}
-const docWith = (mod: string) => ({ spaces: [{ id: "s1", tabs: [{ id: "t1", name: "old chat", root: { type: "row", children: [{ type: "block", id: "p1", content: { mod, props: { chat: "c-1" } } }] } }] }] });
-const legacy = (h: string, hcBin: string) => execFileSync(process.execPath, [MODS, "legacy", h, "pi", "--hc", hcBin], { encoding: "utf8" }).trim();
-
-test("old pi mod: removed when no open or saved tab and no layout uses it; kept, with the reason, when one does or that can't be told", () => {
-  const d = mkdtempSync(join(tmpdir(), "pi-chat-legacy-"));
-  const h = home("main-mods", { "main-mods": personal() });
-  assert.equal(legacy(h, docHc(mkdtempSync(join(d, "a")), docWith("chat"))), "remove");
-  assert.match(legacy(h, docHc(mkdtempSync(join(d, "b")), docWith("pi"))), /^keep: a tab still shows it \(old chat\)/);
-  assert.match(legacy(h, docHc(mkdtempSync(join(d, "c")), null)), /^keep: can't read Herdr's open tabs/);
-  const inLayout = personal();
-  (inLayout as any).floating.push({ id: "x", content: { mod: "pi" } });
-  const h2 = home("main-mods", { "main-mods": inLayout });
-  assert.match(legacy(h2, docHc(mkdtempSync(join(d, "e")), docWith("chat"))), /^keep: layout main-mods uses it/);
 });

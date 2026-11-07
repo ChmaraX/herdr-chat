@@ -1,4 +1,4 @@
-// The chat's link to its pi-chat-host: find it in the registry (or start it in
+// The chat's link to its herdr-chat-host: find it in the registry (or start it in
 // a herdr-core terminal), connect over TCP, say hello, read JSONL records and
 // correlate requests. Reconnects with backoff; a host counts as alive only
 // after a successful hello/welcome (protocol.md "Chat registry").
@@ -6,17 +6,41 @@
 import net from "net";
 import { Buffer } from "buffer";
 import { appHome, hc, readTextFile, terminals } from "herdr";
-import { MOD, message } from "./util.js";
+import { DEFAULT_PROVIDER, MOD, message } from "./util.js";
 
-export const stateDir = () => `${appHome()}/data/pi-chat`;
+export const stateDir = () => `${appHome()}/data/herdr-chat`;
 export const registryPath = (chat) => `${stateDir()}/chats/${chat}.json`;
 
-export async function readConfig() {
+async function readJson(path) {
   try {
-    return JSON.parse((await readTextFile(`${appHome()}/mods/${MOD}/config.json`)) ?? "{}");
+    return JSON.parse((await readTextFile(path)) ?? "{}") ?? {};
   } catch {
     return {};
   }
+}
+
+/** Where the person's settings live (README "Settings"); install never writes it. */
+export const settingsPath = () => `${stateDir()}/settings.json`;
+
+/**
+ * What install wrote (mods/chat/config.json: the host, node, hc and each agent
+ * it found) with the person's settings over it. One agent's:
+ * {command, args, env, tui}, `tui` an argv or null.
+ */
+export async function readConfig() {
+  const cfg = await readJson(`${appHome()}/mods/${MOD}/config.json`);
+  const mine = await readJson(settingsPath());
+  const list = (v) => (Array.isArray(v) ? v.map(String) : typeof v === "string" && v ? [v] : null);
+  const agent = (id) => {
+    const a = mine[id] && typeof mine[id] === "object" ? mine[id] : {};
+    return {
+      command: typeof a.command === "string" && a.command ? a.command : typeof cfg[id] === "string" ? cfg[id] : null,
+      args: list(a.args) ?? [],
+      env: { ...(mine.env ?? {}), ...(a.env ?? {}) },
+      tui: list(a.tui),
+    };
+  };
+  return { host: cfg.host ?? null, node: cfg.node ?? null, hc: cfg.hc ?? null, agent };
 }
 
 export async function readRegistry(chat) {
@@ -30,7 +54,7 @@ export async function readRegistry(chat) {
 
 // The live core terminal running this chat's host, if any.
 export function hostTerminal(chat) {
-  return terminals().find((t) => t.labels?.["pi-chat.chat"] === chat && t.state === "live") ?? null;
+  return terminals().find((t) => t.labels?.["herdr-chat.chat"] === chat && t.state === "live") ?? null;
 }
 
 const BACKOFF = [250, 500, 1000, 2000, 2000];
@@ -204,24 +228,25 @@ export class Connection {
     this.set("starting", null, cx);
     const cfg = await readConfig();
     // The chat's agent: its props, else what the registry recorded (a reopened chat keeps it).
-    const provider = this.o.provider ?? entry?.provider ?? "pi";
+    const provider = this.o.provider ?? entry?.provider ?? DEFAULT_PROVIDER;
     this.provider = provider;
-    const host = cfg.hosts?.[provider] ?? cfg.host; // `hosts`: a per-provider host (tests use a mock)
+    const host = cfg.host;
+    const agent = cfg.agent(provider);
     if (!host) {
       this.set("failed", `mods/${MOD}/config.json has no "host"`, cx);
       return;
     }
-    const env = { ...(cfg.env ?? {}), ...(this.o.hostEnv ?? {}) };
-    if (cfg.node) env.PI_CHAT_NODE = cfg.node;
+    const env = { ...agent.env, ...(this.o.hostEnv ?? {}) };
+    if (cfg.node) env.HERDR_CHAT_NODE = cfg.node;
     const session = this.o.session ?? entry?.sessionFile ?? null;
     const args = [
-      // No --name: the registry and the pi-chat.chat label identify it, and
+      // No --name: the registry and the herdr-chat.chat label identify it, and
       // Herdr's toasts then show the title the host sets (OSC 0). No herdr.*
       // labels yet: the app would adopt it as a visible pane. The chat adds
       // its pane, hidden, to the layout document, then labels it (main.js
       // keepHostHidden). --keep: the core keeps it, as adoption would.
       "run", "--bg", "--json", "--keep", "--no-parent", "--cwd", this.o.cwd,
-      "--label", `pi-chat.chat=${this.o.chat}`, "--label", "pi-chat.role=host",
+      "--label", `herdr-chat.chat=${this.o.chat}`, "--label", "herdr-chat.role=host",
       "--", "/usr/bin/env", ...Object.entries(env).map(([k, v]) => `${k}=${v}`),
       host, "serve", "--chat", this.o.chat, "--cwd", this.o.cwd, "--state-dir", stateDir(), "--app-home", appHome(), "--provider", provider,
       ...(session ? ["--session", session] : []),
@@ -230,9 +255,9 @@ export class Connection {
       ...(session && this.o.handOver?.pid ? ["--after-pid", String(this.o.handOver.pid),
         ...(this.o.handOver.model ? ["--model", this.o.handOver.model] : []),
         ...(this.o.handOver.thinking ? ["--thinking", this.o.handOver.thinking] : [])] : []),
-      // The agent's command and arguments, per provider: `pi`/`piArgs`, `claude`/`claudeArgs`, `codex`/`codexArgs`.
-      ...(typeof cfg[provider] === "string" ? [`--${provider}`, cfg[provider]] : []),
-      ...(cfg[`${provider}Args`]?.length ? ["--", ...cfg[`${provider}Args`]] : []),
+      // The agent's command and arguments (readConfig).
+      ...(agent.command ? [`--${provider}`, agent.command] : []),
+      ...(agent.args.length ? ["--", ...agent.args] : []),
     ];
     const r = await hc(args);
     this.o.log?.(`hc run host: code ${r.code} ${r.stdout.trim()} ${r.stderr.trim()}`);

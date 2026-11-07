@@ -32,8 +32,8 @@ jobs:
       - name: the archive matches SHA256SUMS
         run: cd dist && shasum -a 256 -c SHA256SUMS
       - name: smoke the built host on Node 20
-        run: PI_CHAT_NODE="$NODE_MIN_BIN" dist/herdr-chat-*/bin/pi-chat-host --help
+        run: HERDR_CHAT_NODE="$NODE_MIN_BIN" dist/herdr-chat-*/bin/herdr-chat-host --help
       - name: the host suite against the built host, on Node 20
         run: npm run test:built
         env:
-          PI_CHAT_TEST_NODE: ${{ env.NODE_MIN_BIN }}
+          HERDR_CHAT_TEST_NODE: ${{ env.NODE_MIN_BIN }}

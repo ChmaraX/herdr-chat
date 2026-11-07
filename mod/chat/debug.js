@@ -1,5 +1,5 @@
 // The mod's debug dump, for the E2E checks: when
-// <appHome>/data/pi-chat/debug/enabled exists, <chat>.json is rewritten
+// <appHome>/data/herdr-chat/debug/enabled exists, <chat>.json is rewritten
 // (at most every 150 ms) after anything it shows changes. Written from the
 // store and the view's own changes, not from render: a window that isn't
 // drawn renders nothing but still takes records and commands.

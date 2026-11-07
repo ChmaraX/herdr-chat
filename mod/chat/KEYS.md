@@ -14,7 +14,7 @@ a model without levels) says so in the hint line under the composer.
 | `effort` | ⇧⌘T (`cmd-shift-t`) | Opens the thinking-level (effort) picker. |
 | `cycleEffort` | none | Switches to the next thinking level the model allows, wrapping around, and says it in the hint line ("Thinking: high"). It works only in the composer, and not while a menu is open. |
 | `mode` | ⇧⌘A (`cmd-shift-a`) | Opens the permission-mode picker (Claude Code, Codex). |
-| `cycleMode` | ⇧⇥ (`shift-tab`) | Switches to the next permission mode. It works only in the composer, and not while a menu is open. |
+| `cycleMode` | ⇧⇥ (`shift-tab`) | Switches to the next permission mode. For an agent with no permission modes (Pi), it switches to the next thinking level. It works only in the composer, and not while a menu is open. |
 | `stop` | ⌃C (`ctrl-c`) | Stops the agent's run. Esc stops it too. |
 | `tui` | ⌥⌘T (`cmd-alt-t`) | Continues the chat in the agent's own terminal UI (`/tui`). |
 | `resume` | ⇧⌘R (`cmd-shift-r`) | Opens the sessions picker (`/resume`). |
@@ -62,7 +62,7 @@ macOS turns ⌘. into Esc before an app sees it, so `stop` uses ⌃C.
 
 ## Your own keys
 
-Put your overrides in `~/.config/herdr-app/data/pi-chat/keys.json`. It uses the
+Put your overrides in `~/.config/herdr-app/data/herdr-chat/keys.json`. It uses the
 same shape as `keys.default.json` in this folder:
 
 ```json

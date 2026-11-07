@@ -1,8 +1,8 @@
 // Chat-scoped shortcuts (KEYS.md). The defaults ship in keys.default.json;
-// the person's overrides live in <appHome>/data/pi-chat/keys.json, in the
+// the person's overrides live in <appHome>/data/herdr-chat/keys.json, in the
 // same shape: {"<action>": "<chord>"}, a list for several chords, null to
 // unbind. They're bound in the chat's own key contexts only (the chat root,
-// "PiChat", and the inputs inside it), so a terminal pane never loses a key
+// "HerdrChat", and the inputs inside it), so a terminal pane never loses a key
 // to them, and they don't clash with Herdr's keys or the person's keys.json.
 // Every agent gets the same actions; one the agent can't do says so (main.js).
 
@@ -17,7 +17,7 @@ export const SHORTCUTS = {
   effort: "Choose the thinking level (effort)",
   cycleEffort: "Next thinking level (effort)",
   mode: "Choose the permission mode",
-  cycleMode: "Next permission mode",
+  cycleMode: "Next permission mode (next thinking level for an agent without modes)",
   stop: "Stop the agent",
   tui: "Continue in the agent's terminal UI",
   resume: "Resume another session",
@@ -26,16 +26,16 @@ export const SHORTCUTS = {
   newChat: "New chat in this folder, same agent",
 };
 
-export const actionName = (a) => `pichat_k_${a}`;
+export const actionName = (a) => `herdrchat_k_${a}`;
 
 // The inputs inside the chat (composer.js, menus.js, dialogs.js): a chord
 // must be bound "<ctx> > Input" too, or the input's own keys win.
-const INPUTS = ["PiChatMenu", "PiChatEmpty", "PiChatComposer", "PiChatAsk", "PiChatDialog", "PiChatEditor"];
+const INPUTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatDialog", "HerdrChatEditor"];
 // The cycles (Shift+Tab) work only in the composer, and not while a menu is open.
-const COMPOSER = ["PiChatEmpty > Input", "PiChatComposer > Input", "PiChatAsk > Input"];
+const COMPOSER = ["HerdrChatEmpty > Input", "HerdrChatComposer > Input", "HerdrChatAsk > Input"];
 // Sending is the composer's with text in it (or images): in a menu Enter picks,
 // on an empty composer with an approval card it answers (composer.js).
-const SENDING = ["PiChatEmpty > Input", "PiChatComposer > Input"];
+const SENDING = ["HerdrChatEmpty > Input", "HerdrChatComposer > Input"];
 const ONLY = { cycleMode: COMPOSER, cycleEffort: COMPOSER, steer: SENDING, followUp: SENDING };
 // The composer can't send without these: used when keys.default.json can't be read.
 const FALLBACK = { steer: "enter", followUp: "alt-enter" };
@@ -59,7 +59,7 @@ async function readJson(path) {
   }
 }
 
-export const overridesPath = () => `${appHome()}/data/pi-chat/keys.json`;
+export const overridesPath = () => `${appHome()}/data/herdr-chat/keys.json`;
 
 // Defaults, then the person's file over them. Returns action → [chords].
 export async function loadShortcuts() {
@@ -93,7 +93,7 @@ export function bindShortcuts(cx) {
   for (const [a, list] of Object.entries(map)) {
     if (!list.length) continue;
     const b = [];
-    const ctxs = ONLY[a] ?? ["PiChat", ...INPUTS.map((c) => `${c} > Input`)];
+    const ctxs = ONLY[a] ?? ["HerdrChat", ...INPUTS.map((c) => `${c} > Input`)];
     for (const k of list) for (const context of ctxs) b.push({ keystroke: k, action: actionName(a), context });
     try {
       cx.bind_keys(b);

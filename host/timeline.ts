@@ -3,7 +3,7 @@
 // `dirty` to know which items changed.
 import { stripAnsi, toSpans } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
-import { presentTool, applyResult, prettyArgs } from "./tools.ts";
+import { presentTool, applyResult, prettyArgs, NO_TOOLS, type ToolMap } from "./tools.ts";
 import type { NormalizedEvent, EventOf, ImageBlock, AssistantBlock, SkillRef } from "./providers/types.ts";
 
 export type { ImageBlock, SkillRef };
@@ -92,8 +92,8 @@ export class Timeline {
   /** Usage and time of assistant messages with no text item yet; added to the next one (so a run's items sum to its total). */
   private carry: { usage?: Usage; durationMs?: number } = {};
   cwd: string;
-  /** The provider, for the tool classifier. */
-  provider: string;
+  /** The agent's tools, for the classifier. */
+  tools: ToolMap;
   /** Set by the session while a run nobody prompted is active. */
   autonomous = false;
   saveImage: ImageSaver | null = null;
@@ -103,10 +103,10 @@ export class Timeline {
   /** The callId of the event being applied's parent, if any. */
   private parentCall: string | undefined;
 
-  constructor(cwd: string, saveImage: ImageSaver | null = null, provider = "pi") {
+  constructor(cwd: string, saveImage: ImageSaver | null = null, tools: ToolMap = NO_TOOLS) {
     this.cwd = cwd;
     this.saveImage = saveImage;
-    this.provider = provider;
+    this.tools = tools;
   }
 
   private saveImages(itemId: string, blocks: ImageBlock[]): string[] {
@@ -245,7 +245,7 @@ export class Timeline {
     const known = this.toolsByCall.get(toolCallId);
     const existing = known ? this.byId.get(known) : undefined;
     if (existing && existing.kind === "tool") return existing;
-    const p = presentTool(this.provider, name, args, this.cwd);
+    const p = presentTool(this.tools, name, args, this.cwd);
     const item = this.add<ToolItem>({
       id: newId("x"), kind: "tool", ts, toolCallId, name, title: p.title, status: "pending",
       args: prettyArgs(args), output: "", outputTruncated: false, detail: p.detail,
@@ -256,7 +256,7 @@ export class Timeline {
 
   private setToolArgs(item: ToolItem, args: unknown): void {
     if (args === undefined) return;
-    const p = presentTool(this.provider, item.name, args, this.cwd);
+    const p = presentTool(this.tools, item.name, args, this.cwd);
     item.title = p.title;
     item.args = prettyArgs(args);
     const prevExit = item.detail.type === "bash" ? item.detail.exitCode : undefined;
@@ -405,7 +405,7 @@ export class Timeline {
     t.status = ev.declined ? "declined" : ev.isError ? "error" : "done";
     if (ev.durationMs !== undefined) t.durationMs = ev.durationMs;
     else if (ran) t.durationMs ??= Math.max(0, Date.now() - t.ts);
-    t.detail = applyResult(this.provider, t.name, t.detail, ev.result, ev.isError, text, this.cwd);
+    t.detail = applyResult(this.tools, t.name, t.detail, ev.result, ev.isError, text, this.cwd);
     this.dirty.add(t.id);
   }
 
@@ -481,7 +481,7 @@ export class Timeline {
   }
 
   /** Closes whatever is still open after a run ends (abort, crash, lost records). `agent` names it in notes. */
-  closeOpen(reason: "aborted" | "exited" | "settled", agent = "Pi"): void {
+  closeOpen(reason: "aborted" | "exited" | "settled", agent: string): void {
     for (const it of this.items) {
       if ((it.kind === "assistant" || it.kind === "thinking") && it.streaming) {
         it.streaming = false;

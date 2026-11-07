@@ -15,6 +15,7 @@ import { CodexMapper, userContent } from "./map.ts";
 import type { TokenUsage } from "./map.ts";
 import { stripAnsi } from "../../ansi.ts";
 import { AgentError } from "../types.ts";
+import { CODEX_TOOLS } from "./tools.ts";
 import { mcpFailureNotice } from "../mcp.ts";
 import { agentEnv } from "../env.ts";
 import type { McpFailure } from "../mcp.ts";
@@ -160,9 +161,10 @@ export function expandPrompt(body: string, rest: string): string {
 export class CodexAdapter implements ProviderAdapter {
   readonly id = "codex";
   readonly name = "Codex";
+  readonly tools = CODEX_TOOLS;
   readonly capabilities: Capabilities = {
     steer: true, followUp: true, thinkingLevels: [], permissions: true, permissionModes: CODEX_PERMISSION_MODES,
-    extensionUi: false, compact: true, rename: true, fork: true, images: true, cost: false, tui: true,
+    extensionUi: false, compact: true, compactInstructions: false, rename: true, fork: true, images: true, cost: false, tui: true,
   };
   private opts: AdapterOptions;
   private proc: CodexProcess | null = null;
@@ -241,7 +243,7 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   private stallMs(): number {
-    const v = Number(process.env.PI_CHAT_CODEX_STALL_MS);
+    const v = Number(process.env.HERDR_CHAT_CODEX_STALL_MS);
     return Number.isFinite(v) && v > 0 ? v : 120_000;
   }
 
@@ -963,7 +965,7 @@ export class CodexAdapter implements ProviderAdapter {
     if (body) input.push({ type: "text", text: body, text_elements: [] });
     input.push(...extra);
     if (images.length) {
-      const dir = join(tmpdir(), "pi-chat-codex-images");
+      const dir = join(tmpdir(), "herdr-chat-codex-images");
       mkdirSync(dir, { recursive: true, mode: 0o700 });
       for (const img of images) {
         const path = join(dir, `${randomUUID()}.${MIME_EXT[img.mimeType.toLowerCase()] ?? "png"}`);

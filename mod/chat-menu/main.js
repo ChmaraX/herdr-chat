@@ -1,9 +1,9 @@
 // chat-menu: Herdr's right-click menu (menu-base.js, the shipped mods/menu/main.js
 // copied at install time) with two items on top for a terminal that is a
-// sub-agent's chat host (labeled pi-chat.chat by bin/pi-chat-subagent): Open
+// sub-agent's chat host (labeled herdr-chat.chat by bin/herdr-chat-subagent): Open
 // as chat (the chat dialog, in place of the Rust peek that shows its
 // transcript) and Open as a chat tab. For a Pi TUI (idle or done, its session known from the
-// herdr-chat-lock extension's pi-chat.session label), a sub-agent or a
+// herdr-chat-lock extension's herdr-chat.session label), a sub-agent or a
 // top-level TUI in its own pane: Continue as chat, which hands it over to a
 // chat on that session (new-chat's continueAsChat, run by the layout's
 // always-shown new-chat copy, since this menu closes first); disabled, with
@@ -20,8 +20,8 @@ import * as fs from "fs/promises";
 function chatOf(p) {
   if (p?.tab !== "pane") return null;
   const t = terminals().find((x) => x.address === p.target?.terminal);
-  const chat = t?.labels?.["pi-chat.chat"];
-  return chat && t.state === "live" ? { chat, address: t.address, provider: t.labels["pi-chat.provider"] ?? null } : null;
+  const chat = t?.labels?.["herdr-chat.chat"];
+  return chat && t.state === "live" ? { chat, address: t.address, provider: t.labels["herdr-chat.provider"] ?? null } : null;
 }
 
 const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
@@ -30,8 +30,8 @@ const isPi = (t) => [t.program?.key, t.app, t.status?.app, t.report?.app, t.agen
 /** Why a terminal can't continue as a chat (null: it can; `working`: once its run ends). A copy of new-chat's. */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
-  if (t.labels?.["pi-chat.chat"]) return { why: "already a chat" };
-  if (!t.labels?.["pi-chat.session"]) return { why: "no pi-chat.session label (the herdr-chat-lock extension labels it)" };
+  if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
+  if (!t.labels?.["herdr-chat.session"]) return { why: "no herdr-chat.session label (the herdr-chat-lock extension labels it)" };
   if (!isPi(t)) return { why: "not Pi" };
   const st = word(t.status);
   if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
@@ -47,9 +47,9 @@ export function tuiOf(p) {
   return !no ? { address: t.address, working: false } : no.working ? { address: t.address, working: true } : null;
 }
 
-// With <appHome>/data/pi-chat/debug/enabled (the E2E): the menu's terminal and why it isn't offered.
+// With <appHome>/data/herdr-chat/debug/enabled (the E2E): the menu's terminal and why it isn't offered.
 async function dumpDebug(p) {
-  const dir = `${appHome()}/data/pi-chat/debug`;
+  const dir = `${appHome()}/data/herdr-chat/debug`;
   if ((await readTextFile(`${dir}/enabled`)) === null) return;
   const t = terminals().find((x) => x.address === p?.target?.terminal) ?? null;
   await fs.writeFile(`${dir}/chat-menu.json`, JSON.stringify({ props: p, terminal: t, cantContinue: t && cantContinue(t) }, null, 1));

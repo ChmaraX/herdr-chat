@@ -22,8 +22,8 @@ export type BuiltinContext = {
   capabilities: Capabilities;
   /** The adapter's terminal utility for /login, /settings, /scoped-models, or null. */
   utility: (name: string) => string[] | null;
-  /** Commands that need the session in the agent's own TUI (Pi: tree, export, hotkeys). */
-  tuiOnly: string[];
+  /** The agent's commands that work only in its own TUI (adapter `tuiCommands`). */
+  tuiCommands: { name: string; description: string }[];
   /** What to type into the agent's terminal for a command that opens one, or null. */
   tuiInput?: (name: string) => string | null;
 };
@@ -34,7 +34,6 @@ const B = (name: string, description: string, handler: "host" | "client", args?:
 export function builtins(ctx: BuiltinContext): Command[] {
   const n = ctx.name;
   const caps = ctx.capabilities;
-  const pi = n === "Pi";
   const out: Command[] = [];
   const typed = (name: string) => {
     const input = ctx.tuiInput?.(name);
@@ -45,38 +44,39 @@ export function builtins(ctx: BuiltinContext): Command[] {
     if (argv) out.push({ ...B(name, description, "client"), argv, ...typed(name) });
   };
   out.push(B("model", "Choose the model", "client", "[provider/id]"));
-  if (caps.thinkingLevels.length) out.push(B("thinking", pi ? "Choose the thinking level" : "Choose the thinking effort", "client", "[level]"));
-  if (caps.compact) out.push(B("compact", "Compact the conversation", "host", "[instructions]"));
+  if (caps.thinkingLevels.length) out.push(B("thinking", "Choose the thinking level (effort)", "client", "[level]"));
+  if (caps.compact) out.push(B("compact", "Compact the conversation", "host", caps.compactInstructions ? "[instructions]" : undefined));
   out.push(B("new", "Start a new session", "host"));
   out.push(B("clear", "Start a new session (alias of /new)", "host"));
   if (caps.rename) out.push(B("name", "Name this session", "host", "<name>"));
   out.push(B("resume", "Resume another session", "client"));
-  out.push(B("reload", pi ? "Restart Pi on this session (re-reads auth, settings and extensions)" : `Restart ${n} on this session (re-reads auth and settings)`, "host"));
+  out.push(B("reload", `Restart ${n} on this session (re-reads its login, settings and extensions)`, "host"));
   out.push(B("copy", "Copy the last answer", "client"));
   out.push(B("transcript", "Show the plain transcript", "client"));
   if (caps.tui) out.push(B("tui", `Continue this session in ${n}'s terminal UI`, "client"));
-  utility("login", pi ? "Sign in to a provider (in a terminal)" : `Sign in to ${n} (in a terminal)`);
+  utility("login", "Sign in (in a terminal)");
   utility("settings", `Open ${n}'s settings (in a terminal)`);
   utility("scoped-models", "Choose the models for cycling (in a terminal)");
-  const tuiOnly = (name: string, description: string) => {
-    if (caps.tui && ctx.tuiOnly.includes(name)) out.push({ ...B(name, description, "client"), ...typed(name) });
-  };
-  tuiOnly("tree", `Browse the session tree (in ${n}'s terminal UI)`);
-  tuiOnly("export", `Export the session (in ${n}'s terminal UI)`);
   if (caps.fork) out.push(B("fork", "Fork from an earlier message: a new session up to it", "client"));
-  tuiOnly("hotkeys", `Show ${n}'s hotkeys (in ${n}'s terminal UI)`);
+  if (caps.tui) {
+    for (const c of ctx.tuiCommands) {
+      if (out.some((o) => o.name === c.name)) continue;
+      const description = c.description ? `${c.description} (in ${n}'s terminal UI)` : `In ${n}'s terminal UI`;
+      out.push({ ...B(c.name, description, "client"), input: ctx.tuiInput?.(c.name) ?? `/${c.name}` });
+    }
+  }
   return out;
 }
 
-/** Every built-in name, offered or not: an agent command with one of these names is never listed. */
-const ALL_BUILTIN_NAMES = new Set(["model", "thinking", "compact", "new", "clear", "name", "resume", "reload", "copy", "transcript", "tui", "login", "settings", "scoped-models", "tree", "export", "fork", "hotkeys"]);
+/** Every core built-in name, offered or not: an agent command with one of these names is never listed. */
+const ALL_BUILTIN_NAMES = new Set(["model", "thinking", "compact", "new", "clear", "name", "resume", "reload", "copy", "transcript", "tui", "login", "settings", "scoped-models", "fork"]);
 
 export function mergeCommands(builtin: Command[], agentCommands: unknown): Command[] {
   const out = [...builtin];
   if (!Array.isArray(agentCommands)) return out;
   for (const c of agentCommands) {
     if (!c || typeof c !== "object" || typeof c.name !== "string") continue;
-    if (ALL_BUILTIN_NAMES.has(c.name)) continue;
+    if (ALL_BUILTIN_NAMES.has(c.name) || builtin.some((b) => b.name === c.name)) continue;
     const source = c.source === "prompt" || c.source === "skill" ? c.source : "extension";
     out.push({ name: c.name, description: typeof c.description === "string" ? c.description : "", source, handler: "host" });
   }

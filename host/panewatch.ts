@@ -12,7 +12,7 @@
 // by design) and a host that never saw its chat's pane (the mod's
 // sweepOrphans covers that one).
 
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createConnection } from "node:net";
 import { join } from "node:path";
@@ -95,7 +95,6 @@ export class PaneWatch {
   private reading = false;
   private again = false;
   private retry: NodeJS.Timeout | null = null;
-  private labeled = false;
 
   private o: Opts;
 
@@ -144,15 +143,11 @@ export class PaneWatch {
     if (m.id === 2) {
       if (m.error) return this.o.log(`pane watch: events.subscribe failed: ${JSON.stringify(m.error)}`);
       const me = m.result?.terminals?.find((t) => t.address === this.o.terminal);
-      if (!me || me.parent || me.labels?.["pi-chat.role"] !== "host") {
+      if (!me || me.parent || me.labels?.["herdr-chat.role"] !== "host") {
         this.o.log(`pane watch: ${me ? "a sub-agent's host (no pane of its own)" : `no terminal ${this.o.terminal} in the core`}: off`);
         return this.stop();
       }
-      // The mod's close() leaves the host to this (an older host's gets the mod's detached check).
-      if (!this.labeled) {
-        this.labeled = true;
-        execFile(this.o.hc, ["label", this.o.terminal, "pi-chat.reaps=1"], { timeout: 5000 }, (e) => e && this.o.log(`pane watch: hc label: ${e.message}`));
-      }
+      // The mod's close() leaves the host to this.
       return this.check(); // subscribed first, then read (changes meanwhile come as events)
     }
     const p = m.params;

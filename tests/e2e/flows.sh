@@ -336,7 +336,7 @@ if want live && [ -n "${LIVE:-}" ]; then
   ready
   [ "$(d 'd["model"]')" = anthropic/claude-haiku-4-5 ] && ok "model haiku" || note "model $(d 'd["model"]')"
   shot live-1-open 0.4
-  send_text "Run the bash command: echo hello from pi-chat. Then reply with just the word done."
+  send_text "Run the bash command: echo hello from herdr-chat. Then reply with just the word done."
   expect '[ "$(phase)" = working ]' "Pi works" 20
   expect '[ "$(phase)" = idle ]' "Pi settled" 120
   host >"$ART/live-host.json"
@@ -345,7 +345,7 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 tools = [i for i in d["items"] if i["kind"] == "tool" and i["detail"]["type"] == "bash"]
 ans = [i for i in d["items"] if i["kind"] == "assistant" and i["text"].strip()]
-sys.exit(0 if tools and "hello from pi-chat" in tools[-1]["output"] and tools[-1]["status"] == "done" and ans else 1)
+sys.exit(0 if tools and "hello from herdr-chat" in tools[-1]["output"] and tools[-1]["status"] == "done" and ans else 1)
 EOF
   BASH_ID=$(d "[i['id'] for i in d['items'] if i['kind']=='tool'][-1]")
   cmd "toggle:$BASH_ID"

@@ -34,7 +34,7 @@ class Recording {
     this.sessionDir = sessionDir;
     const args = ["--mode", "rpc", "--model", MODEL, "--thinking", "low", "--session-dir", sessionDir,
       "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files", "--no-mcp", "--no-themes", "--offline", ...extra];
-    this.child = spawn(PI, args, { cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, PI_CHAT_HOST: "1" } });
+    this.child = spawn(PI, args, { cwd, stdio: ["pipe", "pipe", "pipe"], env: { ...process.env, HERDR_CHAT_HOST: "1" } });
     const f = new LineFramer();
     f.onLine = (line) => {
       const rec = JSON.parse(line);

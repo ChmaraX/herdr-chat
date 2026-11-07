@@ -121,9 +121,9 @@ export class DialogCard {
       const field = d.method === "editor"
         ? Textarea.new(this.field).w_full().px(8).py(6).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12.5)
         : Input.new(this.field).h(30).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12.5);
-      const wrap = div().id("dlg-field").key_context(d.method === "editor" ? "PiChatEditor" : "PiChatDialog")
-        .on_action("pichat_dialog_enter", (_e, cx) => answer("submit", null, cx))
-        .on_action("pichat_dialog_escape", (_e, cx) => answer("cancel", null, cx))
+      const wrap = div().id("dlg-field").key_context(d.method === "editor" ? "HerdrChatEditor" : "HerdrChatDialog")
+        .on_action("herdrchat_dialog_enter", (_e, cx) => answer("submit", null, cx))
+        .on_action("herdrchat_dialog_escape", (_e, cx) => answer("cancel", null, cx))
         .child(field);
       body = v_flex().gap(8).child(wrap)
         .child(h_flex().gap(8).child(btn("dlg-submit", "Submit", true, (_e, cx) => answer("submit", null, cx))));
@@ -132,7 +132,7 @@ export class DialogCard {
     return v_flex().gap(8).p(12).rounded(10).border_1().border_color(t.blocked).bg(t.popover)
       .child(h_flex().gap(8).items_center()
         .child(icon("alert", 13).text_color(t.blocked))
-        .child(div().flex_1().min_w(0).text_size(13).font_semibold().text_color(t.foreground).child(d.title || "Pi asks"))
+        .child(div().flex_1().min_w(0).text_size(13).font_semibold().text_color(t.foreground).child(d.title))
         .when(pending > 1, (e) => e.child(div().text_size(11).text_color(t.dim).child(`${pending - 1} more waiting`)))
         .when(left != null, (e) => e.child(div().text_size(11).text_color(t.dim).child(`answers itself in ${left}s`)))
         .child(div().id("dlg-cancel").cursor_pointer().text_size(11).text_color(t.dim).hover((s) => s.text_color(t.foreground))
@@ -177,9 +177,9 @@ export class DialogCard {
     };
     let wrap = null;
     if (hasDeny && this.field) {
-      wrap = div().id("dlg-field").key_context("PiChatDialog")
-        .on_action("pichat_dialog_enter", (_e, cx) => answer("choice", this.choiceFor(d, "escape"), cx))
-        .on_action("pichat_dialog_escape", (_e, cx) => answer("choice", this.choiceFor(d, "escape"), cx))
+      wrap = div().id("dlg-field").key_context("HerdrChatDialog")
+        .on_action("herdrchat_dialog_enter", (_e, cx) => answer("choice", this.choiceFor(d, "escape"), cx))
+        .on_action("herdrchat_dialog_escape", (_e, cx) => answer("choice", this.choiceFor(d, "escape"), cx))
         .child(Input.new(this.field).h(30).px(10).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(12.5));
     }
     return this.frame(d, pending, t, answer, "shield", hasDeny ? "deny" : "cancel")

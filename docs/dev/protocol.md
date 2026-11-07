@@ -1,7 +1,7 @@
-# pi-chat wire protocol (v1)
+# herdr-chat wire protocol (v1)
 
-The contract between **pi-chat-host** (Node, owns `pi --mode rpc`) and its
-clients (the Herdr mod `chat` (folder `mod/chat`), the `pi-chat-host inspect` CLI, tests).
+The contract between **herdr-chat-host** (Node, owns `pi --mode rpc`) and its
+clients (the Herdr mod `chat` (folder `mod/chat`), the `herdr-chat-host inspect` CLI, tests).
 Both sides change only together. Bump `v` on breaking changes.
 
 ## Transport
@@ -21,11 +21,11 @@ The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
 ```json
 { "v": 1, "chat": "c-1a2b3c4d", "pid": 4242, "port": 51234, "token": "<64 hex>",
   "cwd": "/abs/dir", "sessionFile": "/abs/x.jsonl" | null, "terminal": "t7" | null,
-  "startedAt": 1793700000000, "piVersion": "1.5.0" | null }
+  "startedAt": 1793700000000, "agentVersion": "1.5.0" | null }
 ```
 
 - `stateDir` is passed on the host command line (`--state-dir`). The mod uses
-  `appHome() + "/data/pi-chat"`.
+  `appHome() + "/data/herdr-chat"`.
 - **Atomic write:** write a temp file, then rename it over the old one.
 - `terminal` is `$HC_TERMINAL_ID` of the host's terminal.
 - On clean exit the host rewrites the file with `pid: null, port: null` and
@@ -78,7 +78,7 @@ type ChatState = {
   cwd: string;
   sessionFile: string | null;
   sessionName: string | null;
-  piVersion: string | null;
+  agentVersion: string | null;
   model: { provider: string; id: string; name: string; reasoning: boolean; contextWindow: number | null;
            input: string[] } | null;
   thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
@@ -296,6 +296,7 @@ capabilities: {
   permissionModes: { id: string; label: string; description?: string }[];  // [] = no mode chip
   extensionUi: boolean;               // statuses/widgets can arrive (Pi extensions)
   compact: boolean; rename: boolean; fork: boolean;
+  compactInstructions: boolean;       // /compact takes instructions (Codex: no)
   images: boolean;                    // the current model takes images
   cost: boolean;                      // usage.cost is meaningful (Codex: tokens only)
   tui: boolean;                       // a TUI hand-off exists
@@ -360,12 +361,12 @@ ToolDetail +=
 - **Wording.** `state.commands` built-ins depend on the provider. Descriptions use `providerName`, e.g. "/reload restarts Claude Code".
 - **Offered by capability:**
   - `thinking` needs `thinkingLevels`;
-  - `compact` needs `compact`;
+  - `compact` needs `compact` (its `[instructions]` argument `compactInstructions`; without it, `/compact <text>` is refused);
   - `name` needs `rename`;
   - `fork` needs `fork` (the adapter has `forkPoints` and `fork`);
   - `tui` needs `tui`.
 - **Terminal utilities** (`login`, `settings`, `scoped-models`) are offered only when the adapter has an argv for them. The menu entry carries it as `Command.argv`, and the client runs that argv in a terminal in the chat's cwd (no pane: a dialog over the chat shows it), then sends `resume`.
-- **What to type** (`Command.input`, the adapter's `tuiInput(name)`): for a utility or a TUI-only command, the client types it into the terminal once the agent is idle (`hc wait`, then `hc send --if idle`), so the person lands on that screen. Pi: `/<name>` for each; Claude Code: `/config` for `settings`.
+- **What to type** (`Command.input`): for a utility or a TUI command, the client types it into the terminal once the agent is idle (`hc wait`, then `hc send --if idle`), so the person lands on that screen. A TUI command's is `/<name>`; a utility's is the adapter's `tuiInput(name)` (Pi: `/login`, `/settings`, `/scoped-models`; Claude Code: `/config` for `settings`).
 
   | provider | login | settings |
   |---|---|---|
@@ -374,7 +375,7 @@ ToolDetail +=
   | Codex | `codex login` | not offered |
 
   Pi also offers `scoped-models` (`pi --no-session`).
-- **TUI-only commands** (`tree`, `export`, `hotkeys`) appear only for providers that list them (Pi). They are `/tui`-style hand-offs.
+- **TUI commands**: the agent's commands that work only in its own TUI, from the adapter's `tuiCommands()` (Pi: `tree`, `export`, `hotkeys`; Claude Code: its terminal-only commands such as `doctor`, `theme`, `statusline`, minus those the chat has its own way for; Codex: none, its app-server lists none). Offered when `tui`; each is a `/tui`-style hand-off that types `/<name>`.
 - **Op `utility {name}`** returns `{argv}`, or errors with "<Agent> has no /<name>".
 - An agent command named like a built-in stays hidden. A built-in that isn't offered is sent to the agent as text.
 
@@ -400,7 +401,7 @@ queue: { steering: string[]; followUp: string[];
 
 | op | args | data | notes |
 |---|---|---|---|
-| `handoff` | | `{sessionFile, argv}` | as before, plus: `state.handoff` is set and the host watches the hand-off. Pi's argv is now `["env", "PI_CHAT_HANDOFF=<stateDir>/handoff/<chat>.json", "pi", "--session", <file>]`. Asking again during a hand-off returns the same argv. Refused in `conflict` |
+| `handoff` | | `{sessionFile, argv}` | as before, plus: `state.handoff` is set and the host watches the hand-off. Pi's argv is now `["env", "HERDR_CHAT_HANDOFF=<stateDir>/handoff/<chat>.json", "pi", "--session", <file>]`. Asking again during a hand-off returns the same argv. Refused in `conflict` |
 | `handoff_started` | `terminal` (the TUI terminal's hc address) | `{}` | from then on the host polls `hc get <terminal> --json` every 2 s. Idempotent: a reloaded mod can send it again. Error if not in a hand-off |
 | `resume` | | `{}` | works at any time. From a hand-off: reads `<stateDir>/handoff/<chat>.json`; if its `sessionFile` differs and exists, resumes that one (registry updated, an info notice). If the TUI still runs, resumes anyway with a warning notice. In `conflict`: re-checks, stays in conflict (no error) if still held |
 | `take_over` | | `{}` | in `conflict` with another chat: connects to it through its registry, sends `shutdown`, waits for its pid to exit (15 s), then opens the session. Errors: "…outside a chat (pid N). Quit it there, then use resume." when `conflict.chat` is null; "Can't reach the other chat…" / "…did not close…" |
@@ -421,12 +422,12 @@ queue: { steering: string[]; followUp: string[];
 
 ## Host env (tests, tuning)
 
-`PI_CHAT_HC` (hc binary, default `hc`), `PI_CHAT_HANDOFF_POLL_MS` (2000), `PI_CHAT_HANDOFF_GRACE_MS` (60000).
+`HERDR_CHAT_HC` (hc binary, default `hc`), `HERDR_CHAT_HANDOFF_POLL_MS` (2000), `HERDR_CHAT_HANDOFF_GRACE_MS` (60000).
 
 ## Notes for the mod
 
 1. Send `handoff_started {terminal}` right after `hc run` returns the TUI's address, and again after a reload if `state.handoff` is set. You can drop the mod's own TUI watch and its `resume` on exit: the host resumes by itself.
-2. The `tuis.<provider>` override does `[...prog, ...d.argv.slice(1)]`. With Pi's argv now starting `env PI_CHAT_HANDOFF=…`, that breaks. Replace the program after the `env K=V…` prefix instead.
+2. The settings' `<agent>.tui` replaces the program after the `env K=V…` prefix (Pi's argv starts `env HERDR_CHAT_HANDOFF=…`).
 3. Show the "Return to chat" banner from `phase === "handoff"` / `state.handoff`. Show the conflict banner from `state.conflict`: "Go to that chat" when `conflict.chat` is set (registry `<chat>.json` → its terminal), else only "Quit it there"; "Take over" → `take_over`.
 4. After `take_over`, the other chat's host sends `bye {reason: "shutdown"}` and exits. Its mod should treat that as the chat being closed.
 5. Report cards: the queued user item keeps `from` (source `queued`), and the queue chip can read `queue.steeringFrom[i]`.
@@ -487,25 +488,26 @@ Held follow-ups can always be taken back.
 The wire protocol is unchanged. What's new is how a host starts and how the mod
 finds and treats it ([research/subagent-chat.md](research/subagent-chat.md)).
 
-### The host as a sub-agent: `pi-chat-host run`
+### The host as a sub-agent: `herdr-chat-host run`
 
-`bin/pi-chat-subagent [--provider pi|claude|codex] [--session <f>] [--cwd <d>] [-- <agent args>]`
-(= `pi-chat-host run …`) is what a parent agent's `hc run` starts, directly or
+`bin/herdr-chat-subagent [--provider pi|claude|codex] [--session <f>] [--cwd <d>] [-- <agent args>]`
+(= `herdr-chat-host run …`) is what a parent agent's `hc run` starts, directly or
 through the hc templates `pi-chat`, `claude-chat`, `codex-chat`. It `serve`s with:
 
 - `--chat c-<8 hex>`: a fresh id each time (`--chat` is refused: a known id resumes that chat's session);
-- `--state-dir ${HERDR_APP_HOME:-~/.config/herdr-app}/data/pi-chat`, where the mod reads the registry;
-- the agent from `mods/chat/config.json` (`pi`/`claude`/`codex`, `<provider>Args` before the caller's
-  args, `env` for keys the caller didn't set, `node`), and `hc` from it for the label;
+- `--state-dir ${HERDR_APP_HOME:-~/.config/herdr-app}/data/herdr-chat`, where the mod reads the registry;
+- the agent from install's `mods/chat/config.json` and the person's `data/herdr-chat/settings.json`
+  (host/settings.ts: `<agent>.command`, `<agent>.args` before the caller's args, `env` and
+  `<agent>.env` for keys the caller didn't set), and `node` and `hc` from install's config;
 - `--cwd`: the terminal's folder unless given.
 
 Before it serves, it labels its own terminal (`hc label $HC_TERMINAL_ID …`):
 
 | Label | Value | Read by |
 |---|---|---|
-| `pi-chat.chat` | the chat id | the mod (`hostTerminal`), chat-agents, chat-menu |
-| `pi-chat.role` | `subagent` (a chat's own host: `host`) | `sweepOrphans` ends only `role=host` terminals |
-| `pi-chat.provider` | `pi` / `claude` / `codex` | the dialog's `provider` prop |
+| `herdr-chat.chat` | the chat id | the mod (`hostTerminal`), chat-agents, chat-menu |
+| `herdr-chat.role` | `subagent` (a chat's own host: `host`) | `sweepOrphans` ends only `role=host` terminals |
+| `herdr-chat.provider` | `pi` / `claude` / `codex` | the dialog's `provider` prop |
 
 A failed label is a `! hc label …` line on the transcript; the host serves its parent anyway.
 The transcript's second line is a hint: `sub-agent chat · in Herdr: right-click → Open as chat`.

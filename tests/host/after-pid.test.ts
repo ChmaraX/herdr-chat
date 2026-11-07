@@ -61,7 +61,7 @@ test("after-pid: a TUI that doesn't exit is a writer: conflict, then resume once
   const tui = holder(0);
   let b: Host | null = null;
   try {
-    b = await new Host({ name: "ap-stay-b", dir, chat: "c-b", session: file, env: { PI_CHAT_AFTER_PID_WAIT_MS: "800" }, hostArgs: ["--after-pid", String(tui.pid)] }).start();
+    b = await new Host({ name: "ap-stay-b", dir, chat: "c-b", session: file, env: { HERDR_CHAT_AFTER_PID_WAIT_MS: "800" }, hostArgs: ["--after-pid", String(tui.pid)] }).start();
     await b.client.waitFor((x) => x.state.phase === "conflict", 10_000, "conflict");
     assert.equal(b.client.state.conflict?.pid, tui.pid);
     assert.equal(readLock(file), null);

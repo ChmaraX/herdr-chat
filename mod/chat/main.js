@@ -1,5 +1,5 @@
-// chat (the pi-chat mod): an agent (Pi, Claude Code, Codex) as a native chat in a Herdr tab. A `tab.new {mod: "chat",
-// props: {chat, cwd}}` pane. It finds (or starts) the chat's pi-chat-host in
+// chat (the herdr-chat mod): an agent (Pi, Claude Code, Codex) as a native chat in a Herdr tab. A `tab.new {mod: "chat",
+// props: {chat, cwd}}` pane. It finds (or starts) the chat's herdr-chat-host in
 // a herdr-core terminal whose pane sits in this tab, hidden (hostpane.js: the
 // tab and the agents list show the agent's status, nothing draws the host),
 // connects over TCP and renders the host's timeline. It never talks to Pi directly.
@@ -28,7 +28,7 @@ import { fps_monitor } from "gpui-fps";
 import { v_flex, h_flex, Popup } from "gpui-base";
 import { agents, appHome, closeOverlay, focused, hc, home, nextCommand, notify, openOverlay, panes, props, run, settings, setShared, shared, spaces, terminals, theme, updates, window as appWindow } from "herdr";
 import { randomBytes } from "crypto";
-import { modPanes, readDoc, reapLater } from "./place.js";
+import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
 import { SHORTCUTS, actionName, bindShortcuts, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
 import { Connection, hostTerminal, readConfig } from "./connection.js";
@@ -46,16 +46,15 @@ import { Debug } from "./debug.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readImageSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
-import { MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, spansText, spinner, typedText, unwrapHc } from "./util.js";
+import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, spansText, spinner, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
 let VIEWS = 0;
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
-const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
-export default class PiChat extends View {
+export default class HerdrChat extends View {
   init(_props, cx) {
     const p = props() ?? {};
     if (p.viewer) {
@@ -70,15 +69,15 @@ export default class PiChat extends View {
     }
     this.chat = p.chat ?? "c-unknown";
     // A sub-agent's chat (docs/dev/research/subagent-chat.md): its host is another agent's child, started
-    // with `hc run` (bin/pi-chat-subagent), and is the parent's to end. This view never starts, kills,
+    // with `hc run` (bin/herdr-chat-subagent), and is the parent's to end. This view never starts, kills,
     // restarts, hides or moves it. `peek`: the chat as the agents list's peek dialog (no place, no
     // layout writes); `subagent`: the chat in a tab of its own (Open as tab), the host left paneless.
     this.sub = p.peek || p.subagent || null;
     this.peekMode = Boolean(p.peek);
-    this.provider = p.provider ?? null; // pi | claude | codex; null: the registry's, else pi
+    this.provider = p.provider ?? null; // an id of PROVIDERS; null: the registry's, else DEFAULT_PROVIDER
     this.cwd = p.cwd || null;
     this.store = new Store();
-    this.timeline = new Timeline("pi-chat-timeline");
+    this.timeline = new Timeline("herdr-chat-timeline");
     this.expanded = new Set();
     this.full = new Map();
     this.dialog = new DialogCard(() => this.debug?.mark());
@@ -117,7 +116,7 @@ export default class PiChat extends View {
       cx.notify();
     });
     this.composer = new Composer(cx, {
-      placeholder: `Message ${PROVIDER_NAMES[this.provider ?? "pi"] ?? "the agent"}…`,
+      placeholder: `Message ${PROVIDER_NAMES[this.provider ?? DEFAULT_PROVIDER] ?? "the agent"}…`,
       onChange: (cx) => { this.updateMenu(cx); this.debug.mark(); cx.notify(); },
       onPasteOther: (cx) => this.pasteImage(cx),
       skills: () => this.commandList().filter((c) => c.source === "skill").map((c) => ({ command: c.name, name: c.name.replace(/^skill:/, "") })),
@@ -240,7 +239,7 @@ export default class PiChat extends View {
   }
 
   // The Herdr tab follows the chat's name while nobody renamed it: only when
-  // it's still "pi" (the launcher's) or the name we gave it last.
+  // it's still the agent's id (the launcher's) or the name we gave it last.
   renameTab() {
     const me = this.myPane();
     const name = this.displayName();
@@ -336,7 +335,7 @@ export default class PiChat extends View {
       const h = this.store.state.handoff;
       const live = (a) => terminals().some((x) => x.address === a && x.state === "live");
       if (this.store.state.phase === "handoff" && h && !this.handoff) {
-        const tui = h.terminal ?? terminals().find((x) => x.state === "live" && x.labels?.["pi-chat.tui"] === this.chat)?.address ?? null;
+        const tui = h.terminal ?? terminals().find((x) => x.state === "live" && x.labels?.["herdr-chat.tui"] === this.chat)?.address ?? null;
         if (h.terminal && !live(h.terminal)) {
           this.log(`the hand-off's terminal ${h.terminal} is gone: resume`);
           this.fire("resume", {}, cx);
@@ -517,11 +516,11 @@ export default class PiChat extends View {
   // past the read. A host that can't take the label (it just ended) gets no write.
   async beforeAppRead(address, cx) {
     const n = String(Date.now());
-    const r = await hc(["label", address, `pi-chat.sync=${n}`]);
+    const r = await hc(["label", address, `herdr-chat.sync=${n}`]);
     if (r.code !== 0) return false;
     const until = Date.now() + 1500;
     while (Date.now() < until) {
-      if (terminals().find((t) => t.address === address)?.labels?.["pi-chat.sync"] === n) {
+      if (terminals().find((t) => t.address === address)?.labels?.["herdr-chat.sync"] === n) {
         this.phased = (this.phased ?? 0) + 1;
         return Date.now() + APP_READ_AFTER_ECHO;
       }
@@ -618,9 +617,9 @@ export default class PiChat extends View {
       const chats = new Set(this.docPanes.map((x) => x.props?.chat).filter(Boolean));
       const missing = new Set();
       for (const t of terminals()) {
-        const chat = t.labels?.["pi-chat.chat"];
+        const chat = t.labels?.["herdr-chat.chat"];
         // A sub-agent (a parent, or the launcher's role=subagent) has no pane by design: never an orphan.
-        if (t.state !== "live" || t.parent || t.labels?.["pi-chat.role"] !== "host" || !chat || chats.has(chat)) continue;
+        if (t.state !== "live" || t.parent || t.labels?.["herdr-chat.role"] !== "host" || !chat || chats.has(chat)) continue;
         missing.add(t.address);
         if (!this.orphans?.has(t.address)) continue;
         this.log(`orphan host ${t.address} (chat ${chat} has no pane): ending it`);
@@ -701,7 +700,7 @@ export default class PiChat extends View {
       if (rec.state) this.afterState(cx);
       if (rec.upsert?.some((it) => it.kind === "assistant" && it.blocks)) this.syncCode(cx);
     } else if (rec.t === "toast") {
-      notify({ title: "Pi", body: rec.text, level: rec.level === "warning" ? "warning" : rec.level === "error" ? "error" : "info" });
+      notify({ title: this.providerName(), body: rec.text, level: rec.level === "warning" ? "warning" : rec.level === "error" ? "error" : "info" });
       this.log(`toast ${rec.level}: ${rec.text}`);
     } else if (rec.t === "bye") {
       this.log(`bye: ${rec.reason}`);
@@ -893,13 +892,9 @@ export default class PiChat extends View {
     });
   }
 
-  // The slash commands: the host's, plus /transcript (the host's terminal) when an older host doesn't list it.
+  // The slash commands: the host's (built-ins, then the agent's).
   commandList() {
-    const list = this.store.state.commands ?? [];
-    if (list.some((c) => c.name === "transcript")) return list;
-    const at = Math.max(0, list.findIndex((c) => c.source && c.source !== "builtin"));
-    const own = { name: "transcript", description: "Show the host's terminal (the agent's raw output)", source: "builtin", handler: "client" };
-    return at > 0 ? [...list.slice(0, at), own, ...list.slice(at)] : [...list, own];
+    return this.store.state.commands ?? [];
   }
 
   // The shortcut a slash command shares, for the menu: "⇧⌘M" beside /model.
@@ -1007,23 +1002,22 @@ export default class PiChat extends View {
   }
 
   hasThinking() {
-    const s = this.store.state;
-    const caps = this.caps();
-    return caps ? caps.thinkingLevels?.length > 0 : Boolean(s.model?.reasoning || (s.thinking && s.thinking !== "off"));
+    return this.thinkingLevels().length > 0;
   }
 
-  // Shift+Tab: the agent's next permission mode (Ask → Accept edits → Plan → …).
+  // Shift+Tab: the agent's next permission mode (Ask → Accept edits → Plan → …);
+  // an agent with none (Pi) cycles the thinking level instead, as its own TUI does.
   cycleMode(cx) {
     const s = this.store.state;
     const modes = this.caps()?.permissionModes ?? [];
-    if (!modes.length) return this.flash(`${this.providerName()} has no permission modes`, cx);
+    if (!modes.length) return this.cycleEffort(cx);
     const i = modes.findIndex((m) => m.id === s.permissionMode);
     const next = modes[(i + 1) % modes.length];
     this.flash(`Mode: ${next.label}`, cx);
     this.fire("set_permission_mode", { mode: next.id }, cx);
   }
 
-  // The next thinking level (effort) the current model allows, wrapping around (Pi's Shift+Tab).
+  // The next thinking level (effort) the current model allows, wrapping around.
   cycleEffort(cx) {
     if (!this.hasThinking()) return this.flash(`${this.providerName()} has no thinking levels for this model`, cx);
     const levels = this.thinkingLevels();
@@ -1063,7 +1057,7 @@ export default class PiChat extends View {
   // A new chat tab beside this one: same agent, same folder.
   newChat(cx) {
     const place = this.findPlace();
-    const provider = this.store.state.provider ?? this.conn.provider ?? this.provider ?? "pi";
+    const provider = this.providerId();
     const chat = `c-${randomBytes(4).toString("hex")}`;
     const hostEnv = props()?.hostEnv; // (E2E: the fake agent's scenario)
     this.lastNewChat = chat;
@@ -1078,7 +1072,7 @@ export default class PiChat extends View {
         const d = await this.req("models", {}, cx);
         const cur = this.store.state.model;
         const models = [...(d?.models ?? [])].sort((a, b) => Number(Boolean(b.enabled)) - Number(Boolean(a.enabled)));
-        const items = models.map((m) => ({ value: `${m.provider}/${m.id}`, label: m.name || m.id, detail: `${m.provider}/${m.id}${m.enabled ? "" : " · not in enabledModels"}`, current: cur && cur.provider === m.provider && cur.id === m.id, m }));
+        const items = models.map((m) => ({ value: `${m.provider}/${m.id}`, label: m.name || m.id, detail: `${m.provider}/${m.id}${m.enabled ? "" : " · not enabled"}`, current: cur && cur.provider === m.provider && cur.id === m.id, m }));
         this.openPicker(new Picker("model", "Model", items, (it, cx) => {
           this.closePicker(cx);
           this.fire("set_model", { provider: it.m.provider, modelId: it.m.id }, cx);
@@ -1109,18 +1103,21 @@ export default class PiChat extends View {
     }, { hint: keyHint("mode") }), cx);
   }
 
-  // What the agent can do (state.capabilities, protocol v3). A v1/v2 host
-  // sends none: then it's Pi, with Pi's levels.
+  // What the agent can do (state.capabilities); null until the host says.
   caps() {
     return this.store.state.capabilities ?? null;
   }
 
   thinkingLevels() {
-    return this.caps()?.thinkingLevels ?? THINKING;
+    return this.caps()?.thinkingLevels ?? [];
+  }
+
+  providerId() {
+    return this.store.state.provider ?? this.conn.provider ?? this.provider ?? DEFAULT_PROVIDER;
   }
 
   providerName() {
-    return this.store.state.providerName ?? PROVIDER_NAMES[this.store.state.provider ?? this.provider ?? "pi"] ?? "the agent";
+    return this.store.state.providerName ?? PROVIDER_NAMES[this.providerId()] ?? "the agent";
   }
 
   openSessionsPicker(cx) {
@@ -1178,26 +1175,26 @@ export default class PiChat extends View {
       cx.notify();
       return;
     }
-    if (!pk && !m && dlg && this.composer.dialogKeys && !this.composer.value.trim() && ["pichat_up", "pichat_down", "pichat_enter"].includes(a)) {
+    if (!pk && !m && dlg && this.composer.dialogKeys && !this.composer.value.trim() && ["herdrchat_up", "herdrchat_down", "herdrchat_enter"].includes(a)) {
       const n = dlg.method === "select" ? (dlg.options ?? []).length : 2;
-      if (a === "pichat_enter") {
+      if (a === "herdrchat_enter") {
         if (dlg.method === "select") this.answer("value", dlg.options[this.dialog.sel], cx);
         else this.answer("confirm", this.dialog.sel === 0, cx);
-      } else if (n) this.dialog.sel = (this.dialog.sel + (a === "pichat_up" ? -1 : 1) + n) % n;
+      } else if (n) this.dialog.sel = (this.dialog.sel + (a === "herdrchat_up" ? -1 : 1) + n) % n;
     } else if (pk) {
-      if (a === "pichat_up") pk.move(-1);
-      else if (a === "pichat_down") pk.move(1);
-      else if (a === "pichat_enter" || a === "pichat_tab") pk.choose(null, cx);
-      else if (a === "pichat_escape") this.closePicker(cx);
-    } else if (a === "pichat_up" && m) this.composer.moveSel(-1);
-    else if (a === "pichat_down" && m) this.composer.moveSel(1);
-    else if (a === "pichat_enter" && m) return this.pickMenu(null, cx);
-    else if (a === "pichat_tab" && m) return this.pickMenu(null, cx, { complete: true });
-    else if (a === "pichat_up") this.composer.recall(this.store.sentPrompts(), -1);
-    else if (a === "pichat_down") this.composer.recall(this.store.sentPrompts(), 1);
-    else if (a === "pichat_enter") this.send(cx);
-    else if (a === "pichat_stop") this.abort(cx);
-    else if (a === "pichat_escape") {
+      if (a === "herdrchat_up") pk.move(-1);
+      else if (a === "herdrchat_down") pk.move(1);
+      else if (a === "herdrchat_enter" || a === "herdrchat_tab") pk.choose(null, cx);
+      else if (a === "herdrchat_escape") this.closePicker(cx);
+    } else if (a === "herdrchat_up" && m) this.composer.moveSel(-1);
+    else if (a === "herdrchat_down" && m) this.composer.moveSel(1);
+    else if (a === "herdrchat_enter" && m) return this.pickMenu(null, cx);
+    else if (a === "herdrchat_tab" && m) return this.pickMenu(null, cx, { complete: true });
+    else if (a === "herdrchat_up") this.composer.recall(this.store.sentPrompts(), -1);
+    else if (a === "herdrchat_down") this.composer.recall(this.store.sentPrompts(), 1);
+    else if (a === "herdrchat_enter") this.send(cx);
+    else if (a === "herdrchat_stop") this.abort(cx);
+    else if (a === "herdrchat_escape") {
       if (m) this.composer.menu = null;
       else if (this.store.state.dialog) this.answer("cancel", null, cx);
       else if (this.store.working()) this.abort(cx);
@@ -1208,28 +1205,28 @@ export default class PiChat extends View {
   }
 
   askAction(a, d, cx) {
-    const digit = /^pichat_digit_(\d)$/.exec(a);
+    const digit = /^herdrchat_digit_(\d)$/.exec(a);
     if (d.method === "permission") {
       const n = (d.choices ?? []).length;
       if (digit) return this.answer("choice", this.dialog.choiceFor(d, Number(digit[1])), cx), true;
-      if (a === "pichat_enter") return this.answer("choice", this.dialog.choiceFor(d, "enter"), cx), true;
-      if (a === "pichat_escape") {
+      if (a === "herdrchat_enter") return this.answer("choice", this.dialog.choiceFor(d, "enter"), cx), true;
+      if (a === "herdrchat_escape") {
         const deny = this.dialog.choiceFor(d, "escape");
         if (deny) this.answer("choice", deny, cx); else this.answer("cancel", null, cx);
         return true;
       }
-      if ((a === "pichat_up" || a === "pichat_down") && n) { this.dialog.sel = (this.dialog.sel + (a === "pichat_up" ? -1 : 1) + n) % n; return true; }
+      if ((a === "herdrchat_up" || a === "herdrchat_down") && n) { this.dialog.sel = (this.dialog.sel + (a === "herdrchat_up" ? -1 : 1) + n) % n; return true; }
       return false;
     }
     if (d.method === "questions") {
       if (digit) { this.dialog.pick(d, this.dialog.q, Number(digit[1]) - 1); return true; }
-      if (a === "pichat_up" || a === "pichat_down") {
+      if (a === "herdrchat_up" || a === "herdrchat_down") {
         const n = (d.questions ?? []).length;
-        if (n) this.dialog.q = (this.dialog.q + (a === "pichat_up" ? -1 : 1) + n) % n;
+        if (n) this.dialog.q = (this.dialog.q + (a === "herdrchat_up" ? -1 : 1) + n) % n;
         return true;
       }
-      if (a === "pichat_enter") { const ans = this.dialog.answers(d); if (ans) this.answer("answers", ans, cx); return true; }
-      if (a === "pichat_escape") { this.answer("cancel", null, cx); return true; }
+      if (a === "herdrchat_enter") { const ans = this.dialog.answers(d); if (ans) this.answer("answers", ans, cx); return true; }
+      if (a === "herdrchat_escape") { this.answer("cancel", null, cx); return true; }
     }
     return false;
   }
@@ -1533,7 +1530,7 @@ export default class PiChat extends View {
     else if (c.startsWith("click:")) this.control(c.slice(6), cx);
     else if (c === "scroll:up") this.timeline.scrollBy(600);
     else if (c === "scroll:down") this.timeline.scrollBy(-600);
-    else if (c.startsWith("key:")) this.action(`pichat_${c.slice(4)}`, cx);
+    else if (c.startsWith("key:")) this.action(`herdrchat_${c.slice(4)}`, cx);
     else if (c.startsWith("drop:")) this.drop(c.slice(5).split(","), cx);
     else if (c.startsWith("hover:")) this.setHover(c.slice(6) || this.hover, Boolean(c.slice(6)), cx);
     else if (c.startsWith("svghover:")) this.setSvgHover(c.slice(9) || this.svgHover, Boolean(c.slice(9)), cx);
@@ -1570,21 +1567,18 @@ export default class PiChat extends View {
     cx.spawn(async (cx) => {
       try {
         const cfg = await readConfig();
-        // The TUI's command: the host's (v3: the adapter's `argv`, e.g. `claude --resume <id>`),
-        // else Pi's. Config `tuis.<provider>` (or `tui` for Pi) replaces the program, keeping its arguments.
-        const provider = this.store.state.provider ?? this.conn.provider ?? "pi";
-        const over = cfg.tuis?.[provider] ?? (provider === "pi" ? cfg.tui : null);
-        const prog = over ? (Array.isArray(over) ? [...over] : [over]) : null;
+        // The TUI's command: the adapter's (e.g. `claude --resume <id>`). The
+        // person's settings `<agent>.tui` replaces the program, keeping its arguments.
+        const prog = cfg.agent(this.providerId()).tui;
         let argv;
         if (mode === "session") {
           const d = await this.req("handoff", {}, cx, { timeout: 20000 });
-          if (!d?.sessionFile && !d?.argv) throw new Error("this chat has no session file yet");
-          if (d.argv?.length) argv = prog ? withProgram(d.argv, prog) : [...d.argv];
-          else argv = [...(prog ?? ["pi"]), "--session", d.sessionFile];
+          if (!d?.argv?.length) throw new Error("this chat has no session yet");
+          argv = prog ? withProgram(d.argv, prog) : [...d.argv];
         } else argv = prog ? withProgram(utilityArgv, prog) : [...utilityArgv];
         // No herdr.space/tab labels: no pane, so the layout and the chat's tab stay as they are.
-        const r = await hc(["run", "--bg", "--json", "--no-parent", "--name", `pi-tui-${this.chat}`, "--cwd", this.cwd ?? this.store.state.cwd ?? "/",
-          "--label", `pi-chat.tui=${this.chat}`, "--", ...argv]);
+        const r = await hc(["run", "--bg", "--json", "--no-parent", "--name", `chat-tui-${this.chat}`, "--cwd", this.cwd ?? this.store.state.cwd ?? "/",
+          "--label", `herdr-chat.tui=${this.chat}`, "--", ...argv]);
         if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || "hc run failed");
         this.handoff.terminal = JSON.parse(r.stdout).address;
         this.handoff.argv = argv;
@@ -1610,7 +1604,7 @@ export default class PiChat extends View {
     const h = this.handoff ?? (this.store.state.handoff?.terminal ? { mode: "session", name: "tui", terminal: this.store.state.handoff.terminal } : null);
     if (!h?.terminal) return;
     const agent = this.providerName();
-    const termbar = { terminal: h.terminal, mode: h.mode, provider: this.store.state.provider ?? this.provider ?? "pi", agent,
+    const termbar = { terminal: h.terminal, mode: h.mode, provider: this.providerId(), agent,
       title: h.name === "tui" ? `${agent} · terminal UI` : `${agent} · /${h.name}` };
     h.overlay = openOverlay({ kind: "dialog", modal: true, width: 0.86, height: 0.86, layout: { type: "column", children: [
       { type: "block", size: { px: 40 }, content: { mod: MOD, props: { termbar } } },
@@ -1713,13 +1707,8 @@ export default class PiChat extends View {
       return;
     }
     // The chat's pane closed alone leaves the host's hidden pane, a tab that
-    // shows nothing. The host watches for that itself (host/panewatch.ts,
-    // labeled pi-chat.reaps): it closes its pane, and the tab with it. An
-    // older host gets a detached check that ends it once the layout document
-    // has no pane of this chat. After a quit the document still has it, and
-    // the host lives on (place.js reapLater).
-    const term = hostTerminal(this.chat);
-    if (term && !term.labels?.["pi-chat.reaps"]) reapLater(this.chat, term.address).catch(() => {});
+    // shows nothing. The host watches for that itself (host/panewatch.ts): it
+    // closes its pane, and the tab with it.
     this.conn?.close();
   }
 
@@ -2027,7 +2016,7 @@ export default class PiChat extends View {
       .child(composer)
       .children([widgetTray(this, below, t)].filter(Boolean))
       .child(div().h(16).px(6).text_size(11).truncate().text_color(this.flashText ? t.blocked : t.dim).child(hintText ?? ""));
-    let root = v_flex().id("pi-chat").key_context("PiChat").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
+    let root = v_flex().id("herdr-chat").key_context("HerdrChat").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.width) > 0.5) { this.width = sz.width; this.sized(sz.width); cx.notify(); } })
       .on_drop((e, cx) => this.drop(e.paths ?? [], cx))
       .children(this.sub ? [this.subBar(t)] : [])
@@ -2104,8 +2093,8 @@ function isReport(it) {
   return Boolean(it.from ?? unwrapHc(it.text).from);
 }
 
-// An argv with its program replaced (config `tuis` / `tui`), keeping an
-// `env K=V…` prefix (Pi's hand-off: `env PI_CHAT_HANDOFF=… pi --session <f>`).
+// An argv with its program replaced (settings `<agent>.tui`), keeping an
+// `env K=V…` prefix (Pi's hand-off: `env HERDR_CHAT_HANDOFF=… pi --session <f>`).
 function withProgram(argv, prog) {
   let i = 0;
   if (/(^|\/)env$/.test(argv[0] ?? "")) {
@@ -2125,7 +2114,7 @@ function defaultOpen(r) {
 // widgets left open (localStorage, per mod copy).
 function loadPrefs() {
   try {
-    const p = JSON.parse(localStorage.getItem("pi-chat.prefs") ?? "{}");
+    const p = JSON.parse(localStorage.getItem("herdr-chat.prefs") ?? "{}");
     return { hiddenStatuses: Array.isArray(p.hiddenStatuses) ? p.hiddenStatuses : [], widgetsOpen: p.widgetsOpen ?? {} };
   } catch {
     return { hiddenStatuses: [], widgetsOpen: {} };
@@ -2134,6 +2123,6 @@ function loadPrefs() {
 
 function savePrefs(p) {
   try {
-    localStorage.setItem("pi-chat.prefs", JSON.stringify(p));
+    localStorage.setItem("herdr-chat.prefs", JSON.stringify(p));
   } catch {}
 }

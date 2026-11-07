@@ -43,7 +43,7 @@ function log(rec) {
   if (LOG) appendFileSync(LOG, JSON.stringify(rec) + "\n");
 }
 // The first log line records how fake-pi was started (argv and the env a host sets).
-log({ type: "_start", argv, env: { PI_CHAT_HOST: process.env.PI_CHAT_HOST ?? null, HC_TERMINAL_ID: process.env.HC_TERMINAL_ID ?? null }, cwd: process.cwd() });
+log({ type: "_start", argv, env: { HERDR_CHAT_HOST: process.env.HERDR_CHAT_HOST ?? null, HC_TERMINAL_ID: process.env.HC_TERMINAL_ID ?? null }, cwd: process.cwd() });
 
 // ---------- stdin framing (LF only, never U+2028) ----------
 let stdinBuf = Buffer.alloc(0);
@@ -162,10 +162,10 @@ function runScenario() {
   }
 
   // Like herdr-chat-lock's hand-off report: a TUI started by a chat's hand-off
-  // writes every session it opens to PI_CHAT_HANDOFF.
+  // writes every session it opens to HERDR_CHAT_HANDOFF.
   function reportHandoff() {
-    const out = process.env.PI_CHAT_HANDOFF;
-    if (!out || process.env.PI_CHAT_HOST === "1" || !S.sessionFile) return;
+    const out = process.env.HERDR_CHAT_HANDOFF;
+    if (!out || process.env.HERDR_CHAT_HOST === "1" || !S.sessionFile) return;
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(`${out}.${process.pid}.tmp`, JSON.stringify({ sessionFile: S.sessionFile, pid: process.pid, at: Date.now() }));
     renameSync(`${out}.${process.pid}.tmp`, out);

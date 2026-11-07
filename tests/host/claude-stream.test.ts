@@ -17,7 +17,7 @@ test("claude: thinking then text stream into items; state shows the provider, mo
     const s = c.state;
     assert.equal(s.provider, "claude");
     assert.equal(s.providerName, "Claude Code");
-    assert.equal(s.piVersion, "2.1.303");
+    assert.equal(s.agentVersion, "2.1.303");
     assert.deepEqual(s.model && { id: s.model.id, name: s.model.name, provider: s.model.provider }, { id: "haiku", name: "Haiku 5.5", provider: "anthropic" });
     assert.deepEqual(s.capabilities.thinkingLevels, ["low", "medium", "high"], "the model's own effort levels");
     assert.equal(s.capabilities.permissions, true);

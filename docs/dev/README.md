@@ -6,17 +6,14 @@ For working on herdr-chat. The setup and the tests are in
 - [architecture.md](architecture.md): the host, the mods, the hidden host
   pane, sub-agent chats, the install.
 - [protocol.md](protocol.md): the wire contract between the host and its
-  clients (the mod, `pi-chat-host inspect`, the tests). Both sides change
+  clients (the mod, `herdr-chat-host inspect`, the tests). Both sides change
   together.
 - [providers.md](providers.md): one chat UI for several agents; the adapter
   seam and what each agent supports.
 - [visual-v2.md](visual-v2.md): the chat's look and feel. The mod's code
   cites its sections (`visual-v2.md §3`).
-- [feedback-1.md](feedback-1.md): the first round of user feedback and the
-  decisions it led to. The E2E flows in `tests/e2e/flows-fix1.sh` cite its
-  rows.
 
-Older notes call the chat mod `pi` or `pi-chat`, its names before `chat`.
+Older notes (the research) call the chat mod `pi` or `pi-chat`, its names before `chat`, and the project pi-chat before herdr-chat.
 
 ## Research
 

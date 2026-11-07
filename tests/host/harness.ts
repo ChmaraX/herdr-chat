@@ -16,10 +16,10 @@ export const FIXTURES = join(ROOT, "tests", "fixtures");
 export const ARTIFACTS = join(ROOT, "tests", "artifacts", "host");
 /**
  * The host under test: host/main.ts on this Node, or a built one (npm run test:built:
- * PI_CHAT_TEST_HOST=<release>/host/main.js, PI_CHAT_TEST_NODE=<an older node>).
+ * HERDR_CHAT_TEST_HOST=<release>/host/main.js, HERDR_CHAT_TEST_NODE=<an older node>).
  */
-export const HOST_ENTRY = process.env.PI_CHAT_TEST_HOST ? resolve(process.env.PI_CHAT_TEST_HOST) : join(ROOT, "host", "main.ts");
-export const HOST_NODE = process.env.PI_CHAT_TEST_NODE || process.execPath;
+export const HOST_ENTRY = process.env.HERDR_CHAT_TEST_HOST ? resolve(process.env.HERDR_CHAT_TEST_HOST) : join(ROOT, "host", "main.ts");
+export const HOST_NODE = process.env.HERDR_CHAT_TEST_NODE || process.execPath;
 /** Herdr's hook variables, as a host started from a Herdr pane has them (Host.start drops the runner's own). */
 export const HERDR_HOOK_ENV = { HERDR_PANE_ID: "p-test", HERDR_SOCKET_PATH: "/tmp/herdr-test.sock", HERDR_ENV: "1" };
 

@@ -30,7 +30,7 @@ npx tsc --noEmit -p .       # typecheck the host (npm run typecheck)
 tests/e2e/run.sh            # the mods in a private Herdr app
 ```
 
-- **`npm test`** runs `tests/host/*.test.ts`: the real `pi-chat-host`
+- **`npm test`** runs `tests/host/*.test.ts`: the real `herdr-chat-host`
   process against the fake agents (`tests/fake-pi/`, `tests/fake-claude/`,
   `tests/fake-codex/`) and recorded real sessions (`tests/fixtures/`).
   `LIVE=1 npm test` adds one run on real Pi.
@@ -89,7 +89,7 @@ and runs that version's `install/app.sh`.
 
 ```sh
 npm run build               # dist/herdr-chat-<version>.tar.gz and dist/SHA256SUMS
-npm run test:built          # the host suite against the built host (PI_CHAT_TEST_NODE=<node 20> for the minimum)
+npm run test:built          # the host suite against the built host (HERDR_CHAT_TEST_NODE=<node 20> for the minimum)
 npm run test:install        # the release install on a scratch home: install, update, tampered archive, uninstall
 ```
 

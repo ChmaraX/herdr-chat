@@ -40,7 +40,7 @@ export async function startClaude(o: ClaudeHostOptions): Promise<ClaudeHost> {
     CLAUDE_CONFIG_DIR: h.configDir,
     FAKE_CLAUDE_LOG: join(h.dir, "claude-in.jsonl"),
     FAKE_CLAUDE_SPEED: String(o.speed ?? 4),
-    PI_CHAT_CLAUDE_POLL_MS: "150",
+    HERDR_CHAT_CLAUDE_POLL_MS: "150",
     ...o.env,
   };
   if (o.scenario) {

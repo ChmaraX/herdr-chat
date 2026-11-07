@@ -1,6 +1,6 @@
-// The shared tool classifier: (provider, tool name, args, result) → card title
-// and ToolDetail. Driven by per-provider name tables; unknown names become a
-// generic card, never an error.
+// The shared tool classifier: (the agent's ToolMap, tool name, args, result) →
+// card title and ToolDetail. Each adapter brings its ToolMap (its names, and
+// hooks for what only it sends); unknown names become a generic card, never an error.
 import { relative, isAbsolute } from "node:path";
 import type { ToolDetail } from "./timeline.ts";
 
@@ -8,49 +8,38 @@ export const ARGS_LIMIT = 4 * 1024;
 
 type Rec = Record<string, any>;
 
-type Kind = "bash" | "read" | "edit" | "write" | "search" | "web_fetch" | "web_search" | "agent" | "mcp" | "file_change";
+export type ToolKind = "bash" | "read" | "edit" | "write" | "search" | "web_fetch" | "web_search" | "agent" | "mcp" | "file_change";
+export type Rel = (p: string) => string;
+export type Presented = { title: string; detail: ToolDetail };
 
 /**
- * Tool name → kind, per provider. Looked up by exact name, then lowercased.
- * Pi's names are lowercase; Claude's and Codex's are their own spelling.
+ * One agent's tools (its adapter's `tools`): its names for the shared kinds,
+ * and hooks for what only that agent sends.
  */
-const TABLES: Record<string, Record<string, Kind>> = {
-  pi: {
-    bash: "bash", shell: "bash", powershell: "bash",
-    read: "read",
-    edit: "edit", multiedit: "edit", str_replace: "edit",
-    write: "write",
-    grep: "search", find: "search", ls: "search", glob: "search",
-  },
-  claude: {
-    Bash: "bash",
-    Read: "read",
-    Edit: "edit", MultiEdit: "edit", NotebookEdit: "edit",
-    Write: "write",
-    Glob: "search", Grep: "search",
-    WebFetch: "web_fetch",
-    WebSearch: "web_search",
-    Agent: "agent", Task: "agent",
-  },
-  codex: {
-    commandExecution: "bash",
-    fileChange: "file_change",
-    imageView: "read",
-    webSearch: "web_search",
-    mcpToolCall: "mcp",
-    collabAgentToolCall: "agent",
-  },
-};
-
-function kindOf(provider: string, name: string): Kind | undefined {
-  const t = TABLES[provider] ?? TABLES.pi!;
-  return t[name] ?? t[name.toLowerCase()];
+export interface ToolMap {
+  /** Tool name → kind, looked up by exact name, then lowercased. */
+  names: Record<string, ToolKind>;
+  /** A card before the shared shapes (Codex: a shell command that is one read or search, its dynamic tools); null: the shared one. */
+  present?(name: string, args: Rec, rel: Rel): Presented | null;
+  /** The shell command as shown (Codex: without its login-shell wrapper). */
+  command?(raw: string): string;
+  /** A shell's exit code from the native result; undefined: the shared reading. */
+  exitCode?(result: Rec, isError: boolean, output: string): number | null | undefined;
+  /** An edit's or write's detail from the native result (the real patch); undefined: the shared reading. */
+  applyResult?(detail: ToolDetail, result: Rec, cwd: string): ToolDetail | undefined;
 }
 
-function str(v: unknown): string | undefined {
+/** No tool names: every tool a generic card. */
+export const NO_TOOLS: ToolMap = { names: {} };
+
+function kindOf(map: ToolMap, name: string): ToolKind | undefined {
+  return map.names[name] ?? map.names[name.toLowerCase()];
+}
+
+export function str(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
-function num(v: unknown): number | undefined {
+export function num(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
 }
 
@@ -91,8 +80,8 @@ export function diffFromEdits(path: string, args: Rec): string | null {
   return out.join("\n") + "\n";
 }
 
-/** Claude's `structuredPatch` hunks → a unified diff. */
-function diffFromHunks(path: string, hunks: unknown): string | null {
+/** `structuredPatch`-style hunks ({oldStart, oldLines, newStart, newLines, lines}) → a unified diff. */
+export function diffFromHunks(path: string, hunks: unknown): string | null {
   if (!Array.isArray(hunks) || !hunks.length) return null;
   const out = [`--- ${path}`, `+++ ${path}`];
   for (const h of hunks as Rec[]) {
@@ -102,8 +91,8 @@ function diffFromHunks(path: string, hunks: unknown): string | null {
   return out.join("\n") + "\n";
 }
 
-/** Codex `fileChange.changes[]` → a unified diff with synthesized headers. */
-function diffFromChanges(changes: Rec[], rel: (p: string) => string = (p) => p): string | null {
+/** `changes[]` ({path, kind: {type, move_path?}, diff}) → a unified diff with synthesized headers. */
+export function diffFromChanges(changes: Rec[], rel: (p: string) => string = (p) => p): string | null {
   const out: string[] = [];
   for (const c of changes) {
     const p = rel(str(c.path) ?? "");
@@ -118,33 +107,7 @@ function diffFromChanges(changes: Rec[], rel: (p: string) => string = (p) => p):
   return out.length ? out.join("\n") + "\n" : null;
 }
 
-/** `/bin/zsh -lc 'ls -la'` → `ls -la` (Codex wraps every command in a login shell). */
-function unwrapShell(command: string): string {
-  const m = /^(?:\/\S*\/)?(?:ba|z|fi)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/.exec(command);
-  return m ? m[2]! : command;
-}
-
-/**
- * Codex parses each command into actions. One read, listing or search done
- * through the shell gets that card, like Codex's own UI; anything else stays a shell card.
- */
-function codexCommandAction(actions: unknown, rel: (p: string) => string): { title: string; detail: ToolDetail } | null {
-  if (!Array.isArray(actions) || actions.length !== 1) return null;
-  const x = actions[0] as Rec;
-  if (x?.type === "read" && str(x.path)) return { title: `Read ${rel(x.path)}`, detail: { type: "read", path: x.path } };
-  if (x?.type === "listFiles") {
-    const p = str(x.path);
-    return { title: `List ${rel(p ?? ".")}`, detail: { type: "search", tool: "ls", ...(p ? { path: p } : {}) } };
-  }
-  if (x?.type === "search") {
-    const q = str(x.query);
-    const p = str(x.path);
-    return { title: `Grep ${q ?? ""}${p ? ` in ${rel(p)}` : ""}`.trim(), detail: { type: "search", tool: "grep", ...(q ? { query: q } : {}), ...(p ? { path: p } : {}) } };
-  }
-  return null;
-}
-
-export function presentTool(provider: string, name: string, args: unknown, cwd: string): { title: string; detail: ToolDetail } {
+export function presentTool(map: ToolMap, name: string, args: unknown, cwd: string): Presented {
   const a: Rec = args && typeof args === "object" ? (args as Rec) : {};
   const rel = (p: string) => {
     if (!p) return p;
@@ -154,14 +117,14 @@ export function presentTool(provider: string, name: string, args: unknown, cwd: 
     }
     return p;
   };
+  const own = map.present?.(name, a, rel);
+  if (own) return own;
   const path = str(a.path) ?? str(a.file_path) ?? str(a.filePath) ?? str(a.notebook_path) ?? "";
   const lower = name.toLowerCase();
-  switch (kindOf(provider, name)) {
+  switch (kindOf(map, name)) {
     case "bash": {
       const raw = str(a.command) ?? (Array.isArray(a.command) ? a.command.join(" ") : "");
-      const command = provider === "codex" ? unwrapShell(raw) : raw;
-      const viaShell = provider === "codex" ? codexCommandAction(a.commandActions, rel) : null;
-      if (viaShell) return viaShell;
+      const command = map.command ? map.command(raw) : raw;
       return { title: `$ ${firstLine(command)}`, detail: { type: "bash", command } };
     }
     case "read": {
@@ -211,14 +174,6 @@ export function presentTool(provider: string, name: string, args: unknown, cwd: 
       return { title: `Search the web${query ? ` for ${firstLine(query, 80)}` : ""}`, detail: { type: "web", tool: "search", ...(query ? { query } : {}) } };
     }
     case "agent": {
-      if (provider === "codex" && str(a.tool) && a.tool !== "spawnAgent") {
-        const verb: Record<string, string> = {
-          wait: "Wait for agent", sendInput: "Message agent", sendMessage: "Message agent", followupTask: "Follow-up for agent",
-          resumeAgent: "Resume agent", closeAgent: "Close agent", interruptAgent: "Interrupt agent", listAgents: "List agents",
-        };
-        const description = str(a.prompt) ?? "";
-        return { title: `${verb[a.tool] ?? a.tool}${description ? ` ${firstLine(description, 80)}` : ""}`, detail: { type: "agent", description, agentType: a.tool } };
-      }
       const description = str(a.description) ?? str(a.prompt) ?? "";
       const agentType = str(a.subagent_type) ?? str(a.agentType);
       return { title: `Agent ${firstLine(description, 80)}`.trim(), detail: { type: "agent", description, ...(agentType ? { agentType } : {}) } };
@@ -228,34 +183,20 @@ export function presentTool(provider: string, name: string, args: unknown, cwd: 
   }
   const mcp = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name);
   if (mcp) return { title: `mcp ${mcp[1]} · ${mcp[2]}`, detail: { type: "generic", server: mcp[1]!, tool: mcp[2]! } };
-  if ((lower === "mcp" || kindOf(provider, name) === "mcp") && (str(a.tool) || str(a.server))) {
+  if ((lower === "mcp" || kindOf(map, name) === "mcp") && (str(a.tool) || str(a.server))) {
     const server = str(a.server);
     const tool = str(a.tool) ?? "";
     return { title: `mcp ${server ? server + " · " : ""}${tool}`.trim(), detail: { type: "generic", ...(server ? { server } : {}), tool: tool || name } };
-  }
-  if (provider === "codex" && name === "dynamicToolCall" && str(a.tool)) {
-    const ns = str(a.namespace);
-    return { title: `${ns ? `${ns} · ` : ""}${a.tool}`, detail: { type: "generic", ...(ns ? { server: ns } : {}), tool: a.tool } };
-  }
-  if (provider === "codex" && name === "imageGeneration") {
-    return { title: `Generate an image${str(a.prompt) ? `: ${firstLine(a.prompt, 80)}` : ""}`, detail: { type: "generic", tool: "imageGeneration" } };
   }
   const summary = Object.values(a).find((v) => typeof v === "string" && v.length > 0) as string | undefined;
   return { title: summary ? `${name} ${firstLine(summary, 80)}` : name, detail: { type: "generic", tool: name } };
 }
 
-function exitCode(provider: string, name: string, result: unknown, isError: boolean, output: string): number | null | undefined {
-  if (kindOf(provider, name) !== "bash") return undefined;
+function exitCode(map: ToolMap, name: string, result: unknown, isError: boolean, output: string): number | null | undefined {
+  if (kindOf(map, name) !== "bash") return undefined;
   const r: Rec = result && typeof result === "object" ? (result as Rec) : {};
-  if (provider === "claude") {
-    const m = /^Exit code (\d+)/.exec(output);
-    if (m) return Number(m[1]);
-    return isError ? null : 0;
-  }
-  if (provider === "codex") {
-    if ("exitCode" in r) return num(r.exitCode) ?? null;
-    return isError ? null : 0;
-  }
+  const own = map.exitCode?.(r, isError, output);
+  if (own !== undefined) return own;
   const sc = r.structuredContent;
   if (sc && typeof sc === "object") {
     if ("exit_code" in sc) return num((sc as Rec).exit_code) ?? null;
@@ -274,25 +215,22 @@ function exitCode(provider: string, name: string, result: unknown, isError: bool
  * for shells, the real patch for edits (Claude's Write of an existing file
  * becomes an edit).
  */
-export function applyResult(provider: string, name: string, detail: ToolDetail, result: unknown, isError: boolean, output: string, cwd: string): ToolDetail {
+export function applyResult(map: ToolMap, name: string, detail: ToolDetail, result: unknown, isError: boolean, output: string, cwd: string): ToolDetail {
   const r: Rec | null = result && typeof result === "object" ? (result as Rec) : null;
-  if (provider === "claude" && r && (detail.type === "edit" || detail.type === "write")) {
-    const patch = str(r.gitDiff?.patch) ?? diffFromHunks(relPath(detail.path, cwd), r.structuredPatch);
-    if (patch && (detail.type === "edit" || r.type === "update")) detail = { type: "edit", path: detail.path, diff: patch };
-  } else if (provider === "codex" && r && detail.type === "edit" && Array.isArray(r.changes)) {
-    detail.diff = diffFromChanges(r.changes, (p) => relPath(p, cwd)) ?? detail.diff;
-  } else if (detail.type === "edit" && r) {
+  const own = r && (detail.type === "edit" || detail.type === "write") ? map.applyResult?.(detail, r, cwd) : undefined;
+  if (own) detail = own;
+  else if (detail.type === "edit" && r) {
     const patch = str(r.details?.patch);
     if (patch) detail.diff = patch;
   }
   if (detail.type === "bash") {
-    const code = exitCode(provider, name, result, isError, output);
+    const code = exitCode(map, name, result, isError, output);
     if (code !== undefined) detail.exitCode = code;
   }
   return detail;
 }
 
-function relPath(p: string, cwd: string): string {
+export function relPath(p: string, cwd: string): string {
   if (isAbsolute(p) && cwd) {
     const r = relative(cwd, p);
     if (!r.startsWith("..") && !isAbsolute(r)) return r || ".";

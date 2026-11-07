@@ -34,7 +34,7 @@ for (let i = 0; i < argv.length; i++) if (argv[i] === "-c" && argv[i + 1]) {
 }
 const scenario = process.env.FAKE_CODEX_SCENARIO ? JSON.parse(readFileSync(process.env.FAKE_CODEX_SCENARIO, "utf8")) : {};
 const log = (rec) => LOG && appendFileSync(LOG, JSON.stringify(rec) + "\n");
-log({ _start: true, argv, cwd: CWD, env: { HERDR_PANE_ID: process.env.HERDR_PANE_ID ?? null, HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH ?? null, HERDR_ENV: process.env.HERDR_ENV ?? null, PI_CHAT_HOST: process.env.PI_CHAT_HOST ?? null } });
+log({ _start: true, argv, cwd: CWD, env: { HERDR_PANE_ID: process.env.HERDR_PANE_ID ?? null, HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH ?? null, HERDR_ENV: process.env.HERDR_ENV ?? null, HERDR_CHAT_HOST: process.env.HERDR_CHAT_HOST ?? null } });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms / SPEED));
 const now = () => Date.now();

@@ -33,7 +33,7 @@ let permissionMode = flag("--permission-mode") ?? "default";
 let effort = flag("--effort") ?? null;
 
 const log = (rec) => LOG && appendFileSync(LOG, JSON.stringify(rec) + "\n");
-log({ type: "_start", argv, env: { PI_CHAT_HOST: process.env.PI_CHAT_HOST ?? null, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS ?? null, NODE_OPTIONS: process.env.NODE_OPTIONS ?? null, HERDR_PANE_ID: process.env.HERDR_PANE_ID ?? null, HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH ?? null, HERDR_ENV: process.env.HERDR_ENV ?? null }, cwd: process.cwd() });
+log({ type: "_start", argv, env: { HERDR_CHAT_HOST: process.env.HERDR_CHAT_HOST ?? null, CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS ?? null, NODE_OPTIONS: process.env.NODE_OPTIONS ?? null, HERDR_PANE_ID: process.env.HERDR_PANE_ID ?? null, HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH ?? null, HERDR_ENV: process.env.HERDR_ENV ?? null }, cwd: process.cwd() });
 
 const out = (rec) => process.stdout.write(JSON.stringify(rec) + "\n");
 const uuid = () => randomUUID();

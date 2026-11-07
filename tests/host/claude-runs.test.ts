@@ -142,7 +142,7 @@ test("claude: a crash mid-run shows the error; the next message restarts the CLI
 test("claude: a stall gets a warning and Esc recovers; a CLI that ignores the interrupt is stopped and restarted", async () => {
   const h = await startClaude({
     name: "claude-stall", speed: 1,
-    env: { PI_CHAT_CLAUDE_STALL_MS: "700", PI_CHAT_CLAUDE_INTERRUPT_MS: "800" },
+    env: { HERDR_CHAT_CLAUDE_STALL_MS: "700", HERDR_CHAT_CLAUDE_INTERRUPT_MS: "800" },
     scenario: { turns: [{ match: "stall", once: true, steps: [{ hang: true }] }, { match: "wedge", once: true, steps: [{ hang: true, ignoreInterrupt: true }] }], default: [{ text: "ok: {prompt}" }] },
   });
   try {
@@ -161,7 +161,7 @@ test("claude: a stall gets a warning and Esc recovers; a CLI that ignores the in
   }
   const w = await startClaude({
     name: "claude-wedged", speed: 1,
-    env: { PI_CHAT_CLAUDE_STALL_MS: "60000", PI_CHAT_CLAUDE_INTERRUPT_MS: "800" },
+    env: { HERDR_CHAT_CLAUDE_STALL_MS: "60000", HERDR_CHAT_CLAUDE_INTERRUPT_MS: "800" },
     scenario: { ignoreInterrupt: true, turns: [{ match: "wedge", once: true, steps: [{ hang: true, ignoreInterrupt: true }] }], default: [{ text: "ok: {prompt}" }] },
   });
   try {

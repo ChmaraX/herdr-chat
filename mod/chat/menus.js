@@ -147,14 +147,14 @@ export class Picker {
   view(t, actions, o = {}) {
     const items = this.items();
     const { start, list } = windowOf(items, this, 10);
-    let wrap = div().id("picker-input").key_context("PiChatMenu");
-    for (const a of ["pichat_enter", "pichat_up", "pichat_down", "pichat_tab", "pichat_escape"]) wrap = wrap.on_action(a, (_e, cx) => actions(a, cx));
+    let wrap = div().id("picker-input").key_context("HerdrChatMenu");
+    for (const a of ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape"]) wrap = wrap.on_action(a, (_e, cx) => actions(a, cx));
     wrap = wrap.child(Input.new(this.input).h(30).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12.5));
     const more = items.length > 10 ? ` · ${start + 1}–${start + list.length} of ${items.length}` : "";
     return card(t, { id: "picker-card", onWheel: (dy, cx) => { if (this.wheel(dy)) cx.notify(); }, onOutside: o.onOutside }).w_full().gap(4)
       .child(h_flex().px(6).pt(2).gap(8).items_center().child(div().flex_1().text_size(12).font_semibold().text_color(t.foreground).child(this.title))
         .when(Boolean(this.hint), (e) => e.child(div().text_size(11).text_color(t.dim).child(this.hint)))
-        .child(div().id("picker-close").cursor_pointer().text_color(t.dim).on_click((_e, cx) => { cx.stop_propagation(); actions("pichat_escape", cx); }).child(icon("x", 12))))
+        .child(div().id("picker-close").cursor_pointer().text_color(t.dim).on_click((_e, cx) => { cx.stop_propagation(); actions("herdrchat_escape", cx); }).child(icon("x", 12))))
       .child(wrap)
       .child(v_flex().gap(1).children(list.map((it, k) => {
         const i = start + k;

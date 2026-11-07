@@ -15,7 +15,7 @@ export type RegistryEntry = {
   sessionFile: string | null;
   terminal: string | null;
   startedAt: number;
-  piVersion: string | null;
+  agentVersion: string | null;
 };
 
 export function registryPath(stateDir: string, chat: string): string {

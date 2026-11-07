@@ -18,7 +18,7 @@ test("live: real Pi — a bash turn, an abort mid-tool, then resume on the same 
     const c = h.client;
     await c.waitFor(idle, 60_000, "Pi started");
     assert.equal(c.state.model.id, "claude-haiku-4-5");
-    assert.ok(c.state.piVersion, "pi --version read");
+    assert.ok(c.state.agentVersion, "pi --version read");
     await c.req("send", { text: "Use the bash tool to run `echo live-ok`, then reply with just the word done." });
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "assistant" && /done/i.test(i.text) && !i.streaming), 90_000, "answer");
     const tool = c.items.find((i) => i.kind === "tool");

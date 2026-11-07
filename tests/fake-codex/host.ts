@@ -17,7 +17,7 @@ export type CodexHostOptions = {
   session?: string;
   /** Reuse a temp dir (restart on the same Codex home and state). */
   dir?: string;
-  /** The stall watchdog's threshold (PI_CHAT_CODEX_STALL_MS). */
+  /** The stall watchdog's threshold (HERDR_CHAT_CODEX_STALL_MS). */
   stallMs?: number;
   agent?: string;
   env?: Record<string, string>;
@@ -50,7 +50,7 @@ export async function codexHost(o: CodexHostOptions): Promise<CodexHost> {
   const env: Record<string, string> = {
     // The fake's own home (CODEX_HOME also points the adapter's ~/.codex/prompts there); a real Codex keeps the user's.
     ...(fake ? { FAKE_CODEX_HOME: h.codexHome, FAKE_CODEX_LOG: h.codexLog, FAKE_CODEX_SPEED: String(o.speed ?? 4), CODEX_HOME: h.codexHome } : {}),
-    ...(o.stallMs ? { PI_CHAT_CODEX_STALL_MS: String(o.stallMs) } : {}),
+    ...(o.stallMs ? { HERDR_CHAT_CODEX_STALL_MS: String(o.stallMs) } : {}),
   };
   if (o.scenario) {
     let path: string;

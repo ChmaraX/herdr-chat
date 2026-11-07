@@ -1,7 +1,7 @@
 # fake-hc
 
 Stands in for `hc get <terminal> --json`, which the host's hand-off watch polls
-(the host runs `$PI_CHAT_HC`, default `hc`). A terminal is
+(the host runs `$HERDR_CHAT_HC`, default `hc`). A terminal is
 `$FAKE_HC_DIR/<address>.json`, holding what `hc get` would print, such as
 `{"state":"live"}` or `{"state":"finished"}`. Without that file it prints
 hc's `not_found` error and exits 3, like a terminal that was killed and

@@ -51,8 +51,8 @@ if (import.meta.main) {
     process.stdout.write((versionOf(rest[0]) ?? "unknown") + "\n");
   } else if (cmd === "check" && value("--app") && value("--hc")) {
     const r = decide({ app: versionOf(value("--app")!), core: versionOf(value("--hc")!) });
-    for (const w of r.warn) process.stdout.write(`pi-chat: ${w}\n`);
-    if (r.refuse) { process.stderr.write(`pi-chat: ${r.refuse}\n`); process.exit(1); }
+    for (const w of r.warn) process.stdout.write(`herdr-chat: ${w}\n`);
+    if (r.refuse) { process.stderr.write(`herdr-chat: ${r.refuse}\n`); process.exit(1); }
   } else {
     process.stderr.write("usage: node install/compat.ts check --app <herdr-app> --hc <hc> | app-version <herdr-app>\n");
     process.exit(2);

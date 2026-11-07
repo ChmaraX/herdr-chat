@@ -1,7 +1,11 @@
 # Multiple agents, one chat UI
 
-Goal: the same chat UI (mod `chat`, then named `pi`) for **Pi, Claude Code and Codex**, then
-others. The user's rule: nothing provider-specific is hard-coded in the UI.
+Goal: the same chat UI (mod `chat`) for **Pi, Claude Code and Codex**, then
+others. The rule: nothing provider-specific is hard-coded outside an adapter
+(`host/providers/<agent>/`); the core and the mod read capabilities and the
+adapter's answers. The ids and names are listed once on each side:
+`host/providers/index.ts` (the host) and `mod/chat/util.js` (the mod; a mod
+can't import the host's code).
 
 ## The seam
 
@@ -37,7 +41,7 @@ These are refined after the Claude and Codex research.
 - **tool:**
   - `tool_started {callId, name, args}`, `tool_progress {callId, partialOutput}`;
   - `tool_ended {callId, ok, output, images?, exitCode?, diff?}`;
-  - `name` is mapped to a ToolDetail by a **shared** classifier, with per-provider name tables: Pi `bash`/`read`/`edit`/…, Claude `Bash`/`Read`/`Edit`/`MultiEdit`/`Write`/`Grep`/`Glob`/`WebFetch`/`Task`/`TodoWrite`, Codex `commandExecution`/`fileChange`/`mcpToolCall`/`webSearch`.
+  - `name` is mapped to a ToolDetail by a **shared** classifier (host/tools.ts). Each adapter brings its `tools` (a ToolMap, `host/providers/<agent>/tools.ts`): its names for the shared kinds (Pi `bash`/`read`/`edit`/…, Claude `Bash`/`Read`/`Edit`/`MultiEdit`/`Write`/`Grep`/`Glob`/`WebFetch`/`Task`, Codex `commandExecution`/`fileChange`/`mcpToolCall`/`webSearch`), and hooks for what only it sends (Codex's shell wrapper and parsed command actions, Claude's patch in its edit results). The shared code never names an agent.
 - **ask** (one shape for extension dialogs, permission prompts and questions): `ask {id, kind: "select"|"confirm"|"input"|"editor"|"permission", title, message?, options?, tool?: {name, args}, timeoutAt?}`, answered by the `dialog_answer` op. Permission asks render as an approval card: "Allow once / Always / Deny".
 - **decoration:** `status {key, text}`, `widget {key, placement, lines}`, `title {text}`, `notice {level, text}` (from the agent: extensions, hooks, system messages)
 - **session:** `session {id, file?, name?}`, `model {provider, id, name, reasoning, contextWindow}`, `thinking {level}`, `usage {contextTokens, contextWindow, cost}`, `compaction {phase, …}`, `retry {…}`
@@ -57,32 +61,35 @@ These are refined after the Claude and Codex research.
 
 | capability | Pi | Claude Code | Codex |
 |---|---|---|---|
-| `steer` (message mid-run) | yes | ? | ? |
-| `thinkingLevels` | off…max | ? | reasoning effort ? |
-| `permissions` (approval prompts) + `permissionModes` | no (extensions) | yes | yes |
-| `extensionUi` (status/widgets) | yes | hooks/statusline? | no |
-| `compact`, `rename`, `fork` | yes | ? | ? |
-| `images` in prompts | yes | yes | ? |
-| `slash` (agent commands list) | `get_commands` | ? | ? |
-| `tui` (hand-off) | yes | yes | yes |
+| `steer`, `followUp` | yes | yes | yes |
+| `thinkingLevels` | off…xhigh | the model's efforts | the model's efforts |
+| `permissions` + `permissionModes` | no (Pi has no approvals) | yes: Ask, Accept edits, Plan, Auto | yes: Ask first, Read only, Auto, Auto-review, Full access, Plan |
+| `extensionUi` (statuses, widgets) | yes | no | no |
+| `compact` / `compactInstructions` | yes / yes | yes / yes | yes / no |
+| `rename`, `fork` | yes | yes | yes |
+| `images` | per model | yes | per model |
+| `cost` | yes | yes | no (tokens only) |
+| `tui` | yes | yes | yes |
 
-The `?` cells are filled from [`research/provider-claude.md`](research/provider-claude.md) and
-[`research/provider-codex.md`](research/provider-codex.md).
+What else differs, from each agent's own mechanism, not from the chat:
 
-## Process (one host process per chat, unchanged)
+| | Pi | Claude Code | Codex |
+|---|---|---|---|
+| Terminal utilities (`utilityCommand`) | login, settings, scoped-models | login, settings (`/config`) | login |
+| TUI commands (`tuiCommands`) | tree, export, hotkeys | its terminal-only commands | none (its app-server lists none) |
+| Another process on the session | the lock extension | its `~/.claude/sessions` registry (`sessionHolder`) | its "active writer" error |
+| The chat follows a session switch made in `/tui` | yes (the lock extension's hand-off file) | no | no |
+| Continue as chat (a running TUI becomes a chat) | yes (the lock extension's label) | no | no |
 
-- **Launcher:** `cmd-j shift-p` still opens Pi. A provider chooser comes later: the + menu or separate keys.
+## Process (one host process per chat)
+
+- **Launcher:** ⌘I opens `new-chat`, which offers each agent install found.
 - The provider is a chat prop: `{chat, cwd, provider}`. The host gets it as `serve --provider pi|claude|codex`.
 - The registry records it, so reopening uses the same provider.
 - The Herdr agent status (OSC 7501) reports `app=pi|claude|codex`, so Herdr shows the right icon.
 
-## Order of work
+## Adding an agent
 
-1. Pi v2 finished (in progress).
-2. Research Claude Code and Codex structured interfaces from primary sources and the upstream adapters (scouts, now).
-3. Pin the adapter interface (this doc). Refactor the host so Pi is the first adapter, with no behavior change: the existing 37 host tests and 168 E2E checks must still pass.
-4. Claude and Codex adapters in parallel, each with:
-   - a fake agent, plus fixtures recorded from the real CLI;
-   - host tests;
-   - one live run.
-5. The mod: capability-driven bits (approval cards, permission-mode chip, provider icon or label, per-provider model and thinking pickers, provider chooser in the launcher). E2E per provider.
+1. `host/providers/<id>/`: the adapter (`ProviderAdapter`), its `tools.ts` (ToolMap), a fake agent under `tests/fake-<id>/`, host tests.
+2. Register it in `host/providers/index.ts`, and its name and icon in `mod/chat/util.js` (`PROVIDER_NAMES`, `icons/providers/<id>.svg`).
+3. The launcher's entry (`mod/new-chat/main.js` `CHOICES`), its key name (`install/keys.ts`), its instruction file (`install/instructions.ts`) and `PROVIDERS` in `install/app.sh`.

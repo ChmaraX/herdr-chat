@@ -11,7 +11,7 @@
 // overflow-hidden frame, at an offset. GPUI rasterizes an SVG drawn by
 // image() once, at its own width/height × 2, and caches it by path, so a
 // bigger draw is a stretched bitmap. For sharpness the viewer writes copies of
-// the SVG with width/height × 2, 4, 8 (viewBox kept) to data/pi-chat/zoom and
+// the SVG with width/height × 2, 4, 8 (viewBox kept) to data/herdr-chat/zoom and
 // draws the smallest one at least as big as the zoom, within RASTER_MAX (past
 // that the bitmap stretches). The bucket below stays under the new one while
 // it loads, so a switch never shows a blank frame. Pinch: GPUI has

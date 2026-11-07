@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end run of the pi-chat mod in a private Herdr app (see lib.sh): its
-# own app home and herdr-core session, the real pi-chat-host, and fake-pi
+# End-to-end run of the herdr-chat mod in a private Herdr app (see lib.sh): its
+# own app home and herdr-core session, the real herdr-chat-host, and fake-pi
 # scenarios (tests/fake-pi) in place of Pi. LIVE=1 runs one flow on real Pi
 # (anthropic/claude-haiku-4-5) instead.
 #
@@ -9,8 +9,8 @@
 # Flows drive the chat as a person does: the launcher key, typing (keys.py
 # posts keys to the private app only), Enter, Esc; clicks go through the
 # mod's own commands (`chat.click:<control>`, `chat.toggle:<id>`),
-# which run the click handlers' code. Checks read the host (`pi-chat-host
-# inspect`) and the mod's debug dump (data/pi-chat/debug/<chat>.json), never
+# which run the click handlers' code. Checks read the host (`herdr-chat-host
+# inspect`) and the mod's debug dump (data/herdr-chat/debug/<chat>.json), never
 # the screen. Screenshots are taken in short visual passes (lib.sh visible).
 set -euo pipefail
 ART_ARG="${1:-}"
@@ -38,18 +38,20 @@ EOF
 chmod +x "$BASE/fake-tui.sh"
 if [ -n "${LIVE:-}" ]; then
   # Real agents with the person's own logins: Pi and Claude on their cheapest models, Codex picked in the chat (luna, low).
-  CONFIG='{"tui": ["'"$BASE"'/fake-tui.sh"], "piArgs": ["--model", "anthropic/claude-haiku-4-5", "--session-dir", "'"$BASE"'/pi-sessions"],
-    "claudeArgs": ["--model", "haiku"]}'
+  TUI='"tui": ["'"$BASE"'/fake-tui.sh"]'
+  CONFIG='{"pi": {'"$TUI"', "args": ["--model", "anthropic/claude-haiku-4-5", "--session-dir", "'"$BASE"'/pi-sessions"]},
+    "claude": {"args": ["--model", "haiku"]}}'
 else
   # Every provider runs on the real host, with a fake agent: fake-pi, fake-claude, fake-codex.
   # Each TUI hand-off runs the fake TUI with the adapter's arguments (`--session <f>`, `--resume <id>`, `resume --no-daemon <id>`).
-  CONFIG='{"pi": "'"$FAKE"'/fake-pi.mjs", "claude": "'"$REPO"'/tests/fake-claude/fake-claude.mjs", "codex": "'"$REPO"'/tests/fake-codex/fake-codex.mjs",
-    "tui": ["'"$BASE"'/fake-tui.sh"], "tuis": {"claude": ["'"$BASE"'/fake-tui.sh"], "codex": ["'"$BASE"'/fake-tui.sh"]},
-    "env": {"CLAUDE_CONFIG_DIR": "'"$BASE"'/claude-config", "FAKE_CLAUDE_LOG": "'"$BASE"'/fake-claude.log", "FAKE_CLAUDE_SPEED": "2", "PI_CHAT_CLAUDE_POLL_MS": "150",
+  TUI='"tui": ["'"$BASE"'/fake-tui.sh"]'
+  CONFIG='{"pi": {"command": "'"$FAKE"'/fake-pi.mjs", '"$TUI"'}, "claude": {"command": "'"$REPO"'/tests/fake-claude/fake-claude.mjs", '"$TUI"'},
+    "codex": {"command": "'"$REPO"'/tests/fake-codex/fake-codex.mjs", '"$TUI"'},
+    "env": {"CLAUDE_CONFIG_DIR": "'"$BASE"'/claude-config", "FAKE_CLAUDE_LOG": "'"$BASE"'/fake-claude.log", "FAKE_CLAUDE_SPEED": "2", "HERDR_CHAT_CLAUDE_POLL_MS": "150",
             "FAKE_CODEX_HOME": "'"$BASE"'/codex-home", "FAKE_CODEX_LOG": "'"$BASE"'/fake-codex.log", "FAKE_CODEX_SPEED": "2", "FAKE_PI_SPEED": "2", "FAKE_PI_SCENARIO": "'"$SCEN"'/tools.json", "FAKE_PI_LOG": "'"$BASE"'/fake-pi.log"}}'
 fi
 install_mods "$CONFIG"
-cp "$HERDR_APP_HOME/mods/chat/config.json" "$ART/config.json"
+cp "$HERDR_APP_HOME/mods/chat/config.json" "$ART/config.json"; cp "$STATE/settings.json" "$ART/settings.json"
 sleep 1.5
 
 PROJ="$BASE/project"

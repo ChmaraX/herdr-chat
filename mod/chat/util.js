@@ -17,12 +17,15 @@ export const spinner = (size = 12, color) => {
 // An agent's mark: Herdr's program icons (copied into icons/providers/).
 // Pi's is one color (tinted like text); the others keep their colors.
 const FULL_COLOR = new Set(["claude", "codex"]);
-export const PROVIDERS = ["pi", "claude", "codex"];
+// The agents a chat can run (host/providers/index.ts has the same ids): name and icon.
 export const PROVIDER_NAMES = { pi: "Pi", claude: "Claude Code", codex: "Codex" }; // until the host says (state.providerName)
+export const PROVIDERS = Object.keys(PROVIDER_NAMES);
+// A chat opened with no agent named (a layout block `{mod: "chat"}`) and no registry entry.
+export const DEFAULT_PROVIDER = "pi";
 export function providerIcon(provider, size = 14) {
-  const p = PROVIDERS.includes(provider) ? provider : "pi";
-  const path = `mods/${MOD}/icons/providers/${p}.svg`;
-  return (FULL_COLOR.has(p) ? image(path) : svg(path)).size(size).flex_none();
+  if (!PROVIDERS.includes(provider)) return icon("terminal", size).flex_none();
+  const path = `mods/${MOD}/icons/providers/${provider}.svg`;
+  return (FULL_COLOR.has(provider) ? image(path) : svg(path)).size(size).flex_none();
 }
 
 export function monoFont() {

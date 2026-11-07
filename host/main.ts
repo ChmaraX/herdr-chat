@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// pi-chat-host: serve | inspect | send | op
+// herdr-chat-host: serve | inspect | send | op
 import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -10,29 +10,30 @@ import { Terminal } from "./terminal.ts";
 import { writeRegistry, readRegistry, pidAlive } from "./registry.ts";
 import type { RegistryEntry } from "./registry.ts";
 import { ChatClient, parseWait } from "./client.ts";
-import { createAdapter, providerNames } from "./providers/index.ts";
+import { createAdapter, DEFAULT_PROVIDER, providerNames } from "./providers/index.ts";
 import { parseArgs } from "./args.ts";
 import type { Args } from "./args.ts";
-import { appHomeOf, labelSelf, newChatId, planSubagent, readChatConfig } from "./subagent.ts";
+import { appHomeOf, labelSelf, newChatId, planSubagent } from "./subagent.ts";
+import { readChatConfig } from "./settings.ts";
 import { PaneWatch } from "./panewatch.ts";
 
-const USAGE = `pi-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir> [--provider pi] [--session <file>] [--after-pid <pid> [--model <provider/id>] [--thinking <level>]] [--app-home <dir>] [--<provider> <cmd>] [-- <agent args>]
+const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir> [--provider pi] [--session <file>] [--after-pid <pid> [--model <provider/id>] [--thinking <level>]] [--app-home <dir>] [--<provider> <cmd>] [-- <agent args>]
   (--app-home: the Herdr app's home, whose app it asks to close its hidden pane once its chat's pane is gone; default $HERDR_APP_HOME, else ~/.config/herdr-app)
-  (--provider defaults to the chat's registered provider, else pi; --pi <cmd> or PI_CHAT_PI picks the pi binary)
-pi-chat-host run     [--provider pi|claude|codex] [--session <file>] [--cwd <dir>] [-- <agent args>]
+  (--provider defaults to the chat's registered provider, else pi; --pi <cmd> or HERDR_CHAT_PI picks the pi binary)
+herdr-chat-host run     [--provider pi|claude|codex] [--session <file>] [--cwd <dir>] [-- <agent args>]
   (a sub-agent chat, for \`hc run\`: a fresh chat id, the app's state dir and the chat mod's config.json, labels its own terminal)
-pi-chat-host inspect --chat <id> --state-dir <dir> [--wait 'phase=idle,items>=3'] [--timeout <s>]
+herdr-chat-host inspect --chat <id> --state-dir <dir> [--wait 'phase=idle,items>=3'] [--timeout <s>]
   (inspect/send/op wait up to --timeout seconds, default 10 s for connecting and 30 s for --wait, for a starting host)
-pi-chat-host send    --chat <id> --state-dir <dir> [--mode auto|steer|followUp] [--image <path>]... <text>
-pi-chat-host op      --chat <id> --state-dir <dir> <op> ['<json args>']`;
+herdr-chat-host send    --chat <id> --state-dir <dir> [--mode auto|steer|followUp] [--image <path>]... <text>
+herdr-chat-host op      --chat <id> --state-dir <dir> <op> ['<json args>']`;
 
 function die(msg: string): never {
-  process.stderr.write(`pi-chat-host: ${msg}\n`);
+  process.stderr.write(`herdr-chat-host: ${msg}\n`);
   process.exit(2);
 }
 
 function defaultStateDir(): string {
-  return join(homedir(), ".local", "state", "pi-chat");
+  return join(homedir(), ".local", "state", "herdr-chat");
 }
 
 async function serve(a: Args, extra: { hint?: string; warning?: string | null } = {}): Promise<void> {
@@ -43,7 +44,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   const sessionArg = a.flags.get("session")?.[0];
   const session = sessionArg ? resolve(sessionArg) : null;
   const previous = readRegistry(stateDir, chatId);
-  const provider = a.flags.get("provider")?.[0] ?? previous?.provider ?? "pi";
+  const provider = a.flags.get("provider")?.[0] ?? previous?.provider ?? DEFAULT_PROVIDER;
   if (!providerNames().includes(provider)) die(`unknown --provider ${provider} (known: ${providerNames().join(", ")})`);
   const agentCommand = a.flags.get(provider)?.[0];
   // --after-pid: the Pi TUI this chat takes over (chat-menu's Continue as
@@ -75,8 +76,8 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     v: 1, chat: chatId, pid: process.pid, port: null, token, cwd,
     provider,
     // A session of another provider can't be resumed by this one.
-    sessionFile: session ?? ((previous?.provider ?? "pi") === provider ? previous?.sessionFile ?? null : null),
-    terminal: terminalId, startedAt, piVersion: null,
+    sessionFile: session ?? (previous?.provider === provider ? previous?.sessionFile ?? null : null),
+    terminal: terminalId, startedAt, agentVersion: null,
   };
   const save = (patch: Partial<RegistryEntry>) => {
     entry = { ...entry, ...patch };
@@ -94,13 +95,13 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     afterPid: handOver ? afterPid : null,
     imageDir: join(stateDir, "images", chatId),
     stateDir,
-    hcCommand: process.env.PI_CHAT_HC || "hc",
-    ...(Number(process.env.PI_CHAT_HANDOFF_POLL_MS) > 0 ? { handoffPollMs: Number(process.env.PI_CHAT_HANDOFF_POLL_MS) } : {}),
-    ...(Number(process.env.PI_CHAT_HANDOFF_GRACE_MS) >= 0 && process.env.PI_CHAT_HANDOFF_GRACE_MS ? { handoffGraceMs: Number(process.env.PI_CHAT_HANDOFF_GRACE_MS) } : {}),
+    hcCommand: process.env.HERDR_CHAT_HC || "hc",
+    ...(Number(process.env.HERDR_CHAT_HANDOFF_POLL_MS) > 0 ? { handoffPollMs: Number(process.env.HERDR_CHAT_HANDOFF_POLL_MS) } : {}),
+    ...(Number(process.env.HERDR_CHAT_HANDOFF_GRACE_MS) >= 0 && process.env.HERDR_CHAT_HANDOFF_GRACE_MS ? { handoffGraceMs: Number(process.env.HERDR_CHAT_HANDOFF_GRACE_MS) } : {}),
     onSessionFile: (f) => {
       if (f && f !== entry.sessionFile) save({ sessionFile: f });
     },
-    onVersion: (v) => save({ piVersion: v }),
+    onVersion: (v) => save({ agentVersion: v }),
     onShutdown: () => void exit(0),
   });
   const server = new ChatServer(chat, token, log);
@@ -126,7 +127,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   // Its chat's pane closed: its own hidden pane (and the tab) closes, then it exits (panewatch.ts).
   const watch = terminalId
     ? new PaneWatch({ chat: chatId, terminal: terminalId, appHome: resolve(a.flags.get("app-home")?.[0] ?? appHomeOf(process.env, homedir())),
-        hc: process.env.PI_CHAT_HC || "hc", log, onGone: () => void exit(0) })
+        hc: process.env.HERDR_CHAT_HC || "hc", log, onGone: () => void exit(0) })
     : null;
   const exit = async (code: number) => {
     if (shuttingDown) return;
@@ -154,7 +155,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
 
   const port = await server.listen();
   save({ port });
-  term.line(`pi-chat-host · chat ${chatId} · ${cwd}`);
+  term.line(`herdr-chat-host · chat ${chatId} · ${cwd}`);
   if (extra.hint) term.line(extra.hint);
   if (extra.warning) term.line(`! ${extra.warning}`);
   term.status("idle");
@@ -164,7 +165,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   if (handOver && pidAlive(afterPid!)) {
     // Pi flushes and runs its session_shutdown handlers on SIGTERM; then a
     // live pid is a writer (a conflict, until resume).
-    const waitMs = Number(process.env.PI_CHAT_AFTER_PID_WAIT_MS) || 10_000;
+    const waitMs = Number(process.env.HERDR_CHAT_AFTER_PID_WAIT_MS) || 10_000;
     log(`waiting up to ${waitMs} ms for pid ${afterPid} to exit`);
     for (const t0 = Date.now(); pidAlive(afterPid!) && Date.now() - t0 < waitMs; ) await new Promise((r) => setTimeout(r, 100));
   }
@@ -208,7 +209,7 @@ async function main(): Promise<void> {
     case "serve":
       return serve(a);
     case "run": {
-      // A sub-agent chat (bin/pi-chat-subagent): a fresh chat, the app's state dir, the mod's config, self-labels.
+      // A sub-agent chat (bin/herdr-chat-subagent): a fresh chat, the app's state dir, the mod's config, self-labels.
       let plan;
       try {
         const appHome = appHomeOf(process.env, homedir());

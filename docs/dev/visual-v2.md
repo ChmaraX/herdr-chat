@@ -1,4 +1,4 @@
-# pi-chat visual pass (v2)
+# herdr-chat visual pass (v2)
 
 The user's direction after trying v1: it works, now make the chat **look and
 feel** like a first-class chat app. This spec is the target. The protocol

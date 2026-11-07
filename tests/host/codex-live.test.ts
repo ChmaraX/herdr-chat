@@ -16,7 +16,7 @@ test("live: real Codex — a shell command answered through a permission ask, th
     const c = h.client;
     writeFileSync(join(h.cwd, "README.md"), "# live smoke\n");
     await c.waitFor(idle, 60_000, "Codex started");
-    assert.ok(c.state.piVersion, "app-server version read");
+    assert.ok(c.state.agentVersion, "app-server version read");
     await c.req("set_model", { provider: "openai", modelId: "gpt-5.6-luna" });
     await c.req("set_thinking", { level: "low" });
     await c.req("set_permission_mode", { mode: "untrusted" });

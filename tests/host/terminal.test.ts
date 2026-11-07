@@ -109,7 +109,7 @@ test("auth: wrong token, no hello and junk are closed without a reply", async ()
 });
 
 test("keepalive: every client gets a ping on an idle socket and keeps working", async () => {
-  const h = await startHost({ name: "ping", speed: 4, env: { PI_CHAT_PING_MS: "200" } });
+  const h = await startHost({ name: "ping", speed: 4, env: { HERDR_CHAT_PING_MS: "200" } });
   try {
     const c = h.client;
     await c.waitFor(idle, 10_000);

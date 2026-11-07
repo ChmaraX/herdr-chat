@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install pi-chat (Pi, Claude Code and Codex as a native GUI chat) into the Herdr desktop app.
+# Install herdr-chat (Pi, Claude Code and Codex as a native GUI chat) into the Herdr desktop app.
 # The root install.sh runs this: from a clone (./install.sh), or from a release it
 # downloaded and unpacked (the curl one-liner).
 #
@@ -15,7 +15,7 @@
 #   --no-subagents     no hc templates and no sub-agents note in the agents'
 #                      instruction files (--no-templates: the same)
 #
-# Keys: the "global" part of data/pi-chat/keys.json in the app home (KEYS.md):
+# Keys: the "global" part of data/herdr-chat/keys.json in the app home (KEYS.md):
 #   {"global": {"open": "cmd-i", "pi": null, "claude": null, "codex": null}}
 #   open: the "New chat with…" launcher (default cmd-i; cmd-j a when cmd-i is
 #   taken); pi/claude/codex: that agent's chat at once (unbound by default).
@@ -24,7 +24,9 @@
 # What it does, in the app home ($HERDR_APP_HOME, else ~/.config/herdr-app):
 #   - copies every folder in mod/ into mods/ (only over folders it made itself,
 #     marked with a .herdr-chat file) and writes mods/chat/config.json
-#     (absolute paths of the host, node, pi and hc, and herdr-chat's version)
+#     (absolute paths of the host, node, hc and each agent it finds on PATH,
+#     and herdr-chat's version; your own settings go in data/herdr-chat/settings.json,
+#     which install never writes: README "Settings")
 #   - checks Herdr's and herdr-core's versions against the tested ones
 #     (package.json "herdr"): newer warns, older than the minimum is refused
 #   - runs `herdr-app check` on each mod before changing anything else
@@ -35,15 +37,13 @@
 #     a clone): its agents block shows chat-agents (a chat sub-agent's click
 #     opens the chat), its root terminal_menu is chat-menu (Open as chat,
 #     Continue as chat), its floating list gets an empty new-chat block (the
-#     new-chat.* commands); recorded in data/pi-chat/install-layout.json.
+#     new-chat.* commands); recorded in data/herdr-chat/install-layout.json.
 #     A slot another plugin holds is left to it, with what that costs
-#   - removes mods/pi (the chat's old name) when it's ours and no tab or
-#     layout still shows it
 #   - the keys into keys.json's global section (install/keys.ts), the file
 #     rewritten only if unchanged since it was read; recorded in
-#     data/pi-chat/install.json so --uninstall restores exactly that
+#     data/herdr-chat/install.json so --uninstall restores exactly that
 # And in herdr-core's templates ($XDG_CONFIG_HOME, else ~/.config, /herdr-core/templates):
-#   - pi-chat.md, claude-chat.md, codex-chat.md: `hc run … pi-chat "<task>"`
+#   - pi-chat.md, claude-chat.md, codex-chat.md (each agent found): `hc run … pi-chat "<task>"`
 #     starts a sub-agent the person can open as a chat (only over files it wrote)
 # And in each agent's instruction file, when that agent is installed (its folder exists):
 #   - a marked block telling it to start sub-agents that way (install/instructions.ts):
@@ -65,11 +65,11 @@ if [ -f "$ROOT/host/main.js" ]; then EXT=js; else EXT=ts; fi
 INSTALL_CMD="${HERDR_CHAT_INSTALL_CMD:-./install.sh}"
 APP_HOME="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 PI_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
-STATE="$APP_HOME/data/pi-chat"
+STATE="$APP_HOME/data/herdr-chat"
 MARK=".herdr-chat"
 
-say() { printf 'pi-chat: %s\n' "$*"; }
-die() { printf 'pi-chat: %s\n' "$*" >&2; exit 1; }
+say() { printf 'herdr-chat: %s\n' "$*"; }
+die() { printf 'herdr-chat: %s\n' "$*" >&2; exit 1; }
 
 UNINSTALL=0 LAYOUT=1 SUBAGENTS=1 TAKE=()
 TPL_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/herdr-core/templates"
@@ -95,10 +95,6 @@ for d in "$ROOT"/mod/*/; do [ -f "$d/mod.json" ] && MODS+=("$(basename "$d")"); 
 [ "${#MODS[@]}" -gt 0 ] || die "no mods in $ROOT/mod"
 
 ours() { [ ! -e "$1" ] || [ -f "$1/$MARK" ]; }
-LEGACY="pi-chat open-pi-chat"  # old folder names, removed when ours
-# Old names of the chat mod that a pane may still show (Herdr keeps a pane's
-# mod name): no longer installed, removed when ours and nothing shows them.
-ALIASES="pi"
 
 if [ "$UNINSTALL" = 1 ]; then
   # The layout first: it must stop naming chat-agents / chat-menu before they go.
@@ -109,7 +105,7 @@ if [ "$UNINSTALL" = 1 ]; then
   done
   node "$ROOT/install/instructions.$EXT" uninstall "$APP_HOME" || say "the sub-agents notes couldn't be taken out (see above)"
   node "$ROOT/install/keys.$EXT" uninstall "$APP_HOME" || die "keys.json couldn't be restored; mods left in place"
-  for m in "${MODS[@]}" $LEGACY $ALIASES; do
+  for m in "${MODS[@]}"; do
     t="$APP_HOME/mods/$m"
     if [ -d "$t" ] && ours "$t"; then rm -rf "$t"; say "removed mods/$m"; fi
   done
@@ -127,13 +123,20 @@ NODE_MIN=$(sed -n 's/.*"node": *">= *\([0-9][0-9]*\).*/\1/p' "$ROOT/package.json
 "$NODE" -e 'process.exit(+process.versions.node.split(".")[0] >= +process.argv[1] ? 0 : 1)' "${NODE_MIN:-24}" ||
   die "node >= ${NODE_MIN:-24} needed$([ "$EXT" = ts ] && echo " to install from a clone (it runs the TypeScript)"), have $("$NODE" --version) ($NODE)"
 VERSION=$("$NODE" -e 'process.stdout.write(require(process.argv[1]).version)' "$ROOT/package.json")
-PI="$(command -v pi || true)"; [ -n "$PI" ] || die "pi not on PATH"
+# The agents on PATH (any of them will do), recorded for chats: a core terminal lacks the login PATH.
+AGENTS_FOUND=()
+for p in $PROVIDERS; do
+  path="$(command -v "$p" || true)"
+  printf -v "BIN_$p" '%s' "$path"
+  [ -z "$path" ] || AGENTS_FOUND+=("$p")
+done
+[ "${#AGENTS_FOUND[@]}" -gt 0 ] || die "no agent on PATH: install Pi (pi), Claude Code (claude) or Codex (codex) first"
 APP="${HERDR_APP_BIN:-$(command -v herdr-app || true)}"
 [ -n "$APP" ] || for c in /Applications/*.app/Contents/MacOS/Herdr; do [ -x "$c" ] && APP="$c" && break; done
 [ -n "$APP" ] || die "herdr-app not found (set HERDR_APP_BIN)"
 HERDR_CHAT_INSTALL_CMD="$INSTALL_CMD" "$NODE" "$ROOT/install/compat.$EXT" check --app "$APP" --hc "$(command -v hc)" || exit 1
 APP_VER=$("$NODE" "$ROOT/install/compat.$EXT" app-version "$APP")
-for m in "${MODS[@]}"; do ours "$APP_HOME/mods/$m" || die "mods/$m exists and isn't pi-chat's; not touching it"; done
+for m in "${MODS[@]}"; do ours "$APP_HOME/mods/$m" || die "mods/$m exists and isn't herdr-chat's; not touching it"; done
 
 # --- the host's runtime dependencies (package.json "dependencies") ------------------
 # A release has them bundled into host/main.js (and no "dependencies").
@@ -145,7 +148,7 @@ if [ "$EXT" = ts ] && "$NODE" -e 'const d=Object.keys(require(process.argv[1]).d
 fi
 
 # --- mods: copy to a staging folder, check, then swap in ---------------------------
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/pi-chat-stage.XXXX")"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/herdr-chat-stage.XXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 for m in "${MODS[@]}"; do
   cp -R "$ROOT/mod/$m" "$STAGE/$m"
@@ -164,9 +167,10 @@ done
 MODS=("${KEEP[@]}")
 has_mod() { case " ${MODS[*]} " in *" $1 "*) return 0 ;; esac; return 1; }
 HC="$(command -v hc)"
-"$NODE" -e 'const [path, host, node, pi, hc, version] = process.argv.slice(1);
-require("fs").writeFileSync(path, JSON.stringify({ host, node, pi, hc, version }, null, 2) + "\n")' \
-  "$STAGE/chat/config.json" "$LINK/bin/pi-chat-host" "$NODE" "$PI" "$HC" "$VERSION"
+"$NODE" -e 'const [path, host, node, hc, version, pi, claude, codex] = process.argv.slice(1);
+const agents = Object.fromEntries(Object.entries({ pi, claude, codex }).filter(([, v]) => v));
+require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, ...agents }, null, 2) + "\n")' \
+  "$STAGE/chat/config.json" "$LINK/bin/herdr-chat-host" "$NODE" "$HC" "$VERSION" "$BIN_pi" "$BIN_claude" "$BIN_codex"
 for m in "${MODS[@]}"; do
   "$APP" check "$STAGE/$m" >/dev/null 2>&1 || { "$APP" check "$STAGE/$m" || true; die "mods/$m failed herdr-app check; nothing installed"; }
 done
@@ -176,25 +180,12 @@ for m in "${MODS[@]}"; do
   mv "$STAGE/$m" "$APP_HOME/mods/$m"
   say "installed mods/$m"
 done
-for m in $ALIASES; do
-  t="$APP_HOME/mods/$m"
-  [ -d "$t" ] && [ -f "$t/$MARK" ] || continue
-  use=$("$NODE" "$ROOT/install/mods.$EXT" legacy "$APP_HOME" "$m" --hc "$(command -v hc)") || use="keep: install/mods.$EXT failed"
-  if [ "$use" = remove ]; then rm -rf "$t"; say "removed old mods/$m (no tab uses it)"
-  else say "kept old mods/$m, the chat's name before the rename: ${use#keep: }; the next install looks again"; fi
-done
-# Folders earlier versions installed under other names.
-for m in $LEGACY; do
-  case " ${MODS[*]} " in *" $m "*) continue ;; esac   # still shipped under that name
-  t="$APP_HOME/mods/$m"
-  if [ -d "$t" ] && [ -f "$t/$MARK" ]; then rm -rf "$t"; say "removed old mods/$m"; fi
-done
 
 # --- layout: a chat sub-agent's click opens the chat; new-chat's commands -------------
 mkdir -p "$STATE"
 DIRECT=0
 # What the install changed, for the summary at the end.
-S_LAYOUT="left as it is (--no-layout)" S_NOTES="none (--no-subagents)" S_TEMPLATES="none (--no-subagents)" S_EXT="none (no Pi agent dir at $PI_DIR)"
+S_LAYOUT="left as it is (--no-layout)" S_NOTES="none (--no-subagents)" S_TEMPLATES="none (--no-subagents)" S_EXT="none (Pi isn't installed)"
 if [ "$LAYOUT" = 1 ]; then
   args=()
   has_mod chat-agents || args+=(--no-agents)
@@ -202,14 +193,14 @@ if [ "$LAYOUT" = 1 ]; then
   if out=$("$NODE" "$ROOT/install/layout.$EXT" install "$APP_HOME" --app "$APP" "${args[@]+"${args[@]}"}" "${TAKE[@]+"${TAKE[@]}"}"); then
     printf '%s\n' "$out"
     case "$out" in *"new-chat's keys"*) DIRECT=1 ;; esac
-    S_LAYOUT=$(printf '%s\n' "$out" | sed 's/^pi-chat: //; s/^layout //' | paste -sd '|' - | sed 's/|/; /g')
+    S_LAYOUT=$(printf '%s\n' "$out" | sed 's/^herdr-chat: //; s/^layout //' | paste -sd '|' - | sed 's/|/; /g')
   else
     say "layout not changed (see above): sub-agents keep their TUI peek"
     S_LAYOUT="not changed (see above)"
   fi
 fi
 
-# --- keys: data/pi-chat/keys.json's "global" into keys.json ---------------------------
+# --- keys: data/herdr-chat/keys.json's "global" into keys.json ---------------------------
 keyargs=()
 [ "$DIRECT" = 1 ] || keyargs+=(--no-direct)
 out=$("$NODE" "$ROOT/install/keys.$EXT" install "$APP_HOME" "${keyargs[@]+"${keyargs[@]}"}") || die "keys.json not changed (see above)"
@@ -220,21 +211,21 @@ SUMMARY=$(printf '%s\n' "$out" | tail -1)
 if [ "$SUBAGENTS" = 1 ]; then
   mkdir -p "$TPL_DIR"
   wrote=()
-  for p in $PROVIDERS; do
+  for p in "${AGENTS_FOUND[@]}"; do
     f="$TPL_DIR/$p-chat.md"
-    if [ -f "$f" ] && ! grep -qx "$TPL_MARK" "$f"; then say "$f exists and isn't pi-chat's; not touching it"; continue; fi
+    if [ -f "$f" ] && ! grep -qx "$TPL_MARK" "$f"; then say "$f exists and isn't herdr-chat's; not touching it"; continue; fi
     wrote+=("$p-chat")
     case "$p" in pi) name="Pi" ;; claude) name="Claude Code" ;; codex) name="Codex" ;; esac
     cat >"$f" <<TPL
 ---
 description: $name as a sub-agent the person can open as a chat in Herdr (its row in the agents list). Give it the task in hc run.
-command: '$LINK/bin/pi-chat-subagent' --provider $p
+command: '$LINK/bin/herdr-chat-subagent' --provider $p
 $TPL_MARK
 ---
 You are a sub-agent: another agent started you with hc run and gave you the task below. Stay within it. The person may also write to you here.
 TPL
   done
-  say "templates: $(for p in $PROVIDERS; do printf '%s-chat ' "$p"; done)in $TPL_DIR"
+  say "templates: $(for p in "${AGENTS_FOUND[@]}"; do printf '%s-chat ' "$p"; done)in $TPL_DIR"
   S_TEMPLATES="${wrote[*]:-none (those files belong to something else)} in $TPL_DIR"
   if out=$("$NODE" "$ROOT/install/instructions.$EXT" install "$APP_HOME"); then
     printf '%s\n' "$out"
@@ -248,7 +239,7 @@ TPL
 fi
 
 # --- Pi lock extension --------------------------------------------------------------
-if [ -d "$PI_DIR" ]; then
+if [ -n "$BIN_pi" ] && [ -d "$PI_DIR" ]; then
   mkdir -p "$PI_DIR/extensions"
   cp "$ROOT/extension/herdr-chat-lock.ts" "$PI_DIR/extensions/herdr-chat-lock.ts"
   say "installed $PI_DIR/extensions/herdr-chat-lock.ts"

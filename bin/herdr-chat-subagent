@@ -1,0 +1,19 @@
+#!/bin/sh
+# herdr-chat-subagent: a chat host as a sub-agent, for `hc run` (herdr-chat-host run).
+#   hc run --bg --name review herdr-chat-subagent --provider pi -- --model <m>
+# Node: $HERDR_CHAT_NODE, else the chat mod's config.json "node", else node on PATH.
+self="$0"
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case "$link" in
+    /*) self="$link" ;;
+    *) self="$(dirname "$self")/$link" ;;
+  esac
+done
+root="$(cd "$(dirname "$self")/.." && pwd)"
+if [ -z "${HERDR_CHAT_NODE:-}" ]; then
+  cfg="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/mods/chat/config.json"
+  HERDR_CHAT_NODE=$(sed -n 's/.*"node": *"\([^"]*\)".*/\1/p' "$cfg" 2>/dev/null | head -1)
+fi
+main="$root/host/main.js"; [ -f "$main" ] || main="$root/host/main.ts"  # a release's build, else a clone's source
+exec "${HERDR_CHAT_NODE:-node}" "$main" run "$@"

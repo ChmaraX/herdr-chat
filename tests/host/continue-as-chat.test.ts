@@ -1,5 +1,5 @@
 // Continue as chat (mod new-chat's continueAsChat, from chat-menu's right-click
-// item or the "continue" key) on a Pi TUI with a pi-chat.session label, run
+// item or the "continue" key) on a Pi TUI with a herdr-chat.session label, run
 // against a stand-in for Herdr's mod API (the `herdr` module): what it asks
 // the app and herdr-core to do, in order.
 // - A top-level TUI where Pi is a shell's foreground program: the chat opens
@@ -62,9 +62,9 @@ function world(o: { status?: string; parent?: string | null; shellAfter?: "idle"
   let piAlive = true;
   const inShell = o.inShell ?? true;
   const w: any = {
-    calls: [], appHome: "/app", files: { "/app/mods/chat/config.json": JSON.stringify({ host: "/opt/hc/bin/pi-chat-host" }) },
+    calls: [], appHome: "/app", files: { "/app/mods/chat/config.json": JSON.stringify({ host: "/opt/hc/bin/herdr-chat-host" }) },
     terminals: [{ address: "t9", state: "live", status: o.status ?? "idle", app: "pi", parent: o.parent ?? null, name: o.parent ? "review" : null, cwd: "/work",
-      labels: { "pi-chat.session": o.session } }],
+      labels: { "herdr-chat.session": o.session } }],
     panes: o.parent ? [] : [{ pane: "p1", terminal: "t9", tab: "tb1" }],
     hc: (args: string[]) => {
       if (args[0] === "get") {
@@ -73,7 +73,7 @@ function world(o: { status?: string; parent?: string | null; shellAfter?: "idle"
       }
       if (args[0] === "kill") { w.terminals[0].state = "finished"; return { code: 0, stdout: "", stderr: "" }; }
       if (args[0] === "run") {
-        w.terminals.push({ address: "t10", state: "live", labels: { "pi-chat.chat": "c-sub" } });
+        w.terminals.push({ address: "t10", state: "live", labels: { "herdr-chat.chat": "c-sub" } });
         return { code: 0, stdout: JSON.stringify({ address: "t10" }), stderr: "" };
       }
       return { code: 1, stdout: "", stderr: "unexpected" };
@@ -139,7 +139,7 @@ test("continue as chat: a Pi sub-agent: hc kill, then the launcher with its pare
   await continueAsChat("t9", cx);
   assert.deepEqual(w.calls.filter((c: any[]) => c[0] !== "run"), [
     ["hc", "kill", "t9"],
-    ["hc", "run", "--bg", "--json", "--parent", "t2", "--name", "review", "--cwd", "/work", "--", "/opt/hc/bin/pi-chat-subagent", "--provider", "pi", "--session", session,
+    ["hc", "run", "--bg", "--json", "--parent", "t2", "--name", "review", "--cwd", "/work", "--", "/opt/hc/bin/herdr-chat-subagent", "--provider", "pi", "--session", session,
       "--", "--model", "openai-codex/gpt-5.6-luna", "--thinking", "xhigh"],
     ["openOverlay", { mod: "chat", kind: "dialog", width: 0.8, height: 0.8, props: { chat: "c-sub", peek: "t10", provider: "pi" } }],
   ]);
@@ -150,7 +150,7 @@ test("continue as chat: refused while Pi works (and for a terminal without a ses
   await assert.rejects(continueAsChat("t9", cx), /Wait for the run to end/);
   assert.deepEqual(w.calls, []);
   const w2 = world({ session: sessionFile() });
-  delete w2.terminals[0].labels["pi-chat.session"];
-  await assert.rejects(continueAsChat("t9", cx), /no pi-chat.session label/);
+  delete w2.terminals[0].labels["herdr-chat.session"];
+  await assert.rejects(continueAsChat("t9", cx), /no herdr-chat.session label/);
   assert.deepEqual(w2.calls, []);
 });

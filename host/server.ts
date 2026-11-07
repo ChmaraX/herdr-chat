@@ -10,7 +10,7 @@ export const HOST_VERSION = "0.1.0";
 const HELLO_TIMEOUT_MS = 5000;
 const MAX_CLIENT_BUFFER = 64 * 1024 * 1024;
 /** Keepalive: Herdr's mod runtime fails a socket read after ~30 s idle. */
-const PING_MS = Number(process.env.PI_CHAT_PING_MS ?? "15000") || 15000;
+const PING_MS = Number(process.env.HERDR_CHAT_PING_MS ?? "15000") || 15000;
 
 function tokenMatches(given: unknown, expected: string): boolean {
   if (typeof given !== "string") return false;

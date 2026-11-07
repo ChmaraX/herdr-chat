@@ -6,7 +6,7 @@ U+2028/U+2029. Use it wherever the real host would start `pi`:
 
 ```sh
 FAKE_PI_SCENARIO=tests/fake-pi/scenarios/tools.json \
-  bin/pi-chat-host serve --chat c-test --cwd /tmp/x --state-dir /tmp/s --pi tests/fake-pi/fake-pi.mjs
+  bin/herdr-chat-host serve --chat c-test --cwd /tmp/x --state-dir /tmp/s --pi tests/fake-pi/fake-pi.mjs
 ```
 
 ## Command line and environment
@@ -20,8 +20,8 @@ FAKE_PI_SCENARIO=tests/fake-pi/scenarios/tools.json \
 - `FAKE_PI_SCENARIO=<file.json>`: the script (format below). Without it, every prompt gets the answer `ok: <prompt>`.
 - `FAKE_PI_REPLAY=<fixture.jsonl>`: replay a recorded real session instead (see "Replay mode").
 - `FAKE_PI_SPEED=<n>`: divides every wait by `n`, including the `timeout` a dialog advertises. Scenarios are written at real speed; tests use 1–5.
-- `PI_CHAT_HANDOFF=<file>` (outside the host, without `PI_CHAT_HOST=1`): like the herdr-chat-lock extension in a hand-off TUI, it writes `{sessionFile, pid, at}` there whenever it opens a session (start, `new_session`, `switch_session`).
-- `FAKE_PI_LOG=<file>`: appends every command fake-pi receives, one JSON per line, after a first `{"type":"_start", argv, env: {PI_CHAT_HOST, HC_TERMINAL_ID}, cwd}` line. Use it to assert what the host sent, such as `clear_queue` before `abort`.
+- `HERDR_CHAT_HANDOFF=<file>` (outside the host, without `HERDR_CHAT_HOST=1`): like the herdr-chat-lock extension in a hand-off TUI, it writes `{sessionFile, pid, at}` there whenever it opens a session (start, `new_session`, `switch_session`).
+- `FAKE_PI_LOG=<file>`: appends every command fake-pi receives, one JSON per line, after a first `{"type":"_start", argv, env: {HERDR_CHAT_HOST, HC_TERMINAL_ID}, cwd}` line. Use it to assert what the host sent, such as `clear_queue` before `abort`.
 
 Like Pi, fake-pi persists messages to its session file (a session header,
 then `message` entries, plus `session_info`, `model_change` and

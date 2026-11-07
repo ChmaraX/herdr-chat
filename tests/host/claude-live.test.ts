@@ -6,12 +6,12 @@ import { existsSync, rmSync } from "node:fs";
 import { startHost, idle } from "./harness.ts";
 
 test("claude live: a bash call answered through a permission ask, then the answer", { skip: process.env.LIVE !== "1" }, async () => {
-  const h = await startHost({ name: "claude-live", provider: "claude", agent: process.env.PI_CHAT_CLAUDE ?? "claude", piArgs: ["--model", "haiku"] });
+  const h = await startHost({ name: "claude-live", provider: "claude", agent: process.env.HERDR_CHAT_CLAUDE ?? "claude", piArgs: ["--model", "haiku"] });
   try {
     const c = h.client;
     await c.waitFor(idle, 60_000, "claude started");
     assert.equal(c.state.provider, "claude");
-    assert.match(c.state.piVersion ?? "", /^\d+\.\d+\.\d+/);
+    assert.match(c.state.agentVersion ?? "", /^\d+\.\d+\.\d+/);
     await c.req("send", { text: "Use the Bash tool to run exactly: touch live-ok.txt && ls. Then reply with the single word DONE." });
     await c.waitFor((x) => x.state.dialog?.method === "permission", 90_000, "permission card");
     const d = c.state.dialog;

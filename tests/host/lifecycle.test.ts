@@ -148,14 +148,14 @@ test("a lost agent_settled: the get_state probe settles the run", async () => {
   }
 });
 
-test("a command that never answers: a hint after 10 s, Esc still stops it; the child gets PI_CHAT_HOST and HC_TERMINAL_ID", async () => {
+test("a command that never answers: a hint after 10 s, Esc still stops it; the child gets HERDR_CHAT_HOST and HC_TERMINAL_ID", async () => {
   const h = await startHost({ name: "hung-cmd", speed: 1, env: { HC_TERMINAL_ID: "t42" }, scenario: { extensionCommands: { panel: [{ hang: true }] } } });
   try {
     const c = h.client;
     await c.waitFor(idle, 10_000);
     const start = h.piCommands()[0];
     assert.equal(start.type, "_start");
-    assert.deepEqual(start.env, { PI_CHAT_HOST: "1", HC_TERMINAL_ID: "t42" });
+    assert.deepEqual(start.env, { HERDR_CHAT_HOST: "1", HC_TERMINAL_ID: "t42" });
     assert.deepEqual(start.argv.slice(0, 2), ["--mode", "rpc"]);
     assert.equal(h.registry!.terminal, "t42");
     assert.equal((await c.req("send", { text: "/panel" })).disposition, "pending");

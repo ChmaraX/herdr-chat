@@ -1,11 +1,11 @@
-// The clipboard image → a temp PNG, and image files → Pi's ImageContent.
+// The clipboard image → a temp PNG, and image files → ImageContent (base64 + MIME type).
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
-export function clipboardImage(dir = join(tmpdir(), "pi-chat-images")): Promise<string | null> {
+export function clipboardImage(dir = join(tmpdir(), "herdr-chat-images")): Promise<string | null> {
   if (process.platform !== "darwin") return Promise.resolve(null);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `paste-${Date.now()}-${randomBytes(3).toString("hex")}.png`);
@@ -65,7 +65,7 @@ export async function downscale(path: string, bytes: Buffer, mime: string): Prom
   if (process.platform !== "darwin") return bytes;
   const dim = await dimensions(path);
   if (!dim || Math.max(dim.w, dim.h) <= MAX_EDGE) return bytes;
-  const dir = join(tmpdir(), "pi-chat-images");
+  const dir = join(tmpdir(), "herdr-chat-images");
   mkdirSync(dir, { recursive: true });
   const tmp = join(dir, `scaled-${Date.now()}-${randomBytes(3).toString("hex")}${extname(path) || ".png"}`);
   try {
@@ -93,7 +93,7 @@ export async function loadImages(paths: string[]): Promise<ImageContent[]> {
   let total = 0;
   const out: ImageContent[] = [];
   for (const p of paths) {
-    if (/^[a-z]+:\/\//i.test(p)) throw new Error("Pi does not accept image URLs");
+    if (/^[a-z]+:\/\//i.test(p)) throw new Error("Image URLs aren't supported: save the image and attach the file");
     const mime = MIME[extname(p).toLowerCase()];
     if (!mime) throw new Error(`Unsupported image type: ${p}`);
     let bytes: Buffer;

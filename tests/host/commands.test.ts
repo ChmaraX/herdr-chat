@@ -1,6 +1,7 @@
 // The slash menu per provider: built-ins named after the provider, offered only
-// when it supports them, terminal utilities with the adapter's argv, and what
-// the chat types into a terminal it opens so the person lands on that screen.
+// when it supports them, terminal utilities with the adapter's argv, the
+// agent's TUI-only commands, and what the chat types into a terminal it opens
+// so the person lands on that screen.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startHost, idle, FAKE_PI } from "./harness.ts";
@@ -29,8 +30,8 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
       ["resume", "client"], ["reload", "host"], ["copy", "client"], ["transcript", "client"], ["tui", "client"],
       ["login", "client", utility, { input: "/login" }], ["settings", "client", utility, { input: "/settings" }],
       ["scoped-models", "client", utility, { input: "/scoped-models" }],
-      ["tree", "client", { input: "/tree" }], ["export", "client", { input: "/export" }], ["fork", "client"],
-      ["hotkeys", "client", { input: "/hotkeys" }],
+      ["fork", "client"],
+      ["tree", "client", { input: "/tree" }], ["export", "client", { input: "/export" }], ["hotkeys", "client", { input: "/hotkeys" }],
     ]);
     namedFor(pi.client.state, "Pi");
     assert.deepEqual(await pi.client.req("utility", { name: "scoped-models" }), { argv: utility });
@@ -46,6 +47,9 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
       ["model", "client"], ["thinking", "client"], ["compact", "host"], ["new", "host"], ["clear", "host"], ["name", "host"],
       ["resume", "client"], ["reload", "host"], ["copy", "client"], ["transcript", "client"], ["tui", "client"],
       ["login", "client", [FAKE_CLAUDE, "auth", "login"]], ["settings", "client", [FAKE_CLAUDE], { input: "/config" }], ["fork", "client"],
+      // Its terminal-only commands, through its TUI (those the chat has its own way for left out).
+      ...["doctor", "color", "focus", "reload-plugins", "theme", "logout", "terminal-setup", "statusline", "vim", "ide", "install-github-app", "keybindings"]
+        .map((n) => [n, "client", { input: `/${n}` }]),
     ]);
     namedFor(c.state, "Claude Code");
     assert.deepEqual(await c.req("utility", { name: "login" }), { argv: [FAKE_CLAUDE, "auth", "login"] });

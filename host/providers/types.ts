@@ -6,6 +6,7 @@
 // images on disk, the transcript, OSC 7501, `hc send`, the registry, session
 // locks and the built-in slash commands.
 import type { ToolDetail, UserSource, StopReason, Usage, NoticeItem, PlanStep } from "../timeline.ts";
+import type { ToolMap } from "../tools.ts";
 
 export type { ToolDetail, UserSource, StopReason, Usage, PlanStep };
 
@@ -41,6 +42,8 @@ export type Capabilities = {
   /** Statuses and widgets can arrive. */
   extensionUi: boolean;
   compact: boolean;
+  /** /compact takes instructions (what the summary keeps). */
+  compactInstructions: boolean;
   rename: boolean;
   /** /fork: the adapter has `forkPoints` and `fork`. */
   fork: boolean;
@@ -252,6 +255,8 @@ export interface ProviderAdapter {
   readonly name: string;
   /** Initial capabilities; `capabilities` events update them. */
   readonly capabilities: Capabilities;
+  /** Its tools for the shared classifier (host/tools.ts): names and the hooks only it needs. */
+  readonly tools: ToolMap;
   /** The agent process is up. */
   readonly alive: boolean;
 
@@ -296,7 +301,7 @@ export interface ProviderAdapter {
   /**
    * The argv of the agent's own TUI on this session, run in the chat's cwd.
    * `handoffFile`: where the TUI reports the session it is on (Pi's lock
-   * extension reads PI_CHAT_HANDOFF), so the chat resumes that one.
+   * extension reads HERDR_CHAT_HANDOFF), so the chat resumes that one.
    */
   tuiCommand(session: string, ctx?: { handoffFile?: string | null }): string[];
   /**
@@ -310,11 +315,16 @@ export interface ProviderAdapter {
    * The core lists only the built-ins this returns an argv for.
    */
   utilityCommand?(name: string): string[] | null;
-  /** Optional: built-ins that need the session in the agent's own TUI ("tree", "export", "hotkeys"). */
+  /**
+   * Optional: the agent's commands that work only in its own TUI (Pi: tree,
+   * export, hotkeys). The chat lists them; picked, it opens the TUI on this
+   * session and types `/<name>` there (or `tuiInput(name)`).
+   */
+  tuiCommands?(): { name: string; description: string }[];
   readonly tuiOnlyCommands?: string[];
   /**
    * Optional: what the chat types into the agent's terminal once it is idle,
-   * for a built-in that opens one (a utility, a TUI-only command), so
+   * for a built-in that opens one (a utility, a TUI command), so
    * the person lands on that screen (Pi: "/login"). Null: nothing.
    */
   tuiInput?(name: string): string | null;
