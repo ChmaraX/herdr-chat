@@ -31,7 +31,7 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
       ["login", "client", utility, { input: "/login" }], ["settings", "client", utility, { input: "/settings" }],
       ["scoped-models", "client", utility, { input: "/scoped-models" }],
       ["fork", "client"],
-      ["tree", "client", { input: "/tree" }], ["export", "client", { input: "/export" }], ["hotkeys", "client", { input: "/hotkeys" }],
+      ...["tree", "export", "import", "share", "clone", "session", "changelog", "hotkeys", "trust", "logout", "bug"].map((n) => [n, "client", { input: `/${n}` }]),
     ]);
     namedFor(pi.client.state, "Pi");
     assert.deepEqual(await pi.client.req("utility", { name: "scoped-models" }), { argv: utility });
@@ -71,6 +71,7 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
       ["model", "client"], ["thinking", "client"], ["compact", "host"], ["new", "host"], ["clear", "host"], ["name", "host"],
       ["resume", "client"], ["reload", "host"], ["copy", "client"], ["transcript", "client"], ["tui", "client"],
       ["login", "client", [FAKE_CODEX, "login"]], ["fork", "client"],
+      ...["init", "status", "review", "diff", "mcp", "hooks", "export", "statusline", "vim", "ide", "logout"].map((n) => [n, "client", { input: `/${n}` }]),
     ], "no Pi-only built-ins");
     namedFor(c.state, "Codex");
     assert.equal(names.includes("compact"), c.state.capabilities.compact);

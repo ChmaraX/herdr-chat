@@ -2,12 +2,11 @@
 // copied at install time) with two items on top for a terminal that is a
 // sub-agent's chat host (labeled herdr-chat.chat by bin/herdr-chat-subagent): Open
 // as chat (the chat dialog, in place of the Rust peek that shows its
-// transcript) and Open as a chat tab. For a Pi TUI (idle or done, its session known from the
-// herdr-chat-lock extension's herdr-chat.session label), a sub-agent or a
-// top-level TUI in its own pane: Continue as chat, which hands it over to a
-// chat on that session (new-chat's continueAsChat, run by the layout's
-// always-shown new-chat copy, since this menu closes first); disabled, with
-// "Wait for the run to end", while Pi works.
+// transcript) and Open as a chat tab. For an agent's TUI (Pi, Claude Code or
+// Codex, idle or done), a sub-agent or a top-level TUI in its own pane:
+// Continue as chat, which hands it over to a chat on its session (new-chat's
+// continueAsChat, run by the layout's always-shown new-chat copy, since this
+// menu closes first); disabled, with "Wait for the run to end", while it works.
 // Every other menu is the shipped one, drawn by it. The layout's root
 // terminal_menu points here (install.sh).
 
@@ -25,21 +24,22 @@ function chatOf(p) {
 }
 
 const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
-const isPi = (t) => [t.program?.key, t.app, t.status?.app, t.report?.app, t.agent].includes("pi");
+// Herdr's names for the agents (its status reports Claude Code as claude-code) → ours. A copy of new-chat's.
+const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex" };
+const agentOf = (t) => [t?.program?.key, t?.app, t?.status?.app, t?.report?.app, t?.agent].map((a) => HERDR_AGENTS[a]).find(Boolean) ?? null;
 
 /** Why a terminal can't continue as a chat (null: it can; `working`: once its run ends). A copy of new-chat's. */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
   if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
-  if (!t.labels?.["herdr-chat.session"]) return { why: "no herdr-chat.session label (the herdr-chat-lock extension labels it)" };
-  if (!isPi(t)) return { why: "not Pi" };
+  if (!agentOf(t)) return { why: "not an agent's TUI" };
   const st = word(t.status);
   if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
   if (!["idle", "done"].includes(st)) return { why: `status ${st}` };
   return null;
 }
 
-/** A Pi TUI (sub-agent or top-level) the menu offers Continue as chat for: {address, working}, else null. */
+/** An agent's TUI (sub-agent or top-level) the menu offers Continue as chat for: {address, working}, else null. */
 export function tuiOf(p) {
   if (p?.tab !== "pane") return null;
   const t = terminals().find((x) => x.address === p.target?.terminal);
@@ -85,7 +85,7 @@ export default class ChatMenu extends Menu {
     if (c) return this.chatItems(c);
     const tui = tuiOf(props());
     if (!tui) return [];
-    // While Pi works: shown, disabled (no action), with why.
+    // While the agent works: shown, disabled (no action), with why.
     return [tui.working ? ["Continue as chat", null, "Wait for the run to end"] : ["Continue as chat", () => run(`new-chat.continue:${tui.address}`)]];
   }
 

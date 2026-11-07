@@ -1,5 +1,6 @@
 node_modules/
 /tests/artifacts/
+/tests/.venv/
 /.pi-subagents/
 *.log
 .DS_Store

@@ -375,7 +375,7 @@ ToolDetail +=
   | Codex | `codex login` | not offered |
 
   Pi also offers `scoped-models` (`pi --no-session`).
-- **TUI commands**: the agent's commands that work only in its own TUI, from the adapter's `tuiCommands()` (Pi: `tree`, `export`, `hotkeys`; Claude Code: its terminal-only commands such as `doctor`, `theme`, `statusline`, minus those the chat has its own way for; Codex: none, its app-server lists none). Offered when `tui`; each is a `/tui`-style hand-off that types `/<name>`.
+- **TUI commands**: the agent's commands that work only in its own TUI, from the adapter's `tuiCommands()` (Pi: its built-ins RPC doesn't run, such as `tree`, `export`, `share`, `session`; Claude Code: its terminal-only commands such as `doctor`, `theme`, `statusline`; Codex: its TUI's, such as `init`, `status`, `review`, `diff`, `mcp`; each minus those the chat has its own way for). Offered when `tui`; each is a `/tui`-style hand-off that types `/<name>`.
 - **Op `utility {name}`** returns `{argv}`, or errors with "<Agent> has no /<name>".
 - An agent command named like a built-in stays hidden. A built-in that isn't offered is sent to the agent as text.
 

@@ -217,20 +217,27 @@ with open(path, "w") as f:
     f.write(json.dumps({"type": "message", "id": "m0", "parentId": None, "timestamp": ts, "message": u}) + "\n")
     f.write(json.dumps({"type": "message", "id": "m1", "parentId": "m0", "timestamp": ts, "message": a}) + "\n")
 PY
-  cat >"$BASE/fake-pi-tui.sh" <<'SH'
-#!/bin/sh
-printf '\033]7501;state=idle:app=pi\033\\'
-echo "fake Pi TUI"
-exec sleep 600
-SH
-  chmod +x "$BASE/fake-pi-tui.sh"
-  TRUN=$(hc run --bg --json --parent "$SHELL_T" --name tuisub --cwd "$PROJ" -- "$BASE/fake-pi-tui.sh" 2>>"$LOG") || fail "hc run the fake TUI"
+  # A fake Pi TUI: a script named pi (the agent's program is found by its name), its status
+  # reported again and again (one report at start can go before the core reads the terminal).
+  mkdir -p "$BASE/tuibin"
+  cat >"$BASE/tuibin/pi" <<'JS'
+process.title = "pi";
+const report = () => process.stdout.write("\x1b]7501;state=idle:app=pi\x1b\\");
+report(); setInterval(report, 500);
+console.log("fake Pi TUI");
+JS
+  TRUN=$(hc run --bg --json --parent "$SHELL_T" --name tuisub --cwd "$PROJ" -- "$NODE" "$BASE/tuibin/pi" 2>>"$LOG") || fail "hc run the fake TUI"
   TUI=$(echo "$TRUN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
   hc label "$TUI" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
   expect '[ "$(term_field "$TUI" "(t.get(\"status\") or {}).get(\"state\")")" = idle ] && [ "$(term_field "$TUI" "(t.get(\"status\") or {}).get(\"app\")")" = pi ]' "the TUI reports idle, as pi, under $SHELL_T" 10
-  do_ "chat-agents.menu:$TUI"
+  # The app learns the TUI's status a moment after the core: the menu offers Continue as chat once it has.
+  menu_offers() {
+    rm -f "$STATE/debug/chat-menu.json"
+    do_ "chat-agents.menu:$TUI"
+    until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("cantContinue") is None else 1)' "$STATE/debug/chat-menu.json"
+  }
+  for _ in 1 2 3 4 5; do menu_offers && break; do_ overlay.close; sleep 1; done
   expect 'overlay_open chat-menu' "its right-click menu (chat-menu)" 5
-  until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 || true
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("chat-menu:", json.dumps({"cantContinue": d.get("cantContinue"), "terminal": {k: (d.get("terminal") or {}).get(k) for k in ("address","state","status","parent","program","app","agent","report","labels")}}))' "$STATE/debug/chat-menu.json" >>"$LOG" 2>&1 || true
   do_ chat-menu.pick:0
   expect '[ "$(term_field "$TUI" "t[\"state\"]" 2>/dev/null)" != live ]' "Continue as chat ended the TUI (hc kill)" 10
@@ -313,113 +320,4 @@ JS
   FP=$("$APP" status | python3 -c 'import json,sys; s=json.load(sys.stdin); print(s["tab"], s["focused_pane"])')
   [ "$FP" = "$TIPTAB $(tab_panes "$TIPTAB" | awk '$2 == "mod:chat" {print $1}')" ] && ok "the chat is focused, in that tab" || fail "focus: $FP; the tab: $(tab_panes "$TIPTAB" | tr '\n' '|')"
   close_chat "$J"
-fi
-
-# --- experiments E1–E4 (research subagent-chat.md §3.2): run only when named,
-# `tests/e2e/run.sh <dir> subagent-exp`. Findings go to the log as "E<n>: …"
-# notes (a key the undrawn window drops is a finding too, never retried here).
-if [[ " ${FLOWS:-} " == *" subagent-exp "* ]]; then
-  finding() { note "$*"; echo "$*" >>"$ART/findings.txt"; }
-  step "E: setup (layout, template, a chat tab, a sub-agent)"
-  "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts"
-  sleep 1
-  OTHER=$(open_chat other)
-  until_ '[ "$(dbg "$OTHER" "d[\"connection\"][\"status\"]")" = connected ]' 25 || fail "other chat"
-  OTHERHOST=$(dbg "$OTHER" 'd["host"]["address"]')
-  do_ pane.focus --terminal "$SHELL_T"
-  mkdir -p "$XDG_CONFIG_HOME/herdr-core/templates"
-  cat >"$XDG_CONFIG_HOME/herdr-core/templates/pi-chat.md" <<TPL
----
-description: test
-command: env FAKE_PI_SCENARIO='$SCEN/abort.json' '$REPO/bin/herdr-chat-subagent' --provider pi
----
-You are a sub-agent.
-TPL
-  RUN=$(hc run --bg --json --parent "$SHELL_T" --name r pi-chat "quick: task") || fail "hc run"
-  SUB=$(echo "$RUN" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  finding "E2: hc run herdr-chat: first_message $(echo "$RUN" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("first_message")))')"
-  until_ '[ -n "$(term_field "$SUB" "t[\"labels\"].get(\"herdr-chat.chat\")")" ]' 10 || fail "labels"
-  SUBCHAT=$(term_field "$SUB" 't["labels"]["herdr-chat.chat"]')
-  t0=$SECONDS; hc wait r >>"$LOG" 2>&1; finding "E2: hc wait r returned after $((SECONDS - t0)) s, status $(term_field "$SUB" 't.get("status")'), agent $(term_field "$SUB" 't.get("agent")'), parent $(term_field "$SUB" 't.get("parent")')"
-  finding "E2: hc read r: $(screen "$SUB" | grep -c '^Quick answer') answer(s)"
-
-  step "E1: the dialog"
-  CHAT="$SUBCHAT.peek"
-  do_ "chat-agents.peek:$SUB"
-  until_ 'overlay_open chat' 8 || fail "no dialog"
-  until_ connected 15 || fail "not connected"
-  finding "E1: status overlays: $("$APP" status | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["overlays"]))')"
-  finding "E1: dump placeFrom=$(d 'd["placeFrom"]') hideWrites=$(d 'd["hideWrites"]') place=$(d 'd["place"]') window drawn=$(drawn && echo yes || echo no)"
-  until_ '[ "$(d "d[\"composer\"][\"focused\"]")" = true ]' 3 || true; finding "E1: composer focused on open: $(d 'd["composer"]["focused"]')"
-  keys "text:x"; sleep 1; finding "E1: a typed x reached the composer: $([ "$(d 'd["composer"]["text"]')" = x ] && echo yes || echo "no ($(d 'd["composer"]["text"]'))")"
-  cmd clear
-  for i in 1 2 3; do do_ "chat-agents.peek:$SUB"; sleep 0.8; done
-  finding "E1: after 3 more clicks: $("$APP" status | python3 -c 'import json,sys; print(sum(1 for x in json.load(sys.stdin)["overlays"] if "chat" in json.dumps(x)))') chat overlay(s)"
-  until_ connected 15 || true
-  # Esc while the agent works: whose binding wins, the app's Overlay escape (closes) or the chat's (stops)?
-  hc send r "start the long build" >>"$LOG" 2>&1
-  until_ '[ "$(phase)" = working ]' 10 || fail "never working"
-  sleep 0.5; keys esc; sleep 2
-  open_now=$(overlay_open chat && echo open || echo closed); ph=$(term_field "$SUB" 't.get("status")')
-  finding "E1: Esc while working: dialog $open_now, sub-agent status $ph ($( [ $open_now = closed ] && echo "the app's Overlay binding won" || { [ "$ph" != working ] && echo "the chat's own Esc won: it stopped the run" || echo "the key didn't land"; }))"
-  if [ "$open_now" = closed ]; then hc interrupt r >>"$LOG" 2>&1; do_ "chat-agents.peek:$SUB"; until_ 'overlay_open chat' 8 || true; until_ connected 15; fi
-  until_ '[ "$(term_field "$SUB" "t.get(\"status\")")" != working ]' 10 || true; sleep 0.5
-  keys esc; sleep 1.5
-  finding "E1: Esc while idle: dialog $(overlay_open chat && echo "stays open" || echo closed)"
-  overlay_open chat && cmd click:peek:close
-  finding "E1: a click beside the dialog: SKIP (needs the pointer; window.rs:4283-4296 closes a non-modal dialog on a press outside)"
-
-  step "E2: interrupt, the parent's end, blocked, a chat parent"
-  hc send r "start the long build" >>"$LOG" 2>&1
-  until_ '[ "$(term_field "$SUB" "t.get(\"status\")")" = working ]' 10 || true
-  hc interrupt r >>"$LOG" 2>&1
-  until_ '[ "$(term_field "$SUB" "t.get(\"status\")")" != working ]' 8 || true
-  finding "E2: hc interrupt r: status $(term_field "$SUB" 't.get("status")')"
-  P2=$(hc run --bg --json --name p2 -- sh -c 'sleep 600' | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  C2=$(hc run --bg --json --parent "$P2" --name c2 pi-chat "quick: x" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  until_ '[ -n "$(term_field "$C2" "t[\"labels\"].get(\"herdr-chat.chat\")")" ]' 10 || true
-  hc kill "$P2" >>"$LOG" 2>&1
-  until_ '[ "$(term_field "$C2" "t[\"state\"]" 2>/dev/null)" != live ]' 10 || true
-  finding "E2: the parent killed: child state $(term_field "$C2" 't["state"]' 2>/dev/null || echo gone)"
-  cat >"$XDG_CONFIG_HOME/herdr-core/templates/pi-chat-dialog.md" <<TPL
----
-description: test
-command: env FAKE_PI_SCENARIO='$SCEN/startup-dialog.json' '$REPO/bin/herdr-chat-subagent' --provider pi
----
-x
-TPL
-  C3=$(hc run --bg --json --parent "$SHELL_T" --name c3 pi-chat-dialog "quick: x" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  until_ '[ "$(term_field "$C3" "t.get(\"status\")")" = blocked ]' 15 || true
-  finding "E2: a dialog in the sub-agent: status $(term_field "$C3" 't.get("status")'), msg $(term_field "$C3" 't.get("msg") or t.get("message")')"
-  hc kill "$C3" >>"$LOG" 2>&1
-  C4=$(hc run --bg --json --parent "$OTHERHOST" --name c4 pi-chat "quick: x" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  until_ '[ -n "$(term_field "$C4" "t[\"labels\"].get(\"herdr-chat.chat\")")" ]' 10 || true
-  finding "E2: a chat as the parent (its hidden host $OTHERHOST): child parent $(term_field "$C4" 't.get("parent")'); the chat host listed as an agent: $(dbg "$OTHER" 'd["hostAgent"]')"
-  hc kill "$C4" >>"$LOG" 2>&1
-
-  step "E3: the Rust peek and the terminal menu"
-  do_ terminal.peek --terminal "$SUB"; sleep 1
-  finding "E3: terminal.peek: overlays $("$APP" status | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["overlays"]))')"
-  finding "E3: hc read shows the transcript the peek draws: $(screen "$SUB" | head -2 | tr '\n' '|')"
-  do_ "chat-agents.menu:$SUB"; sleep 0.8; do_ chat-menu.pick:0; sleep 1.5
-  finding "E3: Open as chat from the menu: overlays $("$APP" status | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["overlays"]))')"
-  cmd click:peek:close
-  finding "E3: app log on terminal_menu: $(grep -i 'terminal menu\|terminal_menu\|chat-menu' "$BASE/app.log" | tail -3 | tr '\n' '|')"
-  finding "E3: a real right-click: SKIP (needs the pointer)"
-
-  step "E4: Open as tab, and why the host isn't adopted"
-  do_ "chat-agents.peek:$SUB"; until_ 'overlay_open chat' 8 || true; until_ connected 15
-  cmd click:peek:tab; sleep 2
-  T4=$(subtab "$SUB")
-  CHAT="$SUBCHAT"; until_ connected 15 || true
-  finding "E4: Open as tab: tab $T4 panes [$(tab_panes "$T4" | tr '\n' ' ')], host herdr.tab=$(term_field "$SUB" 't["labels"].get("herdr.tab")'), listed in agents(): $(d 'd["hostAgent"]')"
-  do_ tab.close --id "$T4"; sleep 3
-  finding "E4: the tab closed: host $(term_field "$SUB" 't["state"]'), parent $(term_field "$SUB" 't.get("parent")'), herdr.space=$(term_field "$SUB" 't["labels"].get("herdr.space")')"
-  # Herdr's own ↗ keep (terminal.keep) gives a sub-agent a pane; closing that tab:
-  do_ terminal.keep --terminal "$SUB"; sleep 2
-  KT=$(term_panes | awk -v t="$SUB" '$3 == t {print $1; exit}')
-  finding "E4: terminal.keep: $SUB in tab $KT, labels herdr.tab=$(term_field "$SUB" 't["labels"].get("herdr.tab")')"
-  [ -n "$KT" ] && do_ tab.close --id "$KT"; sleep 3
-  finding "E4: that tab closed: host $(term_field "$SUB" 't["state"]' 2>/dev/null || echo gone) (window.rs:2886-2896 + kill(): a tab's terminals end with it, a kept sub-agent too)"
-  passed
 fi

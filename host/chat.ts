@@ -457,6 +457,8 @@ export class Chat {
     return ["An extension is waiting", `${this.agent} did not answer`];
   }
 
+  private bootedAt = Date.now();
+
   private async boot(gen: number, sessionFile: string | null): Promise<void> {
     for (const t of this.startupTimers) clearTimeout(t);
     this.startupTimers = [
@@ -486,6 +488,14 @@ export class Chat {
       if (gen !== this.generation) return;
       if (e instanceof AgentError && e.sessionBusy && sessionFile) {
         // The agent's own guard refused a second writer (Codex "active writer").
+        // Taking over a TUI that just quit (Continue as chat): its agent may hold
+        // the session a while longer (Codex's daemon: up to a minute), so try again.
+        if (this.opts.afterPid && sessionFile === this.opts.session && Date.now() - this.bootedAt < 90_000) {
+          await this.stopAgent();
+          this.opts.log(`session busy after the TUI quit: trying again in 5 s`);
+          setTimeout(() => { if (gen === this.generation) this.start(sessionFile); }, 5000).unref();
+          return;
+        }
         await this.stopAgent();
         this.enterConflict(sessionFile, this.lockHolder(sessionFile) ?? { chat: null, terminal: null, pid: null }, errText(e));
         return;
@@ -1362,7 +1372,7 @@ export class Chat {
     return { points: (await agent.forkPoints()).reverse().map((p) => ({ id: p.id, text: this.asTyped(p.text) })) };
   }
 
-  /** A message as the person would type it again: a skill (Pi's expanded block too) as its `/command`. */
+  /** A message as the person would type it again: a skill as its `/command`. */
   private asTyped(text: string): string {
     const s = this.withSkill(text);
     return typedText(s.text, s.skill);

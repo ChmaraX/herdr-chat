@@ -88,9 +88,9 @@ install changed, and removes the unpacked release.
   (which lists skills anywhere in the text), or typed out with a space.
   Sent, the pill becomes the message's leading `/command`; in the timeline
   it heads the bubble and opens to what the agent got.
-- **Continue as chat**: on an idle Pi TUI (right-click, or its row's menu),
-  Pi quits cleanly and a chat opens on the same session, with the session's
-  model and thinking level.
+- **Continue as chat**: on an idle Pi, Claude Code or Codex TUI (right-click,
+  or its row's menu), the agent quits cleanly and a chat opens on the same
+  session (with its model and thinking level, where the agent records them).
 - **Sub-agents**: `hc run --bg --name <n> pi-chat "<task>"` (or
   `claude-chat`, `codex-chat`) starts a helper. Its row under the parent
   opens its chat; closing the dialog or tab leaves it running, and only its

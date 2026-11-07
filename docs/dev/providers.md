@@ -76,10 +76,10 @@ What else differs, from each agent's own mechanism, not from the chat:
 | | Pi | Claude Code | Codex |
 |---|---|---|---|
 | Terminal utilities (`utilityCommand`) | login, settings, scoped-models | login, settings (`/config`) | login |
-| TUI commands (`tuiCommands`) | tree, export, hotkeys | its terminal-only commands | none (its app-server lists none) |
+| TUI commands (`tuiCommands`) | its built-ins RPC doesn't run (tree, export, share, session…) | its terminal-only commands (doctor, theme…) | its TUI's (init, status, review, diff, mcp…) |
 | Another process on the session | the lock extension | its `~/.claude/sessions` registry (`sessionHolder`) | its "active writer" error |
 | The chat follows a session switch made in `/tui` | yes (the lock extension's hand-off file) | no | no |
-| Continue as chat (a running TUI becomes a chat) | yes (the lock extension's label) | no | no |
+| Continue as chat: the TUI's session (`tui.ts`) | the lock extension's label | its `~/.claude/sessions/<pid>.json` | the rollout it has open, else the newest in its folder |
 
 ## Process (one host process per chat)
 

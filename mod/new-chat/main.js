@@ -13,8 +13,8 @@
 // key or another mod runs while no launcher is open:
 // - `new-chat.open`: the launcher (as mod.open:new-chat; again: closes it);
 // - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`: that agent's chat, in a new tab;
-// - `new-chat.continue:<terminal>`: chat-menu's Continue as chat (a Pi TUI
-//   handed over to a chat on its session, see continueAsChat);
+// - `new-chat.continue:<terminal>`: chat-menu's Continue as chat (an agent's
+//   TUI handed over to a chat on its session, see continueAsChat);
 //   `new-chat.continue`: the same on the focused terminal (the "continue" key).
 
 import { View, div, image, svg } from "gpui-kit";
@@ -43,87 +43,95 @@ async function openChat(provider) {
 
 const term = (addr) => terminals().find((t) => t.address === addr);
 const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
-const isPi = (t) => [t.program?.key, t.app, t.status?.app, t.report?.app, t.agent].includes("pi");
 const base = (p) => String(p ?? "").split("/").pop();
+const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
+
+// Herdr's names for the agents (its status reports Claude Code as claude-code) → ours.
+const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex" };
+
+/** The agent a terminal runs, as Herdr reports it (an id of CHOICES), else null. */
+export function agentOf(t) {
+  for (const a of [t?.program?.key, t?.app, t?.status?.app, t?.report?.app, t?.agent]) if (HERDR_AGENTS[a]) return HERDR_AGENTS[a];
+  return null;
+}
 
 /**
- * Why a terminal can't continue as a chat (null: it can): a live Pi TUI whose
- * session the herdr-chat-lock extension labelled (herdr-chat.session), idle or
- * done. `working: true`: it can once its run ends (chat-menu shows the item
- * disabled). Shared with chat-menu (a copy there: mods can't import each other).
+ * Why a terminal can't continue as a chat (null: it can): a live agent TUI
+ * (Pi, Claude Code, Codex), idle or done. `working: true`: it can once its run
+ * ends (chat-menu shows the item disabled). Which session it has open is the
+ * host's to find (continueAsChat). Shared with chat-menu (a copy there: mods
+ * can't import each other).
  */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
   if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
-  if (!t.labels?.["herdr-chat.session"]) return { why: "no herdr-chat.session label (the herdr-chat-lock extension labels it)" };
-  if (!isPi(t)) return { why: "not Pi" };
+  if (!agentOf(t)) return { why: "not an agent's TUI" };
   const st = word(t.status);
   if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
   if (!["idle", "done"].includes(st)) return { why: `status ${st}` };
   return null;
 }
 
-/**
- * The session's model ("provider/id") and thinking level: its last
- * model_change and thinking_level_change entries (Pi records the TUI's choices
- * there; a model given with `pi --session f --model m` isn't, so the host also
- * gets them as --model/--thinking).
- */
-export async function sessionSettings(file, ex = exec) {
-  const r = await ex("grep", ["-E", '"type": ?"(model_change|thinking_level_change)"', file]);
-  let model = null, thinking = null;
-  for (const line of (r.code === 0 ? r.stdout : "").split("\n")) {
-    try {
-      const e = JSON.parse(line);
-      if (e.type === "model_change" && e.provider && e.modelId) model = `${e.provider}/${e.modelId}`;
-      if (e.type === "thinking_level_change" && e.thinkingLevel) thinking = e.thinkingLevel;
-    } catch {}
-  }
-  return { model, thinking };
+/** The agent's process in a terminal (`hc get --json`): its foreground program when that's the agent (started from a shell), else the terminal's own. */
+export function agentPid(info, agent) {
+  const is = (p) => p?.pid && (base(p.argv?.[0]) === agent || base(p.argv?.[1]) === agent);
+  if (is(info?.foreground)) return info.foreground.pid;
+  if (is(info)) return info.pid;
+  return null;
 }
 
-/** The Pi process in a terminal (`hc get --json`): its foreground program when that's pi (Pi started from a shell), else the terminal's own program when that's pi. */
-export function piPid(info) {
-  const fg = info?.foreground;
-  if (fg?.pid && base(fg.argv?.[0]) === "pi") return fg.pid;
-  if (info?.pid && base(info.argv?.[0]) === "pi") return info.pid;
-  return null;
+async function chatConfig() {
+  let cfg = {};
+  try { cfg = JSON.parse((await readTextFile(`${appHome()}/mods/chat/config.json`)) ?? "{}"); } catch {}
+  if (!cfg.host) throw new Error("mods/chat/config.json names no host (install again)");
+  return cfg;
+}
+
+/** The session the TUI has open, from the host (each agent's way: host/providers/<agent>/tui.ts): {session, model, thinking, args}. */
+async function tuiSession(cfg, agent, pid, cwd, label) {
+  const r = await exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, "tui-session",
+    "--provider", agent, "--pid", String(pid), "--cwd", cwd, ...(label ? ["--label", label] : [])]);
+  if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().replace(/^herdr-chat-host: /, "") || "the host couldn't tell the TUI's session");
+  return JSON.parse(r.stdout);
 }
 
 const alive = async (pid) => (await exec("kill", ["-0", String(pid)])).code === 0;
 
 /**
- * Continue as chat (research subagent-chat.md §F): a Pi TUI becomes a chat
- * host on the same session, model and thinking.
+ * Continue as chat (research subagent-chat.md §F): an agent's TUI becomes a
+ * chat on the same session (and model and thinking, where the agent records
+ * them), whichever agent it is.
  * - A sub-agent (a parent): a core terminal runs one program, so the TUI ends
  *   (`hc kill`), and a host starts in its place with the same parent, name and
  *   folder (`hc run --parent <p> --name <n>`, bin/herdr-chat-subagent --session
  *   <file>): the parent sees one exit note, then its `hc send/wait <name>`
  *   reach the host. Then the chat dialog.
  * - A top-level TUI (continueInPlace): the chat takes its pane's place.
- * The session file is the herdr-chat-lock extension's label `herdr-chat.session`.
  * `addr` empty: the focused terminal (the "continue" key).
  */
 export async function continueAsChat(addr, cx) {
   const t = term(addr || focused()?.terminal);
   const no = cantContinue(t);
-  if (no) throw new Error(no.working ? "Wait for the run to end, then Continue as chat." : `Not a Pi TUI that can continue as a chat: ${no.why}.`);
-  const session = t.labels["herdr-chat.session"];
-  const { model, thinking } = await sessionSettings(session);
-  if (!t.parent) return continueInPlace(t, session, { model, thinking }, cx);
-  let cfg = {};
-  try { cfg = JSON.parse((await readTextFile(`${appHome()}/mods/chat/config.json`)) ?? "{}"); } catch {}
-  if (!cfg.host) throw new Error("mods/chat/config.json names no host (install again)");
+  if (no) throw new Error(no.working ? "Wait for the run to end, then Continue as chat." : `Not an agent's TUI that can continue as a chat: ${no.why}.`);
+  const agent = agentOf(t);
+  const g = await hc(["get", t.address, "--json"]);
+  if (g.code !== 0) throw new Error(`hc get ${t.address}: ${g.stderr.trim()}`);
+  const info = JSON.parse(g.stdout);
+  const pid = agentPid(info, agent);
+  if (!pid) throw new Error(`no ${NAMES[agent]} process in ${t.address} (its foreground is ${info.foreground?.argv?.[0] ?? "unknown"})`);
+  const cwd = info.foreground?.cwd || t.cwd || "/";
+  const cfg = await chatConfig();
+  const found = await tuiSession(cfg, agent, pid, cwd, t.labels?.["herdr-chat.session"] ?? null);
+  if (!t.parent) return continueInPlace(t, agent, pid, cwd, found, cx);
   const launcher = cfg.host.replace(/herdr-chat-host$/, "herdr-chat-subagent");
   const kill = await hc(["kill", t.address]);
   if (kill.code !== 0) throw new Error(`hc kill ${t.address}: ${kill.stderr.trim()}`);
   // Its name is free once the old terminal has ended.
   for (let i = 0; i < 50 && term(t.address)?.state === "live"; i++) await cx.sleep(100);
-  // The model and thinking as Pi's own flags: a sub-agent's host isn't restarted by a chat later.
-  const piArgs = [...(model ? ["--model", model] : []), ...(thinking ? ["--thinking", thinking] : [])];
-  const args = ["run", "--bg", "--json", "--parent", t.parent, ...(t.name ? ["--name", t.name] : []), ...(t.cwd ? ["--cwd", t.cwd] : []),
-    "--", launcher, "--provider", "pi", "--session", session, ...(piArgs.length ? ["--", ...piArgs] : [])];
-  const r = await hc(args);
+  // The model and thinking as the agent's own arguments: a sub-agent's host isn't restarted by a chat later.
+  const args = found.args ?? [];
+  const r = await hc(["run", "--bg", "--json", "--parent", t.parent, ...(t.name ? ["--name", t.name] : []), "--cwd", cwd,
+    "--", launcher, "--provider", agent, "--session", found.session, ...(args.length ? ["--", ...args] : [])]);
   if (r.code !== 0) throw new Error(`hc run: ${r.stderr.trim() || r.stdout.trim()}`);
   const next = JSON.parse(r.stdout).address;
   // The launcher labels its terminal with the chat id once it starts.
@@ -131,31 +139,25 @@ export async function continueAsChat(addr, cx) {
   for (let i = 0; i < 100 && !chat; i++) { chat = term(next)?.labels?.["herdr-chat.chat"] ?? null; if (!chat) await cx.sleep(100); }
   if (!chat) throw new Error(`the chat host ${next} didn't label itself (herdr-chat.chat)`);
   run("overlay.close", { id: "terminal-peek" });
-  openOverlay({ mod: "chat", kind: "dialog", width: 0.8, height: 0.8, props: { chat, peek: next, provider: "pi" } });
+  openOverlay({ mod: "chat", kind: "dialog", width: 0.8, height: 0.8, props: { chat, peek: next, provider: agent } });
   return next;
 }
 
 /**
- * A top-level Pi TUI (its own pane in a tab): the chat opens beside it
- * (pane.split with the chat mod, focused), then Pi gets SIGTERM (it flushes and
- * runs session_shutdown; the host waits for that pid: --after-pid). Pi may be
- * a shell's foreground program (`pi` typed in zsh): only that pid is signalled,
- * never the terminal. Once Pi is gone the TUI's pane closes, so the chat takes
- * its place, unless its shell runs something else then (it stays, and says so).
+ * A top-level TUI (its own pane in a tab): the chat opens beside it
+ * (pane.split with the chat mod, focused), then the agent gets SIGTERM (it
+ * saves its session; the host waits for that pid: --after-pid). The agent may
+ * be a shell's foreground program (`claude` typed in zsh): only that pid is
+ * signalled, never the terminal. Once it is gone the TUI's pane closes, so the
+ * chat takes its place, unless its shell runs something else then (it stays, and says so).
  */
-export async function continueInPlace(t, session, { model, thinking }, cx) {
-  const g = await hc(["get", t.address, "--json"]);
-  if (g.code !== 0) throw new Error(`hc get ${t.address}: ${g.stderr.trim()}`);
-  const info = JSON.parse(g.stdout);
-  const pid = piPid(info);
-  if (!pid) throw new Error(`no pi process in ${t.address} (its foreground is ${info.foreground?.argv?.[0] ?? "unknown"})`);
+export async function continueInPlace(t, agent, pid, cwd, found, cx) {
   const pane = panes().find((p) => p.terminal === t.address);
   if (!pane) throw new Error(`${t.address} has no pane in a tab`);
   const before = new Set(panes().map((p) => p.pane));
   const chat = `c-${randomBytes(4).toString("hex")}`;
-  const cwd = info.foreground?.cwd || t.cwd || null;
   run("pane.split", { direction: "right", pane: pane.pane, mod: "chat",
-    props: { chat, provider: "pi", session, afterPid: pid, ...(cwd ? { cwd } : {}), ...(model ? { model } : {}), ...(thinking ? { thinking } : {}) } });
+    props: { chat, provider: agent, session: found.session, afterPid: pid, cwd, ...(found.model ? { model: found.model } : {}), ...(found.thinking ? { thinking: found.thinking } : {}) } });
   let mine = null;
   for (let i = 0; i < 50 && !mine; i++) { mine = panes().find((p) => !before.has(p.pane) && p.mod === "chat" && p.tab === pane.tab); if (!mine) await cx.sleep(100); }
   if (!mine) throw new Error("the chat's pane didn't appear beside the TUI");
@@ -164,11 +166,11 @@ export async function continueInPlace(t, session, { model, thinking }, cx) {
   if (k.code !== 0) throw new Error(`kill -TERM ${pid}: ${k.stderr.trim()}`);
   for (let i = 0; i < 100 && (await alive(pid)); i++) await cx.sleep(100);
   if (await alive(pid)) {
-    notify({ title: "Continue as chat", body: `Pi (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
+    notify({ title: "Continue as chat", body: `${NAMES[agent]} (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
     return mine.pane;
   }
   // A shell left with its prompt: nothing else runs in it, so it goes. A program
-  // that ended with Pi: the pane shows its exit, so it goes too. A prompt's own
+  // that ended with the agent: the pane shows its exit, so it goes too. A prompt's own
   // commands (git status, an rc file) come and go: up to 3 s for the shell to
   // be alone in its terminal.
   let a = null, idleShell = false;

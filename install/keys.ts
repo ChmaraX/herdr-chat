@@ -7,7 +7,7 @@
 // - open: the launcher (mod.open:new-chat, which works in every layout);
 //   pi/claude/codex: a chat with that agent at once (new-chat.<agent>, which
 //   the new-chat copy in the layout's floating list takes: install/layout.ts);
-//   continue: the focused Pi TUI continues as a chat (new-chat.continue, the
+//   continue: the focused agent TUI continues as a chat (new-chat.continue, the
 //   right-click menu's Continue as chat).
 // - Left out: the default (open: cmd-i, the others unbound); null: unbound.
 // - A chord the person chose replaces what had it; the old action is kept in

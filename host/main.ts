@@ -10,7 +10,7 @@ import { Terminal } from "./terminal.ts";
 import { writeRegistry, readRegistry, pidAlive } from "./registry.ts";
 import type { RegistryEntry } from "./registry.ts";
 import { ChatClient, parseWait } from "./client.ts";
-import { createAdapter, DEFAULT_PROVIDER, providerNames } from "./providers/index.ts";
+import { createAdapter, DEFAULT_PROVIDER, providerNames, tuiSession } from "./providers/index.ts";
 import { parseArgs } from "./args.ts";
 import type { Args } from "./args.ts";
 import { appHomeOf, labelSelf, newChatId, planSubagent } from "./subagent.ts";
@@ -22,6 +22,8 @@ const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir>
   (--provider defaults to the chat's registered provider, else pi; --pi <cmd> or HERDR_CHAT_PI picks the pi binary)
 herdr-chat-host run     [--provider pi|claude|codex] [--session <file>] [--cwd <dir>] [-- <agent args>]
   (a sub-agent chat, for \`hc run\`: a fresh chat id, the app's state dir and the chat mod's config.json, labels its own terminal)
+herdr-chat-host tui-session --provider <id> --pid <pid> --cwd <dir> [--label <session>]
+  (Continue as chat: the session a running agent TUI has open, as JSON {session, model, thinking, args}; exit 1 with why not)
 herdr-chat-host inspect --chat <id> --state-dir <dir> [--wait 'phase=idle,items>=3'] [--timeout <s>]
   (inspect/send/op wait up to --timeout seconds, default 10 s for connecting and 30 s for --wait, for a starting host)
 herdr-chat-host send    --chat <id> --state-dir <dir> [--mode auto|steer|followUp] [--image <path>]... <text>
@@ -220,6 +222,18 @@ async function main(): Promise<void> {
       Object.assign(process.env, plan.env);
       const warning = labelSelf(plan);
       return serve(plan.serve, { hint: plan.hint, warning });
+    }
+    case "tui-session": {
+      const provider = a.flags.get("provider")?.[0] ?? "";
+      const pid = Number(a.flags.get("pid")?.[0]);
+      if (!(pid > 0)) die("tui-session needs --pid");
+      try {
+        const r = tuiSession(provider, { pid, cwd: resolve(a.flags.get("cwd")?.[0] ?? process.cwd()), label: a.flags.get("label")?.[0] || null });
+        process.stdout.write(JSON.stringify(r) + "\n");
+      } catch (e) {
+        die(e instanceof Error ? e.message : String(e));
+      }
+      return;
     }
     case "inspect": {
       const startedAt = Date.now();

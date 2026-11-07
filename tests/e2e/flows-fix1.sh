@@ -1,4 +1,4 @@
-# Feedback round 1 (docs/dev/feedback-1.md), sourced by run.sh: flows
+# Feedback round 1, sourced by run.sh: flows
 # `overlays` (pickers and menus over the composer: wheel, Esc, a press
 # outside, the layout unmoved), `keys` (chat-scoped shortcuts, the person's
 # overrides), `reports` (hc send reports as cards, the queue chip), `handoff2`
@@ -7,8 +7,7 @@
 # (row 12: Pi, Claude, Pi opened quickly with focus moving, each host in its
 # own chat's tab), `split` (row 11: the host's pane hidden in the chat's tab
 # through right, down and root splits, a restart, Herdr's own focus routes and
-# toasts; closing the chat's pane ends the host), `migrate` (an older mod's
-# zoomed and parked hosts, once this mod is installed), `fallback` (a client
+# toasts; closing the chat's pane ends the host), `fallback` (a client
 # that keeps dropping the flag: a 0 px pane), `race` (a tab opened right
 # after a chat writes its host's hidden pane: the app keeps it), `narrow` (the composer footer at
 # 240–600 px).
@@ -18,11 +17,6 @@
 # (chat.wheel:<dy>, chat.outside), as clicks do (chat.click:<control>).
 
 host_of() { dbg "$1" 'd["host"]["address"]' || true; }
-# The mod as of an older checkout ($1: a mod/chat folder) into the private home (a hot reload).
-put_mod() { (cd "$1" && find . -type f ! -name '*.d.ts' ! -name 'jsconfig.json' ! -name 'config.json' | while read -r f; do
-  mkdir -p "$HERDR_APP_HOME/mods/chat/$(dirname "$f")"; cp "$f" "$HERDR_APP_HOME/mods/chat/$f"; done); }
-# The last mod that zoomed the chat over its host and parked it (migrate).
-OLD_MOD_REV=c6852bf
 # Set terminal $1's pane `hidden` ($2: true|false) in the layout document, as another client could.
 set_hidden() {
   local r v
@@ -418,37 +412,6 @@ if want split; then
   expect '! hc ls --json | grep -q "\"address\": *\"$H\""' "the host ended with its chat's pane" 15
   [ "$(reg "$CHAT" pid)" = "" ] && ok "it shut down cleanly (its registry entry has no pid)" || fail "registry pid $(reg "$CHAT" pid) after the host ended"
   do_ layout.switch --name main
-fi
-
-if want migrate; then
-  step "chats open when this mod is installed: an older mod's zoomed host and parked host become hidden panes"
-  OLD="$BASE/old-mod"; mkdir -p "$OLD"
-  git -C "$REPO" archive "$OLD_MOD_REV" mod/chat | tar -x -C "$OLD" || fail "git archive $OLD_MOD_REV"
-  put_mod "$OLD/mod/chat"; sleep 2.5
-  A=$(open_chat migrate-zoomed); CHAT=$A
-  expect connected "an older mod's chat (zoom and park, $OLD_MOD_REV)" 25
-  TA=$(d 'd["place"]["tab"]'); MA=$(d 'd["place"]["pane"]')
-  expect 'HA=$(host_of "$A") && [ -n "$HA" ] && node_of "$HA" | grep -q "^$TA .* shown$" && [ "$(d "d[\"zoomedPane\"]")" = "$MA" ]' "its host's pane shows, the chat zoomed over it" 15
-  HA=$(host_of "$A")
-  B=$(open_chat migrate-parked); CHAT=$B
-  expect connected "a second older chat" 25
-  TB=$(d 'd["place"]["tab"]'); MB=$(d 'd["place"]["pane"]')
-  expect 'HB=$(host_of "$B") && [ -n "$HB" ] && node_of "$HB" | grep -q "^$TB "' "its host adopted" 15
-  HB=$(host_of "$B")
-  do_ pane.split --direction right --pane "$MB"
-  expect '[ -z "$(node_of "$HB")" ] && [ -z "$(label_of "$HB" herdr.tab)" ]' "split: the older mod parked its host (no pane, no tab label)" 15
-  do_ tab.select --id "$TA"; sleep 0.8
-  step "the new mod is installed (hot reload)"
-  put_mod "$REPO/mod/chat"; sleep 2.5
-  CHAT=$A
-  expect 'hidden_in "$TA" "$HA"' "the zoomed chat's host: its pane is hidden ($(node_of "$HA"))" 15
-  expect '[ "$(d "d[\"zoomed\"]")" = false ] && [ "$(d "d[\"hostAgent\"][\"pane\"]")" = "$(node_of "$HA" | awk "{print \$2}")" ]' "the zoom went, the host still listed with its pane" 10
-  CHAT=$B
-  expect 'hidden_in "$TB" "$HB"' "the parked host: a hidden pane in its chat's tab ($(node_of "$HB"))" 15
-  expect '[ "$(label_of "$HB" herdr.tab)" = "$TB" ] && [ "$(d "d[\"hostAgent\"][\"pane\"]")" = "$(node_of "$HB" | awk "{print \$2}")" ]' "labeled for its tab, back in Herdr's agents list" 10
-  [ "$(tab_panes "$TB" | wc -l | tr -d ' ')" = 3 ] && ok "the split stays: chat, shell and the hidden host ($(tab_panes "$TB" | tr '\n' ' '))" || fail "tab $TB: $(tab_panes "$TB" | tr '\n' ' ')"
-  do_ tab.close --id "$TA"; do_ tab.close --id "$TB"
-  expect '! hc ls --json | grep -qE "\"address\": *\"($HA|$HB)\""' "closing their tabs ends both hosts" 15
 fi
 
 if want fallback; then

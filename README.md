@@ -145,11 +145,12 @@ dialog over the chat. Quit it, or **Back to chat**, and the chat carries
 on; **Open as tab** keeps it in a tab of its own. Use it for screens a chat
 can't draw, such as `/mcp` panels.
 
-**Continue as chat.** A Pi TUI in Herdr can become a chat on the same
-session: right-click its terminal (or its row in the agents list) →
-**Continue as chat**. Pi quits cleanly first, and the chat takes its place.
-It's offered while Pi is idle. Pi TUIs started before the install need a
-restart or `/reload`.
+**Continue as chat.** A Pi, Claude Code or Codex TUI in Herdr can become a
+chat on the same session: right-click its terminal (or its row in the agents
+list) → **Continue as chat**. The agent quits cleanly first, and the chat
+takes its place. It's offered while the agent is idle. A Pi TUI started
+before the install needs a restart or `/reload` first; a Claude Code or Codex
+session needs at least one message.
 
 **Sub-agent chats.** With the install's note, your agents start their
 helpers as chats. A helper shows as a row under its parent in the agents
@@ -201,7 +202,7 @@ The keys that open a chat are Herdr's global keys. Set them in the
 ```
 
 `open` is the launcher; `pi`, `claude` and `codex` open that agent's chat
-at once; `continue` turns the focused Pi TUI into a chat. A key you choose
+at once; `continue` turns the focused agent TUI into a chat. A key you choose
 replaces what had it, and uninstall puts that back.
 
 ## Settings
@@ -243,8 +244,10 @@ The keys are in their own file ([Keys](#keys)).
 - **Not in the command palette.** Herdr's palette lists only its own
   commands. Use the keys.
 - **No pinch to zoom** on diagrams. Use ⌘ + scroll.
-- **Continue as chat is Pi only.** Nothing tells which session a Claude Code
-  or Codex TUI has open.
+- **Continue as chat on Codex guesses the session** when the TUI runs on
+  Codex's shared daemon (the default): the newest session in its folder
+  since it started. Two Codex TUIs in one folder can be mixed up; with
+  `codex --no-daemon` it's exact.
 - **Run the install again after a Herdr update.** The agents list and the
   right-click menu are copies of Herdr's, made at install time, and don't
   follow Herdr's changes until you do.

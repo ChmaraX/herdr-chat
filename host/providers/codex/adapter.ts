@@ -1203,6 +1203,26 @@ export class CodexAdapter implements ProviderAdapter {
     return { contextTokens: tokens, contextWindow: window, percent: tokens !== null && window ? Math.round((tokens / window) * 1000) / 10 : null, cost: null };
   }
 
+  /**
+   * Codex's TUI commands its app-server doesn't run and the chat has no way of
+   * its own for (the app-server lists none: these are the TUI's own, as of 0.163).
+   */
+  tuiCommands(): { name: string; description: string }[] {
+    return [
+      { name: "init", description: "Create an AGENTS.md file with instructions for Codex" },
+      { name: "status", description: "Show the session's configuration and token usage" },
+      { name: "review", description: "Review the current changes and find issues" },
+      { name: "diff", description: "Show the git diff" },
+      { name: "mcp", description: "List the configured MCP servers" },
+      { name: "hooks", description: "View and manage lifecycle hooks" },
+      { name: "export", description: "Export the conversation as markdown" },
+      { name: "statusline", description: "Configure the status line" },
+      { name: "vim", description: "Toggle Vim mode for the composer" },
+      { name: "ide", description: "Include context from your IDE" },
+      { name: "logout", description: "Log out of Codex" },
+    ];
+  }
+
   /** /login: `codex login`. Settings live in ~/.codex/config.toml, not a terminal UI: none. */
   utilityCommand(name: string): string[] | null {
     return name === "login" ? [this.opts.command, "login"] : null;

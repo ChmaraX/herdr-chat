@@ -25,7 +25,7 @@ test("claude: thinking then text stream into items; state shows the provider, mo
     assert.equal(s.permissionMode, "default");
     assert.match(s.sessionFile, /claude-config\/projects\/.+\/[0-9a-f-]{36}\.jsonl$/);
     assert.ok(s.commands.some((x: any) => x.name === "review"), "the agent's commands are in the menu");
-    assert.ok(!s.commands.some((x: any) => x.name === "doctor"), "terminal-only commands are hidden");
+    assert.ok(s.commands.some((x: any) => x.name === "doctor" && x.handler === "client" && x.input === "/doctor"), "terminal-only commands go through its TUI");
 
     await c.req("send", { text: "Tell me a pelican fact" });
     // While it streams: a thinking item first, then the answer growing.

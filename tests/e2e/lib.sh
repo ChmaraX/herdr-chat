@@ -70,10 +70,17 @@ export HERDR_APP_BIN="$APP"
 version=$(plutil -extract CFBundleShortVersionString raw "${APP_REAL%/MacOS/*}/Info.plist" 2>/dev/null || true)
 echo "{\"last_run\": \"$version\", \"presented\": []}" >"$HERDR_APP_HOME/update-notes.json" # no "Updated" toast
 
+# A python3 with pyobjc's Quartz (key presses, window order): one that has it,
+# else a venv made once in tests/.venv (gitignored).
 PY=
-for c in python3 /usr/bin/python3 /opt/homebrew/bin/python3 /opt/homebrew/anaconda3/bin/python3; do
+for c in "$REPO/tests/.venv/bin/python3" python3 /usr/bin/python3 /opt/homebrew/bin/python3; do
   if "$c" -c 'import Quartz' 2>/dev/null; then PY=$(command -v "$c"); break; fi
 done
+if [ -z "$PY" ]; then
+  echo "making tests/.venv with pyobjc-framework-Quartz (once)" >&2
+  python3 -m venv "$REPO/tests/.venv" && "$REPO/tests/.venv/bin/pip" install -q pyobjc-framework-Quartz >&2 &&
+    PY="$REPO/tests/.venv/bin/python3"
+fi
 [ -n "$PY" ] || { echo "no python3 with pyobjc (Quartz) for key presses" >&2; exit 1; }
 
 APP_PID=""

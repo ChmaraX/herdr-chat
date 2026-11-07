@@ -15,6 +15,13 @@ import type {
 } from "../types.ts";
 import { PI_TOOLS } from "./tools.ts";
 import { userText } from "./skill.ts";
+import { typedText } from "../../skill.ts";
+
+/** A message as the person typed it: Pi's expanded skill block back to `/skill:name rest`. */
+const typed = (text: string) => {
+  const u = userText(text);
+  return typedText(u.text, u.skill);
+};
 
 type Rec = Record<string, any>;
 
@@ -632,11 +639,20 @@ export class PiAdapter implements ProviderAdapter {
     return [...env, this.opts.command, "--session", session];
   }
 
+  /** Pi's built-in commands its RPC mode doesn't run and the chat has no way of its own for (Pi's BUILTIN_SLASH_COMMANDS). */
   tuiCommands(): { name: string; description: string }[] {
     return [
-      { name: "tree", description: "Browse the session tree" },
-      { name: "export", description: "Export the session" },
-      { name: "hotkeys", description: "Show Pi's hotkeys" },
+      { name: "tree", description: "Navigate the session tree (switch branches)" },
+      { name: "export", description: "Export the session (HTML, or a .html/.jsonl path)" },
+      { name: "import", description: "Import a JSONL session" },
+      { name: "share", description: "Share the session" },
+      { name: "clone", description: "Duplicate the session at the current position" },
+      { name: "session", description: "Show session info and stats" },
+      { name: "changelog", description: "Show Pi's changelog" },
+      { name: "hotkeys", description: "Show Pi's keyboard shortcuts" },
+      { name: "trust", description: "Save the project trust decision" },
+      { name: "logout", description: "Remove provider authentication" },
+      { name: "bug", description: "Report a bug to the Pi developers" },
     ];
   }
   readonly unsentMessageCause = "Started by an extension message.";
@@ -696,7 +712,7 @@ export class PiAdapter implements ProviderAdapter {
   async forkPoints(): Promise<ForkPoint[]> {
     const d = (await this.require().request("get_fork_messages", {}, 15_000)) as Rec;
     const list: Rec[] = Array.isArray(d?.messages) ? d.messages : [];
-    return list.filter((m) => typeof m?.entryId === "string").map((m) => ({ id: m.entryId, text: String(m.text ?? "") }));
+    return list.filter((m) => typeof m?.entryId === "string").map((m) => ({ id: m.entryId, text: typed(String(m.text ?? "")) }));
   }
 
   /** Pi's own fork: a new session file up to that entry; Pi switches to it. */
@@ -704,6 +720,6 @@ export class PiAdapter implements ProviderAdapter {
     const d = (await this.require().request("fork", { entryId: point }, 30_000)) as Rec;
     if (d?.cancelled) throw new Error("An extension cancelled the fork");
     await this.afterSessionChange();
-    return { text: String(d?.text ?? "") };
+    return { text: typed(String(d?.text ?? "")) };
   }
 }

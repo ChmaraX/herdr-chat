@@ -85,26 +85,36 @@ the row under the parent is.
 
 ## Continue as chat
 
-The lock extension labels a Pi TUI's terminal with its session file
-(`herdr-chat.session`); `chat-menu` offers **Continue as chat** when that label
-is there and Pi is idle or done.
+`chat-menu` offers **Continue as chat** on an agent's TUI (Herdr reports the
+agent: Pi, Claude Code or Codex) that is idle or done. `new-chat`
+asks the host which session it has open, `herdr-chat-host tui-session
+--provider <agent> --pid <its pid>`; each agent's module answers its own way
+(`host/providers/<agent>/tui.ts`):
 
-- **A TUI in its own pane:** the chat opens beside it. Pi (only Pi, not the
-  shell it runs in) gets SIGTERM, flushes the session and quits. The chat's
-  host waits for that pid to exit before it opens the session
-  (`--after-pid`), so the two never write it at once. Then the TUI's pane
-  closes. The model and thinking level are the session's last
-  `model_change` and `thinking_level_change` entries, passed as `--model`
-  and `--thinking`. If Pi doesn't quit within 10 s, the chat shows the
-  session as open elsewhere.
+- **Pi:** the lock extension labels the TUI's terminal with its session file
+  (`herdr-chat.session`); the model and thinking level are the session's last
+  `model_change` and `thinking_level_change` entries.
+- **Claude Code:** its registry of live processes,
+  `~/.claude/sessions/<pid>.json` (`sessionId`, `cwd`).
+- **Codex:** the rollout file the TUI has open (`codex --no-daemon`), else
+  the newest rollout in its folder written since it started (a TUI on the
+  shared daemon leaves the file to the daemon); the model and effort are the
+  last `turn_context`'s.
+
+Then:
+
+- **A TUI in its own pane:** the chat opens beside it. The agent (only the
+  agent, not the shell it runs in) gets SIGTERM, saves the session and quits.
+  The chat's host waits for that pid to exit before it opens the session
+  (`--after-pid`), so the two never write it at once; while the agent still
+  holds it (Codex's daemon keeps a thread up to a minute), the host tries
+  again every 5 s for 90 s. Then the TUI's pane closes. The model and
+  thinking level are passed as `--model` and `--thinking`.
 - **A sub-agent** (`hc run … -- pi`): a terminal runs one program, so the
   TUI ends and a chat host starts in its place, with the same parent, name
-  and folder, on that session. The parent sees one exit note for the old
-  terminal; after that `hc send`, `hc wait` and `hc read` by name reach the
-  chat.
-
-Claude Code and Codex TUIs aren't offered: several can share a folder, and
-nothing tells which session one has open without a hook in their settings.
+  and folder, on that session (the model and thinking as the agent's own
+  arguments). The parent sees one exit note for the old terminal; after
+  that `hc send`, `hc wait` and `hc read` by name reach the chat.
 
 ## The install (`install.sh`, `install/app.sh`, `install/`)
 
