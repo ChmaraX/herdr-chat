@@ -196,7 +196,7 @@ if want v3 || want claude; then
   send_text "/login"
   expect 'grep -q -- "auth login" "$FAKE_TUI_LOG"' "/login runs the built-in's argv: $(tail -1 "$FAKE_TUI_LOG" 2>/dev/null)" 15
   handoff_tui
-  expect 'P=$(term_panes | awk -v t="$TUI" "\$3 == t {print \$2}"); [ -n "$P" ] && [ "$(d "d[\"zoomedPane\"]")" = "$P" ]' "zoomed over the tab" 10
+  expect 'overlay_open layout && ! term_panes | grep -q " $TUI$"' "in a dialog over the chat, no pane" 10
   hc send "$TUI" q >>"$LOG" 2>&1 || hc send --force "$TUI" q >>"$LOG" 2>&1
   expect '[ "$(d "d[\"handoff\"]")" = null ] && [ "$(phase)" = idle ] && [ "$(d "d[\"zoomed\"]")" = false ] && [ "$(d "d[\"hostHidden\"]")" = true ]' "back: Claude resumed, the chat alone (no zoom), its host hidden" 20
 

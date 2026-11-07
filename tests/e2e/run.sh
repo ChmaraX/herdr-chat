@@ -262,6 +262,7 @@ fi
 . "$E2E/flows-v3.sh"
 . "$E2E/flows-fix1.sh"
 . "$E2E/flows-spacing.sh"
+. "$E2E/flows-skills.sh"
 . "$E2E/flows-subagent.sh" # last: it switches the app to a clone of main
 expect no_mod_errors "no mod errors: none in the app's status, no chat's last render threw (run.log)" 3
 hidden

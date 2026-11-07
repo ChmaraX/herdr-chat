@@ -119,12 +119,29 @@ templates, skills) and the built-ins: `/model`, `/thinking`, `/compact`,
 `/new`, `/name`, `/resume`, `/reload`, `/copy`, `/tui`, and `/login` or
 `/settings` where the agent has them. Tab completes.
 
+**Skills.** A skill you pick becomes a pill in the message, and you go on
+typing. `/` anywhere in the text lists your skills, so a pill can sit
+mid-sentence; typing a skill's full command and a space makes one too.
+Backspace removes a pill whole. One skill per message. In the timeline the
+pill heads your message; click it to read what the agent got.
+
+**`/login`, `/settings`, `/tree`…** open in a dialog over the chat, on
+that screen of the agent's terminal UI. Keys go to it; **Done** closes it
+and the chat carries on (the agent restarts, so a new login or setting
+takes effect).
+
 **Approvals.** An approval card takes 1, 2 or 3: allow once, always, or
 deny. Esc denies.
 
-**`/tui`** opens the agent's own terminal UI on the same session, filling
-the tab. Quit it and the chat carries on. Use it for screens a chat can't
-draw, such as `/mcp` panels.
+**`/fork`** lists your messages; pick one and the chat moves to a new
+session holding everything before it, with that message back in the
+composer to edit and send. The original session stays as it was
+(`/resume`). Pi, Claude Code and Codex fork the same way here.
+
+**`/tui`** opens the agent's own terminal UI on the same session, in a
+dialog over the chat. Quit it, or **Back to chat**, and the chat carries
+on; **Open as tab** keeps it in a tab of its own. Use it for screens a chat
+can't draw, such as `/mcp` panels.
 
 **Continue as chat.** A Pi TUI in Herdr can become a chat on the same
 session: right-click its terminal (or its row in the agents list) →

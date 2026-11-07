@@ -113,6 +113,8 @@ type Command = {
   source: "builtin" | "extension" | "prompt" | "skill";
   handler: "host" | "client";    // client: the mod handles it (pickers, terminal hand-offs)
   args?: string;                 // hint, e.g. "[instructions]"
+  argv?: string[];               // a terminal utility's command (/login, /settings)
+  input?: string;                // a command that opens the agent's terminal: typed there once it's idle ("/login")
 };
 ```
 
@@ -123,7 +125,8 @@ Each item has `id` (stable for its lifetime), `kind` and `ts` (epoch ms).
 ```ts
 type Item =
   | { id; kind: "user"; ts; text: string; images: number; imagePaths?: string[];
-      source: "composer" | "external" | "queued" | "extension"; from?: string }
+      source: "composer" | "external" | "queued" | "extension"; from?: string;
+      skill?: { name: string; command: string; path?: string; body?: string } }
   | { id; kind: "assistant"; ts; text: string; streaming: boolean;
       stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted"; error?: string; autonomous?: true;
       blocks?: Block[];           // v2: `text` split for rendering; absent = one markdown block
@@ -179,6 +182,13 @@ type ToolDetail =
   - It lists them in `images` / `imagePaths` (absolute paths). These are at most 8 per item.
   - The mod shows them with `image()`, using a path relative to the app home when it can.
   - Base64 never goes over the wire.
+- **Skills:** a message that runs a skill carries `skill`, and `text` is only
+  what the person wrote after it. The mod draws the skill as a pill (a click
+  shows `body`, what the agent got). `command` is what the person types to run
+  it again, without the slash: Pi `skill:<name>`, Claude Code and Codex
+  `<name>`. The host takes it from Pi's expanded `<skill …>` block, Codex's
+  `skill` input item, or a leading `/<command>` that names one of the chat's
+  `skill` commands (`host/skill.ts`). The transcript prints `/<command> text`.
 - **Autonomous runs:** an assistant response whose run the user didn't start
   gets `autonomous: true`, preceded by a notice (`source: "host"`) naming the
   cause when known. Examples: an extension wake, a queued follow-up, a
@@ -200,6 +210,8 @@ type ToolDetail =
 | `set_name` | `name` | `{}` | |
 | `sessions` | | `{sessions: {path,name,firstMessage,modified,messageCount}[]}` | Pi sessions for this cwd, newest first |
 | `switch_session` | `path` | `{}` | then a new snapshot |
+| `fork_points` | | `{points: {id, text}[]}` | the person's messages in this session, newest first, as typed (a skill as its `/command`). Refused when the agent can't fork (`capabilities.fork`) |
+| `fork` | `point` | `{text}` | a new session holding what came before that message (the agent's own fork: Pi `fork`, Claude Code `--fork-session --resume-session-at`, Codex `thread/fork`); the original is unchanged. Then a new snapshot, and `text` (the message, as typed) is the client's to put in its composer |
 | `files` | `query`, `limit?` | `{files: string[]}` | cwd-relative paths, fuzzy-ranked. `git ls-files` (else a bounded walk), cached and refreshed every 30 s |
 | `clipboard_image` | | `{path: string \| null}` | saves the clipboard image to a temp PNG (macOS: osascript «class PNGf») |
 | `history` | `before` (item id), `limit?` | `{items, hasOlder}` | older items |
@@ -223,7 +235,8 @@ type ToolDetail =
 | `copy` | client | last assistant text to the clipboard |
 | `tui` | client | hand off to Pi's TUI in a terminal pane (`handoff`, then `resume` when it exits) |
 | `login`, `settings`, `scoped-models` | client | run `pi --no-session` in a terminal pane, then `resume` once it exits |
-| `tree`, `export`, `fork`, `hotkeys` | client | like `tui` (they need the session in Pi's TUI) |
+| `fork` | client | a picker of `fork_points`, then `fork` |
+| `tree`, `export`, `hotkeys` | client | like `tui` (they need the session in Pi's TUI) |
 
 Anything else starting with `/` goes to Pi as prompt text: extension
 commands, prompt templates and `skill:` commands.
@@ -349,9 +362,10 @@ ToolDetail +=
   - `thinking` needs `thinkingLevels`;
   - `compact` needs `compact`;
   - `name` needs `rename`;
-  - `fork` needs both `fork` and `tui`;
+  - `fork` needs `fork` (the adapter has `forkPoints` and `fork`);
   - `tui` needs `tui`.
-- **Terminal utilities** (`login`, `settings`, `scoped-models`) are offered only when the adapter has an argv for them. The menu entry carries it as `Command.argv`, and the client runs that argv in a terminal pane in the chat's cwd, then sends `resume`.
+- **Terminal utilities** (`login`, `settings`, `scoped-models`) are offered only when the adapter has an argv for them. The menu entry carries it as `Command.argv`, and the client runs that argv in a terminal in the chat's cwd (no pane: a dialog over the chat shows it), then sends `resume`.
+- **What to type** (`Command.input`, the adapter's `tuiInput(name)`): for a utility or a TUI-only command, the client types it into the terminal once the agent is idle (`hc wait`, then `hc send --if idle`), so the person lands on that screen. Pi: `/<name>` for each; Claude Code: `/config` for `settings`.
 
   | provider | login | settings |
   |---|---|---|

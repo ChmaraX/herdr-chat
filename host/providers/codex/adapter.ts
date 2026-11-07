@@ -11,7 +11,7 @@ import { basename, extname, join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { CodexProcess, CodexRpcError } from "./rpc.ts";
 import type { RequestId } from "./rpc.ts";
-import { CodexMapper } from "./map.ts";
+import { CodexMapper, userContent } from "./map.ts";
 import type { TokenUsage } from "./map.ts";
 import { stripAnsi } from "../../ansi.ts";
 import { AgentError } from "../types.ts";
@@ -20,7 +20,7 @@ import { agentEnv } from "../env.ts";
 import type { McpFailure } from "../mcp.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, Ask,
-  ModelInfo, AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, Question,
+  ModelInfo, AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, Question, ForkPoint,
 } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -1307,5 +1307,45 @@ export class CodexAdapter implements ProviderAdapter {
   async setName(name: string): Promise<void> {
     await this.require().request("thread/name/set", { threadId: this.requireThread(), name }, 15_000);
     this.emit({ type: "session", name: name || null });
+  }
+
+  /** Each turn the person started, with its message as typed (a skill as `/name`): a turn id is a fork point. */
+  private async promptTurns(): Promise<{ id: string; text: string }[]> {
+    if (this.fresh) return [];
+    const { turns } = await this.turnsOf(this.requireThread(), HISTORY_TURNS);
+    const out: { id: string; text: string }[] = [];
+    for (const t of turns) {
+      const item = (Array.isArray(t.items) ? t.items : []).find((i: Rec) => i?.type === "userMessage");
+      const id = str(t.id);
+      if (!item || !id) continue;
+      const u = userContent(item.content);
+      out.push({ id, text: u.skill ? `/${u.skill.command}${u.text ? ` ${u.text}` : ""}` : u.text });
+    }
+    return out;
+  }
+
+  async forkPoints(): Promise<ForkPoint[]> {
+    return this.promptTurns();
+  }
+
+  /**
+   * Codex's fork: `thread/fork` through the turn before that one (inclusive),
+   * on the same model and effort; before the first turn, a new thread.
+   */
+  async fork(point: string): Promise<{ text: string }> {
+    const turns = await this.promptTurns();
+    const i = turns.findIndex((t) => t.id === point);
+    if (i < 0) throw new Error("That message isn't in this session any more");
+    const { model, effort } = this.settings;
+    this.resetRun();
+    if (i === 0) await this.newSession();
+    else {
+      const r = await this.require().request("thread/fork", {
+        threadId: this.requireThread(), lastTurnId: turns[i - 1]!.id, excludeTurns: true, cwd: this.opts.cwd, config: THREAD_CONFIG, ...(model ? { model } : {}),
+      }, 60_000);
+      this.applyThread(r, true);
+    }
+    if (effort && this.settings.effort !== effort) await this.setThinking(effort).catch((e) => this.host?.log(`fork: effort ${effort}: ${errText(e)}`));
+    return { text: turns[i]!.text };
   }
 }

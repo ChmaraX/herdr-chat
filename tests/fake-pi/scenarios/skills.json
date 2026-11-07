@@ -1,0 +1,14 @@
+{
+  "description": "Skills: `/skill:diagnose <text>` expands like Pi (agent-session.js _expandSkillCommand), with or without text after it; the answer is short.",
+  "expandPrompts": {
+    "^/skill:diagnose$": "<skill name=\"diagnose\" location=\"/Users/me/.pi/agent/skills/diagnose/SKILL.md\">\nReferences are relative to /Users/me/.pi/agent/skills/diagnose.\n\n# Diagnose\n\nA loop for hard bugs.\n\n1. **Reproduce** the bug with a failing test.\n2. **Bisect** until one change explains it.\n3. Fix it, then run the test again.\n</skill>",
+    "^/skill:diagnose\\s+([\\s\\S]*)$": "<skill name=\"diagnose\" location=\"/Users/me/.pi/agent/skills/diagnose/SKILL.md\">\nReferences are relative to /Users/me/.pi/agent/skills/diagnose.\n\n# Diagnose\n\nA loop for hard bugs.\n\n1. **Reproduce** the bug with a failing test.\n2. **Bisect** until one change explains it.\n3. Fix it, then run the test again.\n</skill>\n\n$1"
+  },
+  "default": [
+    {
+      "assistant": {
+        "text": "On it: I'll reproduce it first."
+      }
+    }
+  ]
+}

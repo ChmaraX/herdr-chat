@@ -11,7 +11,7 @@ import { listSessions, defaultSessionDir, readSettings } from "./sessions.ts";
 import { newId } from "../../timeline.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AssistantBlock, AskAnswer, ImageBlock,
-  ModelInfo, AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, StopReason, Usage, EventOf,
+  ModelInfo, AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, StopReason, Usage, EventOf, ForkPoint,
 } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -637,6 +637,11 @@ export class PiAdapter implements ProviderAdapter {
     return ["login", "settings", "scoped-models"].includes(name) ? [this.opts.command, "--no-session"] : null;
   }
 
+  /** Pi's TUI has a command for each: typed, it opens that screen. */
+  tuiInput(name: string): string | null {
+    return ["login", "settings", "scoped-models", "tree", "export", "hotkeys"].includes(name) ? `/${name}` : null;
+  }
+
   async setModel(provider: string, id: string): Promise<void> {
     const m = (await this.require().request("set_model", { provider, modelId: id }, 30_000)) as Rec;
     const model = mapModel(m);
@@ -677,5 +682,19 @@ export class PiAdapter implements ProviderAdapter {
   async setName(name: string): Promise<void> {
     await this.require().request("set_session_name", { name }, 15_000);
     this.emit({ type: "session", name: name || null });
+  }
+
+  async forkPoints(): Promise<ForkPoint[]> {
+    const d = (await this.require().request("get_fork_messages", {}, 15_000)) as Rec;
+    const list: Rec[] = Array.isArray(d?.messages) ? d.messages : [];
+    return list.filter((m) => typeof m?.entryId === "string").map((m) => ({ id: m.entryId, text: String(m.text ?? "") }));
+  }
+
+  /** Pi's own fork: a new session file up to that entry; Pi switches to it. */
+  async fork(point: string): Promise<{ text: string }> {
+    const d = (await this.require().request("fork", { entryId: point }, 30_000)) as Rec;
+    if (d?.cancelled) throw new Error("An extension cancelled the fork");
+    await this.afterSessionChange();
+    return { text: String(d?.text ?? "") };
   }
 }

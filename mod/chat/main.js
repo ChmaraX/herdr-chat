@@ -21,7 +21,7 @@
 //   picker:<n>, copy:<itemId>, edit:<itemId>, open:<itemId>, enlarge:<itemId>:<k> (the viewer: viewer.js, its own viewer:… commands),
 //   widget:<key>, status:hide|show:<key>, queue:edit|move|remove:<message id> (a queued row),
 //   status:toggle-hidden, statuses (the +N popover),
-//   handoff:return|close|cancel (the hand-off banner), conflict:go|take
+//   handoff:return|show|close|cancel (the hand-off banner), conflict:go|take
 
 import { View, div } from "gpui-kit";
 import { fps_monitor } from "gpui-fps";
@@ -45,7 +45,8 @@ import { DialogCard } from "./dialogs.js";
 import { Debug } from "./debug.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readImageSize } from "./viewer.js";
-import { MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, spansText, spinner, unwrapHc } from "./util.js";
+import { TermBar } from "./termbar.js";
+import { MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, spansText, spinner, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
@@ -60,6 +61,11 @@ export default class PiChat extends View {
     if (p.viewer) {
       // An enlarged image or diagram, opened by a chat as an overlay (viewer.js: zoom and pan).
       this.viewer = new Viewer(p.viewer, cx);
+      return;
+    }
+    if (p.termbar) {
+      // The bar over an agent's terminal a chat opened in a dialog (termbar.js).
+      this.termbar = new TermBar(p.termbar, cx);
       return;
     }
     this.chat = p.chat ?? "c-unknown";
@@ -114,6 +120,7 @@ export default class PiChat extends View {
       placeholder: `Message ${PROVIDER_NAMES[this.provider ?? "pi"] ?? "the agent"}…`,
       onChange: (cx) => { this.updateMenu(cx); this.debug.mark(); cx.notify(); },
       onPasteOther: (cx) => this.pasteImage(cx),
+      skills: () => this.commandList().filter((c) => c.source === "skill").map((c) => ({ command: c.name, name: c.name.replace(/^skill:/, "") })),
     });
     this.conn = new Connection({
       chat: this.chat,
@@ -224,9 +231,9 @@ export default class PiChat extends View {
     const s = this.store.state;
     if (s.sessionName) return s.sessionName;
     if (s.title) return s.title;
-    const first = this.store.items.find((it) => it.kind === "user" && it.text?.trim());
+    const first = this.store.items.find((it) => it.kind === "user" && (it.text?.trim() || it.skill));
     if (first) {
-      const line = first.text.replace(/<hc [^>]*>|<\/hc>/g, "").trim().split("\n")[0].replace(/\s+/g, " ");
+      const line = (first.text.trim() ? first.text : typedText(first)).replace(/<hc [^>]*>|<\/hc>/g, "").trim().split("\n")[0].replace(/\s+/g, " ");
       return line.length > 48 ? line.slice(0, 47).trimEnd() + "…" : line;
     }
     return "New chat";
@@ -313,22 +320,14 @@ export default class PiChat extends View {
     }
     if (shown) this.markSeen(me, cx);
     if (this.sub && this.subKey() !== this.lastSubKey) { this.lastSubKey = this.subKey(); changed = true; } // the header bar
-    // The TUI hand-off's terminal: zoomed over the tab once it has a pane;
-    // finished, back to the chat (the host resumes the agent by itself).
+    // The hand-off's terminal (in its dialog): finished, back to the chat (the
+    // host resumes the agent by itself).
     if (this.handoff?.terminal) {
       const t = terminals().find((x) => x.address === this.handoff.terminal);
       // terminals() learns of a new terminal a moment after hc run returns.
       if (t?.state === "live") this.handoff.seen = true;
       const gone = this.handoff.seen ? t?.state !== "live" : Date.now() - this.handoff.at > 15000;
       if (gone) this.finishHandoff(cx);
-      else if (!this.handoff.focused) {
-        const tp = panes().find((p) => p.terminal === this.handoff.terminal);
-        if (tp) {
-          run("pane.focus", { pane: tp.pane });
-          this.zoomPane(tp.pane, true);
-          this.handoff.focused = true;
-        }
-      }
     }
     // A reopened chat in a hand-off: its TUI gone (closed while the mod was away), resume;
     // still running but never reported (the mod reloaded before it could), report it.
@@ -768,7 +767,9 @@ export default class PiChat extends View {
   send(cx, mode = "auto") {
     if (mode === "auto" && this.editingQueued?.lane === "followUp") mode = "followUp";
     this.editingQueued = null;
-    const text = this.composer.value.replace(/\s+$/, "");
+    const message = this.composer.message();
+    if (message === null) return this.flash("One skill per message: remove the other pill", cx);
+    const text = message.replace(/\s+$/, "");
     const images = this.composer.chips.map((c) => c.path);
     if (!text.trim() && !images.length) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
@@ -812,6 +813,7 @@ export default class PiChat extends View {
       return this.openThinkingPicker(cx);
     }
     if (name === "resume") return this.openSessionsPicker(cx);
+    if (name === "fork") return this.openForkPicker(cx);
     if (name === "transcript") return this.showTranscript(cx);
     if (name === "copy") {
       const text = this.store.lastAssistantText();
@@ -827,8 +829,8 @@ export default class PiChat extends View {
     // (/login, /settings…) run as it is; any other is a hand-off to the agent's
     // own TUI on this session (/tui, and /tree, /export… where the agent lists them).
     const cmd = this.store.state.commands.find((c) => c.name === name && c.handler === "client");
-    if (cmd?.argv?.length) return this.startHandoff("utility", name, cx, cmd.argv);
-    if (cmd || name === "tui") return this.startHandoff("session", name, cx);
+    if (cmd?.argv?.length) return this.startHandoff("utility", name, cx, cmd.argv, cmd.input);
+    if (cmd || name === "tui") return this.startHandoff("session", name, cx, null, cmd?.input);
     this.fire("send", { text: `/${name}${rest ? " " + rest : ""}`, mode: "auto" }, cx);
   }
 
@@ -865,9 +867,11 @@ export default class PiChat extends View {
     }
     const prev = this.composer.menu;
     if (w.kind === "slash") {
-      const items = slashItems(this.commandList(), w.query);
-      const sel = prev?.kind === "slash" && prev.query === w.query ? Math.min(prev.sel, Math.max(0, items.length - 1)) : 0;
-      this.composer.menu = items.length ? { kind: "slash", query: w.query, items, sel } : null;
+      const list = w.skillsOnly ? this.commandList().filter((c) => c.source === "skill") : this.commandList();
+      const items = slashItems(list, w.query);
+      const same = prev?.kind === "slash" && prev.query === w.query && prev.start === w.start;
+      const sel = same ? Math.min(prev.sel, Math.max(0, items.length - 1)) : 0;
+      this.composer.menu = items.length ? { kind: "slash", query: w.query, items, sel, start: w.start, skillsOnly: Boolean(w.skillsOnly) } : null;
       return;
     }
     if (prev?.kind === "files" && prev.query === w.query) return;
@@ -910,6 +914,8 @@ export default class PiChat extends View {
     if (!it) return;
     if (m.kind === "files") {
       this.composer.insertFile(it);
+    } else if (it.source === "skill") { // a pill; the person goes on typing
+      this.composer.insertSkill({ command: it.name, name: it.name.replace(/^skill:/, "") });
     } else if (complete || /^</.test(it.args ?? "")) { // required args: complete, let the person type them
       this.composer.set(`/${it.name} `);
       this.composer.menu = null;
@@ -1136,6 +1142,29 @@ export default class PiChat extends View {
     });
   }
 
+  // /fork: the person's messages, newest first. The pick makes a new session up to
+  // that message (the agent's own fork; this one stays as it was) and puts the
+  // message back in the composer, to edit and send.
+  openForkPicker(cx) {
+    if (this.sub) return this.flash("/fork isn't available in a sub-agent's chat: its parent drives this session", cx);
+    cx.spawn(async (cx) => {
+      try {
+        const d = await this.req("fork_points", {}, cx);
+        const items = (d?.points ?? []).map((p, i) => ({ value: p.id, label: oneLine(p.text) || "(an image)", detail: i === 0 ? "the last message" : null }));
+        if (!items.length) return this.flash("Nothing to fork from yet", cx);
+        this.openPicker(new Picker("fork", "Fork from a message", items, (it, cx) => {
+          this.closePicker(cx);
+          this.fire("fork", { point: it.value }, cx, (r, cx) => {
+            this.composer.set(r?.text ?? "");
+            this.composer.focus();
+          });
+        }), cx);
+      } catch (e) {
+        this.flash(`fork: ${message(e)}`, cx);
+      }
+    });
+  }
+
   // ---- keys ---------------------------------------------------------------------
 
   action(a, cx) {
@@ -1299,7 +1328,7 @@ export default class PiChat extends View {
   // Edit and resend: the message's text back in the composer.
   editResend(it, cx) {
     const env = /^\s*<hc from="[^"]*"[^>]*>([\s\S]*?)<\/hc>\s*$/.exec(it.text ?? "");
-    this.composer.set(env ? env[1] : it.text ?? "");
+    this.composer.set(env ? env[1] : typedText(it));
     this.composer.focus();
     this.debug.mark();
     cx.notify();
@@ -1394,6 +1423,7 @@ export default class PiChat extends View {
       case "chip:thinking": return this.openThinkingPicker(cx);
       case "chip:permission": return this.openModePicker(cx);
       case "handoff:return": return this.returnToChat(cx);
+      case "handoff:show": return this.showHandoff(cx);
       case "handoff:close": return this.closeTui(cx);
       case "handoff:cancel": this.confirmClose = null; break;
       case "conflict:go": return this.goToConflict(cx);
@@ -1427,7 +1457,7 @@ export default class PiChat extends View {
         if (what.startsWith("picker:")) return this.picker?.choose(Number(what.slice(7)), cx);
         if (what.startsWith("copy:")) {
           const it = this.store.get(what.slice(5));
-          if (it) this.copy(`msg:${it.id}`, it.text ?? "", cx);
+          if (it) this.copy(`msg:${it.id}`, it.kind === "user" ? typedText(it) : it.text ?? "", cx);
           break;
         }
         if (what.startsWith("edit:")) {
@@ -1528,13 +1558,14 @@ export default class PiChat extends View {
 
   // mode "session": the chat's session in the agent's TUI (op handoff → its
   // argv, then resume); "utility": a built-in's own argv (/login, /settings),
-  // in the chat's folder, then resume. Either opens zoomed over the tab.
-  startHandoff(mode, name, cx, utilityArgv) {
+  // in the chat's folder, then resume. Either runs in a terminal with no pane,
+  // shown in a dialog over the chat (openTermDialog): the chat stays where it
+  // is, and the dialog closes when the terminal ends. `input`: typed into the
+  // terminal once the agent is idle ("/login"), so the person lands on that screen.
+  startHandoff(mode, name, cx, utilityArgv, input) {
     if (this.sub) return this.flash(`/${name} isn't available in a sub-agent's chat: its parent drives this session (/transcript shows the host's terminal)`, cx);
     if (this.handoff) return this.flash(`${this.providerName()}'s terminal is already open`, cx);
-    const place = this.findPlace();
-    if (!place) return this.flash("No tab to open the terminal in", cx);
-    this.handoff = { mode, name, terminal: null, at: Date.now(), focused: false };
+    this.handoff = { mode, name, terminal: null, at: Date.now(), overlay: null };
     this.debug.mark();
     cx.spawn(async (cx) => {
       try {
@@ -1551,15 +1582,18 @@ export default class PiChat extends View {
           if (d.argv?.length) argv = prog ? withProgram(d.argv, prog) : [...d.argv];
           else argv = [...(prog ?? ["pi"]), "--session", d.sessionFile];
         } else argv = prog ? withProgram(utilityArgv, prog) : [...utilityArgv];
+        // No herdr.space/tab labels: no pane, so the layout and the chat's tab stay as they are.
         const r = await hc(["run", "--bg", "--json", "--no-parent", "--name", `pi-tui-${this.chat}`, "--cwd", this.cwd ?? this.store.state.cwd ?? "/",
-          "--label", `herdr.space=${place.space}`, "--label", `herdr.tab=${place.tab}`, "--label", `pi-chat.tui=${this.chat}`, "--", ...argv]);
+          "--label", `pi-chat.tui=${this.chat}`, "--", ...argv]);
         if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || "hc run failed");
         this.handoff.terminal = JSON.parse(r.stdout).address;
         this.handoff.argv = argv;
         this.log(`handoff ${name}: ${argv.join(" ")} in ${this.handoff.terminal}`);
+        this.openTermDialog();
         // The host owns the hand-off: it watches this terminal and resumes when it ends.
         if (mode === "session") this.req("handoff_started", { terminal: this.handoff.terminal }, cx)
           .then(() => { this.handoff && (this.handoff.reported = true); }, () => {});
+        if (input) this.typeWhenIdle(this.handoff.terminal, input);
       } catch (e) {
         this.flash(`/${name}: ${message(e)}`, cx);
         const wasSession = this.handoff?.mode === "session"; // (a utility never stopped the agent)
@@ -1571,6 +1605,27 @@ export default class PiChat extends View {
     });
   }
 
+  // The hand-off's terminal in a dialog over the window, under termbar.js's bar.
+  openTermDialog() {
+    const h = this.handoff ?? (this.store.state.handoff?.terminal ? { mode: "session", name: "tui", terminal: this.store.state.handoff.terminal } : null);
+    if (!h?.terminal) return;
+    const agent = this.providerName();
+    const termbar = { terminal: h.terminal, mode: h.mode, provider: this.store.state.provider ?? this.provider ?? "pi", agent,
+      title: h.name === "tui" ? `${agent} · terminal UI` : `${agent} · /${h.name}` };
+    h.overlay = openOverlay({ kind: "dialog", modal: true, width: 0.86, height: 0.86, layout: { type: "column", children: [
+      { type: "block", size: { px: 40 }, content: { mod: MOD, props: { termbar } } },
+      { type: "block", content: { terminal: h.terminal } },
+    ] } });
+    if (!this.handoff) this.handoff = { ...h, at: Date.now(), seen: true, reported: true };
+  }
+
+  // Types `text` into a terminal once its agent is idle (`hc wait`, then `hc send --if idle`).
+  typeWhenIdle(terminal, text) {
+    hc(["wait", terminal, "--timeout", "30", "--json"])
+      .then(() => hc(["send", terminal, text, "--if", "idle", "--json"]))
+      .then((r) => this.log(`typed ${text} into ${terminal}: ${(r?.stdout ?? "").trim()}`), (e) => this.log(`typing ${text} into ${terminal}: ${message(e)}`));
+  }
+
   // A host that owns the hand-off (state.handoff) resumes by itself; an older one is asked to.
   hostOwnsHandoff() {
     return "handoff" in this.store.state;
@@ -1580,12 +1635,25 @@ export default class PiChat extends View {
     const h = this.handoff;
     this.handoff = null;
     this.confirmClose = null;
+    if (h.overlay) closeOverlay(h.overlay);
     this.log(`handoff ${h.name} finished`);
     if (h.mode === "utility" || !this.hostOwnsHandoff() || !h.reported) this.fire("resume", {}, cx);
     const me = this.myPane();
     if (me) run("pane.focus", { pane: me.pane });
     this.refocus(cx);
     this.debug.mark();
+  }
+
+  // The banner's Show it: the hand-off's terminal in its dialog again (closed, or
+  // gone with an app restart), else its tab when Open as tab gave it one.
+  showHandoff(cx) {
+    const term = this.handoff?.terminal ?? this.store.state.handoff?.terminal ?? null;
+    if (!term) return;
+    const pane = panes().find((p) => p.terminal === term);
+    if (pane) run("pane.focus", { pane: pane.pane });
+    else this.openTermDialog();
+    this.debug.mark();
+    cx.notify();
   }
 
   // The banner's Return to chat: a TUI still running is closed first, after a confirm.
@@ -1605,6 +1673,7 @@ export default class PiChat extends View {
     const term = this.store.state.handoff?.terminal ?? this.handoff?.terminal ?? null;
     this.confirmClose = null;
     if (term) run("terminal.kill", { terminal: term });
+    if (this.handoff?.overlay) closeOverlay(this.handoff.overlay);
     this.log(`return to chat${term ? `: closed ${term}` : ""}`);
     this.handoff = null;
     this.fire("resume", {}, cx);
@@ -1636,7 +1705,7 @@ export default class PiChat extends View {
   }
 
   close() {
-    if (this.viewer) return;
+    if (this.viewer || this.termbar) return;
     owners.delete(this.uid);
     // A sub-agent's host is its parent's: closing its peek or its tab leaves it running.
     if (this.sub || hostTerminal(this.chat)?.parent) {
@@ -1746,15 +1815,15 @@ export default class PiChat extends View {
       statuses: s.statuses.map((x) => ({ key: x.key, text: x.spans.map((y) => y.text).join("") })),
       widgets: s.widgets.map((w) => w.key), commands: s.commands.length, commandNames: s.commands.map((c) => c.name),
       items: this.store.items.map((it) => ({ id: it.id, kind: it.kind, ...(it.parent ? { parent: it.parent } : {}), ...(it.status ? { status: it.status } : {}), ...(it.streaming ? { streaming: true } : {}),
-        ...(it.kind === "user" ? { text: it.text.slice(0, 200), source: it.source, from: it.from ?? null } : {}),
+        ...(it.kind === "user" ? { text: it.text.slice(0, 200), source: it.source, from: it.from ?? null, skill: it.skill?.name ?? null } : {}),
         ...(it.kind === "tool" ? { name: it.name, title: it.title, images: it.images ?? [] } : {}),
         ...(it.kind === "assistant" ? { len: it.text.length, stopReason: it.stopReason ?? null } : {}),
         ...(it.kind === "notice" ? { level: it.level, text: (it.text ?? "").slice(0, 200), source: it.source ?? null } : {}) })),
       hasOlder: this.store.hasOlder,
       expanded: [...this.expanded], full: [...this.full.keys()],
       sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, shown: this.timeline.shown,
-      composer: { text: this.composer.value, chips: this.composer.chips.map((c) => c.path), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
-      menu: m ? { kind: m.kind, query: m.query, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
+      composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
+      menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
       picker: this.picker ? { kind: this.picker.kind, sel: this.picker.sel, top: this.picker.top ?? 0, wheeled: this.picker.wheeled ?? 0,
         count: this.picker.items().length, hint: this.picker.hint, items: this.picker.items().slice(0, 12).map((x) => x.value) } : null,
@@ -1817,7 +1886,7 @@ export default class PiChat extends View {
       if (this.confirmClose) return row(t.blocked, icon("terminal", 13), `Close ${this.providerName()}'s terminal UI? What it's doing there stops.`,
         [["handoff-close", "Close it", "handoff:close"], ["handoff-cancel", "Cancel", "handoff:cancel"]]);
       return row(t.muted, icon("terminal", 13), `${this.providerName()} is open in its terminal UI. Quit it there, or come back here.`,
-        [["handoff-return", "Return to chat", "handoff:return"]]);
+        [["handoff-show", "Show it", "handoff:show"], ["handoff-return", "Return to chat", "handoff:return"]]);
     }
     if (s.phase === "conflict") {
       const k = s.conflict ?? {};
@@ -1900,6 +1969,7 @@ export default class PiChat extends View {
 
   render(cx) {
     if (this.viewer) return this.viewer.render(cx);
+    if (this.termbar) return this.termbar.render(cx);
     // The host's hidden pane took the focus (agent.focus, the agents list, cmd-]): a
     // focus change re-renders, so give it back now, not on the next tick.
     const fp = focused()?.pane;
@@ -2024,6 +2094,12 @@ export default class PiChat extends View {
 
 // A message another agent sent (cards.js draws it as a report card): an
 // `hc send` report (source external, or queued as a steer first) with its sender.
+// A message on one line, for a picker row.
+function oneLine(text) {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  return t.length > 140 ? t.slice(0, 139).trimEnd() + "…" : t;
+}
+
 function isReport(it) {
   return Boolean(it.from ?? unwrapHc(it.text).from);
 }

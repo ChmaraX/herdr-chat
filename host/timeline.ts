@@ -4,9 +4,9 @@
 import { stripAnsi, toSpans } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 import { presentTool, applyResult, prettyArgs } from "./tools.ts";
-import type { NormalizedEvent, EventOf, ImageBlock, AssistantBlock } from "./providers/types.ts";
+import type { NormalizedEvent, EventOf, ImageBlock, AssistantBlock, SkillRef } from "./providers/types.ts";
 
-export type { ImageBlock };
+export type { ImageBlock, SkillRef };
 
 export const LIMITS = {
   imagesPerItem: 8,
@@ -31,7 +31,8 @@ export type ToolDetail =
 
 /** Every item may carry `parent`: the id of the tool item (a subagent) whose run produced it. */
 type Nested = { parent?: string };
-export type UserItem = Nested & { id: string; kind: "user"; ts: number; text: string; images: number; imagePaths?: string[]; source: UserSource; from?: string };
+/** `skill`: the skill the message invokes, drawn as a pill; `text` is then what the person wrote after it. */
+export type UserItem = Nested & { id: string; kind: "user"; ts: number; text: string; images: number; imagePaths?: string[]; source: UserSource; from?: string; skill?: SkillRef };
 export type DiffLine = { kind: "hunk" | "add" | "del" | "ctx" | "meta"; old?: number; new?: number; spans: Span[] };
 export type Block =
   | { type: "markdown"; text: string }
@@ -135,17 +136,23 @@ export class Timeline {
     return this.byId.get(id);
   }
 
-  addUser(text: string, images: number, source: UserSource, from?: string, ts = Date.now(), blocks: ImageBlock[] = []): UserItem {
+  addUser(text: string, images: number, source: UserSource, from?: string, ts = Date.now(), blocks: ImageBlock[] = [], skill?: SkillRef): UserItem {
     this.carry = {};
-    const item = this.add<UserItem>({ id: newId("u"), kind: "user", ts, text: bounded(text), images: Math.max(images, blocks.length), source, ...(from ? { from } : {}) });
+    const item = this.add<UserItem>({ id: newId("u"), kind: "user", ts, text: bounded(text), images: Math.max(images, blocks.length), source, ...(from ? { from } : {}), ...(skill ? { skill } : {}) });
     const paths = this.saveImages(item.id, blocks);
     if (paths.length) item.imagePaths = paths;
     return item;
   }
 
-  /** A sent message's echo: the agent's text (an expanded skill or template), its images and time. */
-  confirmUser(item: UserItem, text: string, blocks: ImageBlock[], ts?: number): void {
-    if (text && text !== item.text) item.text = bounded(text);
+  /** A sent message's echo: the agent's text (an expanded template), the skill it ran, its images and time. */
+  confirmUser(item: UserItem, text: string, blocks: ImageBlock[], ts?: number, skill?: SkillRef): void {
+    if (skill) {
+      item.skill = skill;
+      item.text = bounded(text);
+    } else if (text && text !== item.text) {
+      item.text = bounded(text);
+      delete item.skill;
+    }
     if (blocks.length && !item.imagePaths?.length) {
       item.images = Math.max(item.images, blocks.length);
       const paths = this.saveImages(item.id, blocks);
@@ -295,7 +302,7 @@ export class Timeline {
   private applyEvent(ev: NormalizedEvent, now: number): boolean {
     switch (ev.type) {
       case "user_message":
-        this.addUser(ev.text, ev.images, ev.source ?? "extension", ev.from, now, ev.imageBlocks ?? []);
+        this.addUser(ev.text, ev.images, ev.source ?? "extension", ev.from, now, ev.imageBlocks ?? [], ev.skill);
         return true;
       case "custom":
         this.addCustom(ev.customType, ev.text, now);

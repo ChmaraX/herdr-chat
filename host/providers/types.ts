@@ -15,6 +15,13 @@ export type ProviderId = "pi" | "claude" | "codex" | (string & {});
 /** Base64 image content, as it arrives from the agent. The core saves it to a file. */
 export type ImageBlock = { data: string; mimeType: string };
 
+/**
+ * A skill a user message invokes (host/skill.ts). `command`: what the person
+ * types to run it again, without the slash (Pi "skill:name", Claude Code and
+ * Codex "name"). `path`: its SKILL.md. `body`: what the agent got, when known.
+ */
+export type SkillRef = { name: string; command: string; path?: string; body?: string };
+
 export type ModelInfo = { provider: string; id: string; name: string; reasoning: boolean; contextWindow: number | null; input: string[] };
 
 export type PermissionMode = { id: string; label: string; description?: string };
@@ -35,6 +42,7 @@ export type Capabilities = {
   extensionUi: boolean;
   compact: boolean;
   rename: boolean;
+  /** /fork: the adapter has `forkPoints` and `fork`. */
   fork: boolean;
   /** The current model takes images. */
   images: boolean;
@@ -120,9 +128,11 @@ export type NormalizedEvent = Common &
      * A user message the agent accepted. `clientId` is the host's message id
      * (`prompt`'s `id`) when it is the echo of one the host sent: the core
      * confirms that message's item. Without `clientId` or `source` it is from
-     * elsewhere (the agent's own, an extension, another client).
+     * elsewhere (the agent's own, an extension, another client). `skill`: the
+     * skill it invokes, when the adapter knows it; `text` is then only what
+     * the person wrote after it. Without it the core checks `text` itself.
      */
-    | { type: "user_message"; text: string; images: number; imageBlocks?: ImageBlock[]; source?: UserSource; from?: string; clientId?: string }
+    | { type: "user_message"; text: string; images: number; imageBlocks?: ImageBlock[]; source?: UserSource; from?: string; clientId?: string; skill?: SkillRef }
     /** Custom (extension) message, shown as its own item. */
     | { type: "custom"; customType: string; text: string }
     | { type: "assistant_start" }
@@ -303,6 +313,12 @@ export interface ProviderAdapter {
   /** Optional: built-ins that need the session in the agent's own TUI ("tree", "export", "hotkeys"). */
   readonly tuiOnlyCommands?: string[];
   /**
+   * Optional: what the chat types into the agent's terminal once it is idle,
+   * for a built-in that opens one (a utility, a TUI-only command), so
+   * the person lands on that screen (Pi: "/login"). Null: nothing.
+   */
+  tuiInput?(name: string): string | null;
+  /**
    * Optional: the cause of an autonomous run that a user message nobody sent
    * started (Pi: an extension's sendUserMessage). Without it, and without a
    * `run_cause`, the run reads "<name> started a run on its own."
@@ -318,7 +334,20 @@ export interface ProviderAdapter {
   newSession(): Promise<void>;
   switchSession(path: string): Promise<void>;
   setName(name: string): Promise<void>;
+
+  // ---- fork (the person's messages, then a new session from before one of them)
+  /** Optional, with `fork`: the person's messages in this session, oldest first. */
+  forkPoints?(): Promise<ForkPoint[]>;
+  /**
+   * Switches to a new session holding everything before that message (the
+   * one it was forked from stays as it was), and resolves with the message's
+   * text for the composer. Emits the `session` events, like `switchSession`.
+   */
+  fork?(point: string): Promise<{ text: string }>;
 }
+
+/** A message the session can be forked before: the agent's id for it, and its text as typed. */
+export type ForkPoint = { id: string; text: string };
 
 export type AdapterOptions = {
   cwd: string;

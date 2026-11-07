@@ -167,6 +167,12 @@ export function unwrapHc(text) {
   return m ? { from: m[1], text: m[2] } : { from: null, text: text ?? "" };
 }
 
+// A user message as the person would type it again: a skill's `/command`, then the text.
+export function typedText(it, text = it?.text ?? "") {
+  const s = it?.skill;
+  return s ? `/${s.command}${text ? ` ${text}` : ""}` : text;
+}
+
 export function message(e) {
   return String(e?.message ?? e ?? "error");
 }

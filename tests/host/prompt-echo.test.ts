@@ -75,19 +75,19 @@ test("claude: Esc before the turn starts keeps the sent prompt (once), and the n
   }
 });
 
-test("pi: a skill's echo (Pi's expanded text) updates the shown item; a prompt Pi rejects leaves the timeline", async () => {
-  const skill = '<skill name="diagnose">Reproduce first.</skill>\n\nthe crash';
+test("pi: an expanded prompt template's echo updates the shown item; a prompt Pi rejects leaves the timeline", async () => {
+  const expanded = "Review this diff carefully:\n\nsrc/x.ts";
   const h = await startHost({
     name: "echo-pi", speed: 1,
-    scenario: { expandPrompts: { "^/skill:diagnose (.*)$": skill.replace("the crash", "$1") }, rejectPrompts: "^nope", default: [{ assistant: { text: "done" } }] },
+    scenario: { expandPrompts: { "^/review (.*)$": expanded.replace("src/x.ts", "$1") }, rejectPrompts: "^nope", default: [{ assistant: { text: "done" } }] },
   });
   try {
     const c = h.client;
     await c.waitFor(idle, 10_000, "started");
-    await c.req("send", { text: "/skill:diagnose the crash" });
+    await c.req("send", { text: "/review src/x.ts" });
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "assistant" && i.text === "done"), 10_000, "answered");
     const users = c.items.filter((i) => i.kind === "user");
-    assert.deepEqual(users.map((u) => [u.text, u.source]), [[skill, "composer"]], "one item, with the text Pi expanded");
+    assert.deepEqual(users.map((u) => [u.text, u.source]), [[expanded, "composer"]], "one item, with the text Pi expanded");
 
     const before = c.items.map((i) => i.id);
     await assert.rejects(c.req("send", { text: "nope, not this" }), /Rejected: nope/);

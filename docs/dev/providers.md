@@ -50,6 +50,8 @@ These are refined after the Claude and Codex research.
 - `listModels`, `setModel`, `setThinking`, `compact`, `newSession`, `listSessions`, `switchSession`, `setName`
 - `history()`: the normalized events to rebuild a resumed session
 - `tuiCommand(session)`: the argv of the agent's own TUI on this session, for hand-offs. Examples: `pi --session <f>`, `claude --resume <id>`, `codex resume <id>`.
+- optional `forkPoints()` and `fork(point)`: the person's messages, and a new session holding what came before one of them (resolves with the message's text). Pi: `get_fork_messages` / `fork`. Claude Code: its transcript's prompts, then a restart with `--resume <id> --fork-session --resume-session-at <the answer before>` (the fork's transcript is written at its first prompt; until then the history is the original's up to that answer). Codex: the turns' first `userMessage`, then `thread/fork {lastTurnId: the turn before}` on the same model and effort.
+- optional `tuiInput(name)`: what the chat types into the agent's terminal for a built-in that opens one, so it lands on that screen (Pi `/login`, Claude Code `/config`).
 
 ### Capabilities (in `ChatState.capabilities`, the mod adapts)
 

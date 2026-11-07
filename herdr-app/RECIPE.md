@@ -78,8 +78,16 @@ install changed, and removes the unpacked release.
   composer. A queued row's click edits it, ⇄ moves it to the other lane, ×
   removes it.
 - **Approvals**: 1, 2 or 3 allow once, allow always, or deny. Esc denies.
-- **`/tui`** (⌥⌘T) opens the agent's own TUI on the same session, filling
-  the tab. Quitting it brings the chat back.
+- **`/tui`** (⌥⌘T) opens the agent's own TUI on the same session in a
+  dialog over the chat (a layout overlay: a bar, then the terminal, which
+  has no pane). Quitting it, or the bar's Back to chat, brings the chat
+  back; Open as tab gives it a tab. `/login`, `/settings`, `/tree`… open
+  the same way, with the command typed into the TUI once it's idle, so it
+  lands on that screen; the bar's Done ends it.
+- **Skills** are pills (inline tokens) in the composer: picked from `/`
+  (which lists skills anywhere in the text), or typed out with a space.
+  Sent, the pill becomes the message's leading `/command`; in the timeline
+  it heads the bubble and opens to what the agent got.
 - **Continue as chat**: on an idle Pi TUI (right-click, or its row's menu),
   Pi quits cleanly and a chat opens on the same session, with the session's
   model and thinking level.

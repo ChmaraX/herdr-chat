@@ -73,6 +73,7 @@ Behaviour that mirrors Pi 1.5:
   "abort": [Step, ...],                     // extra steps emitted after an aborted run's steps stop
   "compactMs": 150,
   "cancelNewSession": false,
+  "cancelFork": false,  // an extension cancels `fork` (get_fork_messages and fork are Pi's own)
   "cost": 0.0123
 }
 ```
@@ -109,6 +110,7 @@ Behaviour that mirrors Pi 1.5:
 | `scenarios/abort.json` | A bash that ticks every 100 ms until aborted. Prompts containing `quick` answer at once (use them to queue follow-ups and steers) |
 | `scenarios/steer.json` | A 1.5 s bash; a steer sent meanwhile arrives as a user message before the next model call |
 | `scenarios/autonomous.json` | 300 ms after start, an extension posts a `subagent-notify` custom message and Pi runs on its own, with an auto-retry and a threshold compaction |
+| `scenarios/skills.json` | `/skill:diagnose [text]` expands like Pi does (a `<skill …>` block with a location, then the text); a short answer |
 | `scenarios/crash.json` | Exit 1 mid-tool for prompts starting with "Run". `/die` makes Pi exit 3 while idle |
 | `scenarios/oversized.json` | A 9 MiB `tool_execution_update` mid-tool, then the tool and the answer finish normally |
 | `scenarios/startup-dialog.json` | An extension awaits a confirm in `session_start`; stdin is never read, so Pi hangs at startup |

@@ -40,6 +40,7 @@ which also reads back what the host sent (`requests(method)`, `answers()`).
   "approvalPolicy": "on-request", "sandbox": "workspace-write", "approvalsReviewer": "user",  // the user's config
   "models": [Model…], "skills": [Skill…],
   "history": [Turn…],              // seeds a resumed thread that doesn't exist yet
+  "forkEffort": "high",             // the effort a thread/fork takes (the real one takes the config default)
   "prompts": [{"match": "regex", "once": false, "steps": [Step…]}],
   "default": [Step…],
   "resumeError": {"code": -32600, "message": "… active writer"},

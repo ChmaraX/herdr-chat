@@ -65,18 +65,28 @@ export function rank(name, q) {
   return i === q.length ? 1 - n.length / 1000 : 0;
 }
 
+// A skill in the text is a pill (an inline token): its text is the command
+// (`/skill:diagnose`), so the value reads as typed; the pill shows its name.
+export const skillToken = (s) => ({ id: `skill:${s.command}`, text: `/${s.command}`, label: s.name });
+
 export class Composer {
-  constructor(cx, { onChange, onPasteOther, placeholder }) {
+  // `skills()`: the chat's skill commands, [{command, name}] (main.js).
+  constructor(cx, { onChange, onPasteOther, placeholder, skills }) {
     this.ta = TextareaState.new({ placeholder: placeholder ?? "Message…" });
     this.ta.set_auto_grow(1, 10);
+    this.skills = skills ?? (() => []);
     this.value = "";
+    this.cursor = 0; // where the last edit ended: the state has no getter for it
     this.chips = []; // {path, label}
-    this.menu = null; // {kind: "slash"|"files", query, items, sel}
+    this.menu = null; // {kind: "slash"|"files", query, items, sel, start}
     this.history = null; // {list, i, text}
     this.focused = false;
     this.ta.on("change", (_e, cx) => {
+      const before = this.value;
       this.value = this.ta.value();
+      this.cursor = editEnd(before, this.value);
       if (this.history && this.value !== this.history.text) this.history = null;
+      this.pillTyped(before);
       onChange?.(cx);
     });
     this.ta.on("focus", (_e, cx) => { this.focused = true; cx.notify(); });
@@ -89,10 +99,76 @@ export class Composer {
     this.ta.focus();
   }
 
+  // The text, with its skill commands as pills.
   set(text) {
-    this.ta.set_value(text);
+    const tokens = this.skillSpans(text);
+    this.ta.set_value(tokens.length ? { text, tokens } : text);
     this.value = text;
+    this.cursor = text.length;
     this.ta.set_selected_range({ start: text.length, end: text.length });
+  }
+
+  // Where `/command` of a known skill stands as a word in `text` (one per skill).
+  skillSpans(text) {
+    const out = [];
+    for (const s of this.skills()) {
+      const word = `/${s.command}`;
+      const m = new RegExp(`(^|\\s)${escapeRe(word)}(?=\\s|$)`).exec(text);
+      if (m) out.push({ range: { start: m.index + m[1].length, end: m.index + m[1].length + word.length }, token: skillToken(s) });
+    }
+    return out.sort((a, b) => a.range.start - b.range.start);
+  }
+
+  tokens() {
+    return this.ta.tokens?.() ?? [];
+  }
+
+  // What to send: a skill pill becomes the message's leading `/command`, the
+  // rest follows (a pill inside the text leaves its name there). Null when
+  // the text has more than one skill: an agent runs one skill per message.
+  message() {
+    const text = this.value;
+    const pills = this.skillPills();
+    if (pills.length > 1) return null;
+    if (!pills.length) return text;
+    const { range, token } = pills[0];
+    const before = text.slice(0, range.start);
+    const after = text.slice(range.end);
+    const rest = (before.trim() ? `${before}${token.label ?? token.text.slice(1)}${after}` : after).trim();
+    return `${token.text}${rest ? ` ${rest}` : ""}`;
+  }
+
+  // The skill pills in the text.
+  skillPills() {
+    return this.tokens().filter((t) => t.token.id.startsWith("skill:"));
+  }
+
+  // A skill command typed out in full, then a space or newline: a pill.
+  pillTyped(before) {
+    if (this.value.length !== before.length + 1 || !/\s/.test(this.value[this.cursor - 1] ?? "")) return;
+    const head = this.value.slice(0, this.cursor - 1);
+    const m = /(^|\s)\/(\S+)$/.exec(head);
+    const s = m && this.skills().find((x) => x.command === m[2]);
+    if (!s) return;
+    const start = head.length - m[2].length - 1;
+    if (this.tokens().some((t) => t.range.start < head.length && t.range.end > start)) return;
+    this.ta.set_selected_range({ start, end: head.length });
+    this.ta.replace_with_token(skillToken(s));
+    this.ta.set_selected_range({ start: this.cursor, end: this.cursor });
+    this.value = this.ta.value();
+  }
+
+  // A skill picked from the menu: a pill in place of the "/query" being typed, then a space.
+  insertSkill(s) {
+    const m = this.menu;
+    const start = m?.start ?? 0;
+    const end = start + 1 + (m?.query?.length ?? 0);
+    this.ta.set_selected_range({ start, end });
+    this.ta.replace_with_token(skillToken(s));
+    this.ta.replace(" ");
+    this.value = this.ta.value();
+    this.cursor = start + skillToken(s).text.length + 1;
+    this.menu = null;
   }
 
   clear() {
@@ -131,11 +207,20 @@ export class Composer {
     return true;
   }
 
-  // What the text asks for: "/cmd" at the start (no space yet), or "@query" at the end.
+  // What the text asks for: "/cmd" alone (every command), "/name" being
+  // typed anywhere else (skills only: the rest need the whole message), or
+  // "@query" at the end.
   wanted() {
     const v = this.value;
+    const inPill = (at) => this.tokens().some((t) => t.range.start <= at && t.range.end > at);
     const slash = /^\/([^\s]*)$/.exec(v);
-    if (slash) return { kind: "slash", query: slash[1] };
+    if (slash && !inPill(0)) return { kind: "slash", query: slash[1], start: 0 };
+    const head = v.slice(0, this.cursor);
+    const mid = /(^|\s)\/([^\s/]*)$/.exec(head);
+    if (mid) {
+      const start = head.length - mid[2].length - 1;
+      if (!inPill(start)) return { kind: "slash", query: mid[2], start, skillsOnly: true };
+    }
     const at = /(^|\s)@([^\s@]*)$/.exec(v);
     if (at) return { kind: "files", query: at[2] };
     return null;
@@ -166,7 +251,8 @@ export class Composer {
         .on_click((_e, cx) => { this.chips.splice(i, 1); cx.notify(); }).child(icon("x", 11))));
     let wrap = div().id("composer-box").w_full().min_w(0).key_context(this.context());
     for (const a of ACTIONS) wrap = wrap.on_action(a, (_e, cx) => c.action(a, cx));
-    wrap = wrap.child(Textarea.new(this.ta).w_full().px(14).pt(12).pb(4).text_size(14).text_color(t.foreground).bg(alpha(t.background, 0)));
+    wrap = wrap.child(Textarea.new(this.ta).w_full().px(14).pt(12).pb(4).text_size(14).text_color(t.foreground).bg(alpha(t.background, 0))
+      .token((tok, _cx) => skillPillEl(tok, t)));
     const working = c.working;
     const typed = Boolean(this.value.trim() || this.chips.length);
     const stop = working && !typed;
@@ -185,4 +271,26 @@ export class Composer {
         .child(h_flex().flex_1().min_w(0).gap(2).items_center().overflow_hidden().child(c.footer ?? div())) // clips, never under the button
         .child(btn));
   }
+}
+
+// The pill a skill token draws in the text (cards.js draws the same in a sent message).
+function skillPillEl(tok, t) {
+  if (!tok.token.id.startsWith("skill:")) return null;
+  const h = Math.max(18, Math.min(22, Math.round(tok.line_height) - 2));
+  return h_flex().h(h).px(6).gap(4).items_center().rounded(5).text_size(12.5).font_medium()
+    .bg(alpha(t.accent, tok.selected ? 0.3 : 0.14)).text_color(t.accent)
+    .child(icon("book", 11.5)).child(tok.token.label ?? tok.token.text);
+}
+
+// Where an edit from `a` to `b` ends in `b`: after what was typed or pasted.
+function editEnd(a, b) {
+  let p = 0;
+  while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let s = 0;
+  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  return b.length - s;
+}
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

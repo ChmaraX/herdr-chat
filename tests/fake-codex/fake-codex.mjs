@@ -557,6 +557,28 @@ async function handle(msg) {
       setImmediate(() => notify("thread/status/changed", { threadId: t.id, status: { type: "idle" } }));
       return threadResponse(t);
     }
+    case "thread/fork": {
+      const src = threads.get(p.threadId) ?? loadThread(p.threadId);
+      if (!src) return err(-32600, `no rollout found for thread id ${p.threadId}`);
+      const upTo = p.lastTurnId ? src.turns.findIndex((x) => x.id === p.lastTurnId) : src.turns.length - 1;
+      if (p.lastTurnId && upTo < 0) return err(-32600, `turn not found: ${p.lastTurnId}`);
+      const t = newThread({ cwd: p.cwd ?? src.cwd, model: p.model ?? src.settings.model, approvalPolicy: src.settings.approvalPolicy });
+      t.settings = { ...JSON.parse(JSON.stringify(src.settings)), model: p.model ?? src.settings.model };
+      // Without its own model the fork takes the config default, as the real one does (sample 10): not the source's effort.
+      t.settings.effort = scenario.forkEffort ?? t.settings.effort;
+      t.forkedFromId = src.id;
+      t.turns = JSON.parse(JSON.stringify(src.turns.slice(0, upTo + 1)));
+      t.written = t.turns.length > 0;
+      t.preview = src.preview;
+      t.config = p.config ?? null;
+      threads.set(t.id, t);
+      main = t;
+      saveThread(t);
+      setImmediate(() => notify("thread/started", { thread: { ...threadView(t), forkedFromId: src.id } }));
+      const r = threadResponse(t);
+      r.thread.forkedFromId = src.id;
+      return r;
+    }
     case "thread/turns/list": {
       const t = threads.get(p.threadId) ?? loadThread(p.threadId);
       if (!t) return err(-32600, `thread not found: ${p.threadId}`);

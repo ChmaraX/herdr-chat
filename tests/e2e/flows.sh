@@ -116,37 +116,66 @@ fi
 
 # --- flow: Pi's TUI hand-off and back ---------------------------------------------------------------
 if want handoff; then
-  step "/tui: Pi's TUI in a terminal beside the chat, then back"
+  step "/tui: Pi's TUI in a dialog over the chat (no pane: the tab stays as it is), then back"
   CHAT=$(open_chat handoff)
   ready
   send_text "hello"
   expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "a first answer (the session has a file now)" 15
   SESSION=$(d 'd["sessionFile"]')
+  TAB=$(d 'd["place"]["tab"]'); H=$(d 'd["host"]["address"]')
   : >"$FAKE_TUI_LOG"
   send_text "/tui"
   expect '[ "$(phase)" = handoff ]' "the host handed the session off (phase handoff)" 10
   expect 'grep -q -- "--session $SESSION" "$FAKE_TUI_LOG"' "the TUI runs with --session <the chat's file>" 10
   handoff_tui
-  expect 'term_panes | grep -q " $TUI$"' "the TUI terminal is a pane of the chat's tab" 10
-  TUIPANE=$(term_panes | awk -v t="$TUI" '$3 == t {print $2}')
-  expect '[ -n "$TUIPANE" ] && [ "$(d "d[\"zoomedPane\"]")" = "$TUIPANE" ]' "the TUI's pane is zoomed: it fills the tab" 10
-  TAB=$(d 'd["place"]["tab"]'); H=$(d 'd["host"]["address"]')
-  hidden_in "$TAB" "$H" && ok "the host's pane stays hidden beside it ($(node_of "$H"))" || fail "the host's pane: $(node_of "$H")"
+  expect 'overlay_open layout && [ -n "$(d "d[\"handoff\"][\"overlay\"]")" ]' "the TUI shows in a dialog over the chat" 10
+  ! term_panes | grep -q " $TUI$" && ok "the TUI has no pane" || fail "the TUI got a pane: $(term_panes | grep " $TUI$")"
+  [ "$(tab_panes "$TAB" | wc -l | tr -d " ")" = 2 ] && hidden_in "$TAB" "$H" && [ "$(d 'd["zoomed"]')" = false ] \
+    && ok "the chat's tab is untouched: the chat, its hidden host, no zoom" || fail "the tab: $(tab_panes "$TAB") zoomed $(d 'd["zoomed"]')"
   shot handoff-1-tui 0.6
   hc send "$TUI" q >>"$LOG" 2>&1 || hc send --force "$TUI" q >>"$LOG" 2>&1
   expect '[ "$(d "d[\"handoff\"]")" = null ]' "quitting the TUI ends the hand-off" 15
+  expect '! overlay_open layout' "the dialog closed with it" 5
   expect '[ "$(phase)" = idle ]' "the chat resumed Pi (phase idle)" 15
-  expect '[ "$(d "d[\"zoomed\"]")" = false ] && [ "$(tab_panes "$TAB" | wc -l | tr -d " ")" = 2 ] && hidden_in "$TAB" "$H"' "the TUI's pane went with its zoom: the chat alone, the host still hidden" 10
   [ "$(d 'd["sessionFile"]')" = "$SESSION" ] && ok "on the same session" || fail "session changed"
-  step "/login runs pi --no-session, then restarts Pi"
+  step "/login runs pi --no-session in a dialog; Done ends it and Pi restarts"
   : >"$FAKE_TUI_LOG"
   cmd focus; sleep 0.3
   send_text "/login"
   expect 'grep -q -- "--no-session" "$FAKE_TUI_LOG"' "pi --no-session in a terminal" 10
   handoff_tui
-  expect 'P=$(term_panes | awk -v t="$TUI" "\$3 == t {print \$2}"); [ -n "$P" ] && [ "$(d "d[\"zoomedPane\"]")" = "$P" ]' "its pane is zoomed too" 10
-  hc send "$TUI" q >>"$LOG" 2>&1 || true
-  expect '[ "$(d "d[\"handoff\"]")" = null ] && [ "$(phase)" = idle ]' "back, Pi restarted" 15
+  expect 'overlay_open layout' "in a dialog over the chat" 10
+  ! term_panes | grep -q " $TUI$" && ok "no pane" || fail "the utility got a pane"
+  shot handoff-2-login 0.6
+  do_ chat.termbar:done # the dialog bar's Done (termbar.js), by its command
+  expect '! hc get "$TUI" --json 2>/dev/null | grep -q "\"state\": *\"live\""' "Done ends the terminal" 10
+  expect '[ "$(d "d[\"handoff\"]")" = null ] && [ "$(phase)" = idle ] && ! overlay_open layout' "back, Pi restarted, the dialog gone" 15
+fi
+
+# --- flow: /fork from a picker of the person's messages -----------------------------------------
+if want fork; then
+  step "/fork: a picker of the messages (newest first); the pick makes a new session up to it, the message back in the composer"
+  CHAT=$(open_chat fork skills)
+  ready
+  users_text() { d "[i['text'] for i in d['items'] if i['kind']=='user']"; }
+  send_text "first"
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" = 1 ]' "answered" 15
+  send_text "/skill:diagnose second"
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" = 2 ]' "answered" 15
+  send_text "third"
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" = 3 ]' "answered" 15
+  SESSION=$(d 'd["sessionFile"]')
+  send_text "/fork"
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = fork ] && [ "$(d "d[\"picker\"][\"count\"]")" = 3 ]' "/fork lists the three messages" 8
+  keys_or down '[ "$(d "d[\"picker\"][\"sel\"]")" = 1 ]' "key:down" "↓ to the second message (the skill)"
+  shot fork-1-picker 0.3
+  press enter '[ "$(d "d[\"picker\"]")" = null ]'
+  expect '[ "$(d "d[\"sessionFile\"]")" != "$SESSION" ] && [ "$(users_text)" = "[\"first\"]" ]' "a new session holding the first message only" 10
+  expect '[ "$(d "d[\"composer\"][\"text\"]")" = "/skill:diagnose second" ] && [ "$(d "len(d[\"composer\"][\"pills\"])")" = 1 ]' "the message back in the composer, its skill a pill" 5
+  shot fork-2-forked 0.3
+  keys enter; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || { by_command "Enter dropped: chat.click:send"; cmd click:send; }
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" = 2 ] && [ "$(users_text)" = "[\"first\", \"second\"]" ]' "sent again on the fork" 15
+  grep -q '"third"' "$SESSION" && ok "the original session still has its third message" || fail "the original session changed"
 fi
 
 # --- flow: the agents list lands on the chat; the transcript on purpose; host stopped ---------

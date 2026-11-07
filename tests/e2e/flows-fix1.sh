@@ -225,15 +225,14 @@ if want handoff2; then
   grep -q "^env PI_CHAT_HANDOFF=" <(hc get "$TUI" --json | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin)["argv"]))') \
     && ok "the tui override kept the env prefix (PI_CHAT_HANDOFF=…)" || fail "TUI argv: $(hc get "$TUI" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["argv"])')"
   HT=$(host_of "$CHAT"); TAB=$(d 'd["place"]["tab"]')
-  expect 'tab_panes "$TAB" | grep -q " $TUI$" && hidden_in "$TAB" "$HT"' "the host's pane stays hidden while the TUI shares the tab" 10
-  # The TUI fills the tab (zoomed); the person unzooms it to see the chat and its banner.
-  # A chat hidden behind a zoomed pane takes no commands: toggle until it does.
-  TUIPANE=$(tab_panes "$TAB" | awk -v t="$TUI" '$2 == t {print $1}')
-  sleep 2
-  for _ in 1 2 3; do
-    "$APP" do chat.click:handoff:return 2>/dev/null | grep -q '"ok"' && break
-    note "the chat is hidden behind the zoomed TUI: zoom toggled"; do_ pane.zoom --pane "$TUIPANE"; sleep 1
-  done
+  expect 'overlay_open layout && ! tab_panes "$TAB" | grep -q " $TUI$" && hidden_in "$TAB" "$HT"' "the TUI in a dialog (no pane in the tab), the host's pane still hidden" 10
+  # The dialog's own way back is its bar (flows.sh handoff); here the banner's, once the dialog is closed.
+  do_ overlay.close
+  expect '! overlay_open layout' "the dialog closed: the TUI runs on, out of sight" 5
+  cmd click:handoff:show
+  expect 'overlay_open layout' "the banner's Show it opens the dialog again" 5
+  do_ overlay.close
+  cmd click:handoff:return
   expect '[ "$(d "d[\"confirmClose\"]")" = true ]' "Return to chat asks first (the TUI still runs)" 5
   shot fix1-9-return-confirm 0.4
   cmd click:handoff:close
@@ -260,8 +259,10 @@ PY
   reload_mod
   expect '[ "$(d "d[\"connection\"][\"status\"]")" = connected ] && [ "$(d "d[\"handoff\"]")" = null ] && [ "$(phase)" = handoff ]' "the reloaded chat shows the hand-off from the host's state" 15
   shot fix1-10-handoff-banner 0.4
+  overlay_open layout && ok "the dialog outlives the mod's reload" || fail "the dialog went with the reload"
   hc send "$TUI" q >>"$LOG" 2>&1 || hc send --force "$TUI" q >>"$LOG" 2>&1
   expect '[ "$(phase)" = idle ]' "the TUI quit: the host resumed on its own (the mod no longer watches)" 20
+  expect '! overlay_open layout' "the dialog closed with its terminal" 5
   expect '[ "$(d "d[\"zoomed\"]")" = false ] && [ "$(tab_panes "$TAB" | wc -l | tr -d " ")" = 2 ] && hidden_in "$TAB" "$HT"' "the chat alone again, the host hidden" 10
 fi
 

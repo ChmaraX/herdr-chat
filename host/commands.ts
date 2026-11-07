@@ -9,8 +9,10 @@ export type Command = {
   source: "builtin" | "extension" | "prompt" | "skill";
   handler: "host" | "client";
   args?: string;
-  /** Terminal utilities (/login, /settings…): the command to run in a terminal pane, cwd = the chat's. */
+  /** Terminal utilities (/login, /settings…): the command to run in a terminal, cwd = the chat's. */
   argv?: string[];
+  /** A command that opens the agent's terminal: what to type there once it is idle ("/login"). */
+  input?: string;
 };
 
 /** What the built-ins depend on. */
@@ -22,6 +24,8 @@ export type BuiltinContext = {
   utility: (name: string) => string[] | null;
   /** Commands that need the session in the agent's own TUI (Pi: tree, export, hotkeys). */
   tuiOnly: string[];
+  /** What to type into the agent's terminal for a command that opens one, or null. */
+  tuiInput?: (name: string) => string | null;
 };
 
 const B = (name: string, description: string, handler: "host" | "client", args?: string): Command => ({ name, description, source: "builtin", handler, ...(args ? { args } : {}) });
@@ -32,9 +36,13 @@ export function builtins(ctx: BuiltinContext): Command[] {
   const caps = ctx.capabilities;
   const pi = n === "Pi";
   const out: Command[] = [];
+  const typed = (name: string) => {
+    const input = ctx.tuiInput?.(name);
+    return input ? { input } : {};
+  };
   const utility = (name: string, description: string) => {
     const argv = ctx.utility(name);
-    if (argv) out.push({ ...B(name, description, "client"), argv });
+    if (argv) out.push({ ...B(name, description, "client"), argv, ...typed(name) });
   };
   out.push(B("model", "Choose the model", "client", "[provider/id]"));
   if (caps.thinkingLevels.length) out.push(B("thinking", pi ? "Choose the thinking level" : "Choose the thinking effort", "client", "[level]"));
@@ -51,11 +59,11 @@ export function builtins(ctx: BuiltinContext): Command[] {
   utility("settings", `Open ${n}'s settings (in a terminal)`);
   utility("scoped-models", "Choose the models for cycling (in a terminal)");
   const tuiOnly = (name: string, description: string) => {
-    if (caps.tui && ctx.tuiOnly.includes(name)) out.push(B(name, description, "client"));
+    if (caps.tui && ctx.tuiOnly.includes(name)) out.push({ ...B(name, description, "client"), ...typed(name) });
   };
   tuiOnly("tree", `Browse the session tree (in ${n}'s terminal UI)`);
   tuiOnly("export", `Export the session (in ${n}'s terminal UI)`);
-  if (caps.fork && caps.tui) out.push(B("fork", `Fork from an earlier message (in ${n}'s terminal UI)`, "client"));
+  if (caps.fork) out.push(B("fork", "Fork from an earlier message: a new session up to it", "client"));
   tuiOnly("hotkeys", `Show ${n}'s hotkeys (in ${n}'s terminal UI)`);
   return out;
 }

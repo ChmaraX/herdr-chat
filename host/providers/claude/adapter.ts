@@ -9,11 +9,11 @@ import { ClaudeMapper } from "./mapper.ts";
 import { mcpFailureNotice } from "../mcp.ts";
 import { agentEnv } from "../env.ts";
 import type { Priority } from "./mapper.ts";
-import { historyEvents, hasMessages } from "./history.ts";
+import { historyEvents, hasMessages, forkPoints } from "./history.ts";
 import { sessionPath, sessionIdOf, listSessions, liveHolder, readUserSettings } from "./sessions.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, ModelInfo,
-  AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice,
+  AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, ForkPoint,
 } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -49,6 +49,12 @@ export class ClaudeAdapter implements ProviderAdapter {
   private mcpReported = new Set<string>();
   private sessionId: string | null = null;
   private file: string | null = null;
+  /**
+   * A fork not yet on disk: Claude Code writes the new transcript at its first
+   * prompt, so until then the start resumes `from` at `at` again, and the
+   * history is `from`'s up to `at`. `file`: the fork's own transcript.
+   */
+  private forked: { from: string; fromFile: string; at: string; file: string } | null = null;
   private models: Rec[] = [];
   private commandList: Rec[] = [];
   /** The model alias we launch with (`--model`), once the user picked one. */
@@ -104,7 +110,13 @@ export class ClaudeAdapter implements ProviderAdapter {
     this.mapper.permissionMode = this.permissionMode;
     let id: string;
     let resume = false;
-    if (session) {
+    // A fork not on disk yet starts as that fork again (a /reload before its first prompt).
+    const fork = this.forked && session === this.forked.file && !existsSync(session) ? this.forked : null;
+    if (!fork) this.forked = null;
+    if (fork) {
+      id = sessionIdOf(fork.file);
+      this.file = fork.file;
+    } else if (session) {
       id = sessionIdOf(session);
       this.file = session;
       resume = existsSync(session);
@@ -120,7 +132,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       "--permission-mode", this.permissionMode, "--thinking-display", "summarized",
       ...(this.modelValue ? ["--model", this.modelValue] : []),
       ...(this.effort ? ["--effort", this.effort] : []),
-      ...(resume ? ["--resume", id] : ["--session-id", id]),
+      ...(fork ? ["--resume", fork.from, "--fork-session", "--session-id", id, "--resume-session-at", fork.at] : resume ? ["--resume", id] : ["--session-id", id]),
       ...this.opts.args,
     ];
     host.log(`spawn ${this.opts.command} ${args.join(" ")}`);
@@ -143,7 +155,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       this.stopTimers();
       host.emit({ type: "exited", code: info.code, signal: info.signal, stderrTail: info.stderr, ...(info.spawnError ? { spawnError: info.spawnError } : {}), command: this.opts.command });
     };
-    this.emit({ type: "session", id, file: this.file, ...(resume ? {} : { name: null }) });
+    this.emit({ type: "session", id, file: this.file, ...(resume || fork ? {} : { name: null }) });
     this.startWatchdog();
     // MCP servers can hold up initialize; 30 s as T3 does.
     const init: Rec = await p.control({ subtype: "initialize" }, 30_000);
@@ -159,7 +171,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (this.effort) this.emit({ type: "thinking", level: this.effort });
     const other = liveHolder(id, p.pid);
     if (other) this.emit({ type: "notice", level: "warning", source: "host", text: `This session is also open in another Claude Code process (pid ${other.pid}${other.kind ? `, ${other.kind}` : ""}). Two writers on one session can lose turns.` });
-    return { streaming: false, hasHistory: resume && hasMessages(this.file) };
+    return { streaming: false, hasHistory: Boolean(fork) || (resume && hasMessages(this.file)) };
   }
 
   /** ModelInfo for the current model: the alias we launched with, else the one init reported. */
@@ -526,7 +538,9 @@ export class ClaudeAdapter implements ProviderAdapter {
   }
 
   async history(): Promise<NormalizedEvent[]> {
-    return this.file && existsSync(this.file) ? historyEvents(this.file) : [];
+    if (this.file && existsSync(this.file)) return historyEvents(this.file);
+    if (this.forked && this.forked.file === this.file) return historyEvents(this.forked.fromFile, this.forked.at);
+    return [];
   }
 
   listSessions(): SessionInfo[] {
@@ -581,6 +595,11 @@ export class ClaudeAdapter implements ProviderAdapter {
     return null;
   }
 
+  /** /settings opens Claude Code's TUI: its settings screen is /config. */
+  tuiInput(name: string): string | null {
+    return name === "settings" ? "/config" : null;
+  }
+
   async setModel(_provider: string, id: string): Promise<void> {
     await this.require().control({ subtype: "set_model", model: id }, 30_000);
     this.modelValue = id;
@@ -623,6 +642,24 @@ export class ClaudeAdapter implements ProviderAdapter {
   async setName(name: string): Promise<void> {
     await this.require().control({ subtype: "rename_session", title: name, source: "host" }, 15_000);
     this.emit({ type: "session", name: name || null });
+  }
+
+  async forkPoints(): Promise<ForkPoint[]> {
+    return this.file && existsSync(this.file) ? forkPoints(this.file).map(({ id, text }) => ({ id, text })) : [];
+  }
+
+  /**
+   * Claude Code's fork: a restart with `--resume <this> --fork-session
+   * --resume-session-at <the answer before that prompt>` (a new session id; the
+   * original stays). Before the first prompt there is nothing to keep: a new session.
+   */
+  async fork(point: string): Promise<{ text: string }> {
+    const from = this.file && existsSync(this.file) ? this.file : null;
+    const p = from ? forkPoints(from).find((x) => x.id === point) : undefined;
+    if (!from || !p || !this.sessionId) throw new Error("That message isn't in this session any more");
+    if (p.at) this.forked = { from: this.sessionId, fromFile: from, at: p.at, file: sessionPath(this.opts.cwd, randomUUID()) };
+    await this.restart(p.at ? this.forked!.file : null);
+    return { text: p.text };
   }
 }
 

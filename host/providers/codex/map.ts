@@ -8,7 +8,7 @@
 // (a tool, a user message) closes the segment. Tools are their own cards.
 // A subagent's thread (collabAgentToolCall spawnAgent → receiverThreadIds)
 // maps every event to `parent: <the spawn call id>`.
-import type { NormalizedEvent, AssistantBlock, ImageBlock, Usage, PlanStep } from "../types.ts";
+import type { NormalizedEvent, AssistantBlock, ImageBlock, Usage, PlanStep, SkillRef } from "../types.ts";
 
 type Rec = Record<string, any>;
 
@@ -47,14 +47,16 @@ function num(v: unknown): number | undefined {
 }
 
 /** A user message's text and image inputs (`UserInput[]`). */
-export function userContent(content: unknown, readImage?: (p: string) => ImageBlock | null): { text: string; images: number; imageBlocks: ImageBlock[] } {
+export function userContent(content: unknown, readImage?: (p: string) => ImageBlock | null): { text: string; images: number; imageBlocks: ImageBlock[]; skill?: SkillRef } {
   const parts: Rec[] = Array.isArray(content) ? content : [];
   const texts: string[] = [];
   const imageBlocks: ImageBlock[] = [];
   let images = 0;
+  let skill: SkillRef | undefined;
   for (const p of parts) {
     if (!p || typeof p !== "object") continue;
     if (p.type === "text" && typeof p.text === "string") texts.push(p.text);
+    else if (p.type === "skill" && typeof p.name === "string" && !skill) skill = { name: p.name, command: p.name, ...(typeof p.path === "string" ? { path: p.path } : {}) };
     else if (p.type === "localImage") {
       images++;
       const b = typeof p.path === "string" ? readImage?.(p.path) : null;
@@ -65,7 +67,14 @@ export function userContent(content: unknown, readImage?: (p: string) => ImageBl
       if (m) imageBlocks.push({ mimeType: m[1]!, data: m[2]! });
     }
   }
-  return { text: texts.join("\n"), images, imageBlocks };
+  let text = texts.join("\n");
+  // The text names the skill as `$name` (buildInput, like Codex's TUI): the pill shows it.
+  if (skill) {
+    const lead = `$${skill.name}`;
+    const t = text.trimStart();
+    if (t === lead || t.startsWith(lead + " ") || t.startsWith(lead + "\n")) text = t.slice(lead.length).trim();
+  }
+  return { text, images, imageBlocks, ...(skill ? { skill } : {}) };
 }
 
 /** What a tool card shows as its arguments (the item without its state). */
@@ -335,7 +344,7 @@ export class CodexMapper {
         const u = userContent(item.content, this.opts.readImage);
         const clientId = this.opts.history ? undefined : str(item.clientId);
         out.push({
-          type: "user_message", text: u.text, images: u.images, ...(u.imageBlocks.length ? { imageBlocks: u.imageBlocks } : {}),
+          type: "user_message", text: u.text, images: u.images, ...(u.imageBlocks.length ? { imageBlocks: u.imageBlocks } : {}), ...(u.skill ? { skill: u.skill } : {}),
           ...(this.opts.history ? { source: this.isChild(thread) ? ("extension" as const) : ("composer" as const) } : {}), ...(clientId ? { clientId } : {}),
         });
         return this.stamp(thread, out);

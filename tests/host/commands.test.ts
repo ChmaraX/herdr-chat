@@ -1,5 +1,6 @@
 // The slash menu per provider: built-ins named after the provider, offered only
-// when it supports them, terminal utilities with the adapter's argv.
+// when it supports them, terminal utilities with the adapter's argv, and what
+// the chat types into a terminal it opens so the person lands on that screen.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { startHost, idle, FAKE_PI } from "./harness.ts";
@@ -7,7 +8,8 @@ import { startClaude, FAKE_CLAUDE } from "../fake-claude/host.ts";
 import { codexHost, FAKE_CODEX } from "../fake-codex/host.ts";
 
 // The protocol's contract is the name and handler table (protocol.md "Built-in slash commands"), in menu order.
-const builtins = (state: any) => state.commands.filter((c: any) => c.source === "builtin").map((c: any) => [c.name, c.handler, ...(c.argv ? [c.argv] : [])]);
+const builtins = (state: any) => state.commands.filter((c: any) => c.source === "builtin")
+  .map((c: any) => [c.name, c.handler, ...(c.argv ? [c.argv] : []), ...(c.input ? [{ input: c.input }] : [])]);
 
 /** Built-ins name the provider they run, never Pi for another agent. */
 function namedFor(state: any, agent: string): void {
@@ -25,8 +27,10 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
     assert.deepEqual(builtins(pi.client.state), [
       ["model", "client"], ["thinking", "client"], ["compact", "host"], ["new", "host"], ["clear", "host"], ["name", "host"],
       ["resume", "client"], ["reload", "host"], ["copy", "client"], ["transcript", "client"], ["tui", "client"],
-      ["login", "client", utility], ["settings", "client", utility], ["scoped-models", "client", utility],
-      ["tree", "client"], ["export", "client"], ["fork", "client"], ["hotkeys", "client"],
+      ["login", "client", utility, { input: "/login" }], ["settings", "client", utility, { input: "/settings" }],
+      ["scoped-models", "client", utility, { input: "/scoped-models" }],
+      ["tree", "client", { input: "/tree" }], ["export", "client", { input: "/export" }], ["fork", "client"],
+      ["hotkeys", "client", { input: "/hotkeys" }],
     ]);
     namedFor(pi.client.state, "Pi");
     assert.deepEqual(await pi.client.req("utility", { name: "scoped-models" }), { argv: utility });
@@ -41,7 +45,7 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
     assert.deepEqual(builtins(c.state), [
       ["model", "client"], ["thinking", "client"], ["compact", "host"], ["new", "host"], ["clear", "host"], ["name", "host"],
       ["resume", "client"], ["reload", "host"], ["copy", "client"], ["transcript", "client"], ["tui", "client"],
-      ["login", "client", [FAKE_CLAUDE, "auth", "login"]], ["settings", "client", [FAKE_CLAUDE]], ["fork", "client"],
+      ["login", "client", [FAKE_CLAUDE, "auth", "login"]], ["settings", "client", [FAKE_CLAUDE], { input: "/config" }], ["fork", "client"],
     ]);
     namedFor(c.state, "Claude Code");
     assert.deepEqual(await c.req("utility", { name: "login" }), { argv: [FAKE_CLAUDE, "auth", "login"] });

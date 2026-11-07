@@ -75,8 +75,26 @@ if (resumeId && existsSync(transcript)) {
     } catch {}
   }
 }
+// --fork-session: like the CLI, the fork's transcript is written at its first
+// record: the resumed session's branch up to --resume-session-at (else all of
+// it), under the new session id.
+let forkCopy = resumeId && argv.includes("--fork-session") && !replayPath ? join(projectDir, `${resumeId}.jsonl`) : null;
+function copyFork() {
+  const src = forkCopy;
+  forkCopy = null;
+  if (!src || !existsSync(src)) return;
+  const recs = readFileSync(src, "utf8").split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((r) => r?.uuid && !r.isSidechain);
+  const byUuid = new Map(recs.map((r) => [r.uuid, r]));
+  const at = flag("--resume-session-at");
+  const chain = [];
+  for (let r = at ? byUuid.get(at) : recs.at(-1); r; r = r.parentUuid ? byUuid.get(r.parentUuid) : null) chain.unshift(r);
+  mkdirSync(dirname(transcript), { recursive: true });
+  for (const r of chain) appendFileSync(transcript, JSON.stringify({ ...r, sessionId }) + "\n");
+  lastUuid = chain.at(-1)?.uuid ?? null;
+}
 function disk(rec, file = transcript) {
   if (replayPath) return rec;
+  if (forkCopy) copyFork();
   mkdirSync(dirname(file), { recursive: true });
   const full = { parentUuid: file === transcript ? lastUuid : rec.parentUuid ?? null, isSidechain: file !== transcript, ...rec, uuid: rec.uuid ?? uuid(), timestamp: now(), sessionId, entrypoint: "sdk-cli", cwd: realCwd, version: VERSION };
   if (file === transcript) lastUuid = full.uuid;

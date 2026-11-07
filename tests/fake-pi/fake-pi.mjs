@@ -211,6 +211,22 @@ function runScenario() {
     S.lastEntryId = id;
   }
 
+  // The session's message entries, oldest first (the fake's sessions are linear).
+  function forkEntries() {
+    if (!S.sessionFile || !existsSync(S.sessionFile)) return [];
+    const out = [];
+    for (const line of readFileSync(S.sessionFile, "utf8").split("\n")) {
+      try {
+        const e = JSON.parse(line);
+        if (e.type === "message" && e.message && (e.message.role === "user" || e.message.role === "assistant" || e.message.role === "toolResult")) out.push(e);
+      } catch {}
+    }
+    return out;
+  }
+  function textOfContent(c) {
+    return typeof c === "string" ? c : Array.isArray(c) ? c.filter((b) => b?.type === "text").map((b) => b.text).join("\n") : "";
+  }
+
   const sessionArg = flag("--session");
   openSession(sessionArg, sessionArg || scenario.historyAlways ? scenario.history : undefined);
 
@@ -667,6 +683,28 @@ function runScenario() {
       S.sessionName = scenario.sessions?.[p]?.name ?? null;
       openSession(p, scenario.sessions?.[p]?.history);
       respond(rec.id, "switch_session", { cancelled: false });
+    },
+    // Pi's fork: the person's messages (entry ids from the session file), and a
+    // new session file holding what came before one of them (Pi switches to it).
+    get_fork_messages(rec) {
+      respond(rec.id, "get_fork_messages", { messages: forkEntries().filter((e) => e.message.role === "user").map((e) => ({ entryId: e.id, text: textOfContent(e.message.content) })) });
+    },
+    fork(rec) {
+      const entries = forkEntries();
+      const i = entries.findIndex((e) => e.id === rec.entryId && e.message.role === "user");
+      if (i < 0) return respond(rec.id, "fork", undefined, `Entry not found: ${rec.entryId}`);
+      if (scenario.cancelFork) return respond(rec.id, "fork", { text: "", cancelled: true });
+      const parent = S.sessionFile;
+      S.sessionName = null;
+      openSessionFile(undefined);
+      if (S.sessionFile) {
+        mkdirSync(dirname(S.sessionFile), { recursive: true });
+        writeFileSync(S.sessionFile, JSON.stringify({ type: "session", version: 3, id: S.sessionId, timestamp: new Date().toISOString(), cwd, parentSession: parent }) + "\n");
+        S.headerWritten = true;
+      }
+      for (const e of entries.slice(0, i)) persist(e.message);
+      S.lastUsage = null;
+      respond(rec.id, "fork", { text: textOfContent(entries[i].message.content), cancelled: false });
     },
     set_session_name(rec) {
       S.sessionName = rec.name || null;

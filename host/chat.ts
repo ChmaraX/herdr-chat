@@ -10,6 +10,8 @@ import type { Item, UserSource, ImageBlock, ToolDetail, NoticeItem } from "./tim
 import { toSpans, toSpanLines, stripAnsi } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 import { mergeCommands, parseBuiltin, builtins } from "./commands.ts";
+import { splitSkill, typedText } from "./skill.ts";
+import type { SkillRef } from "./skill.ts";
 import type { Command } from "./commands.ts";
 import { takeLock, releaseLock, readLock, pidAlive, readRegistry } from "./registry.ts";
 import { ChatClient } from "./client.ts";
@@ -19,7 +21,7 @@ import { Renderer } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
 import type {
-  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, SessionInfo,
+  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, SessionInfo, ForkPoint,
 } from "./providers/types.ts";
 
 export type { ModelInfo, Capabilities };
@@ -217,6 +219,7 @@ export class Chat {
     const builtin = builtins({
       name: a.name, capabilities: this.state.capabilities, tuiOnly: a.tuiOnlyCommands ?? [],
       utility: (n) => a.utilityCommand?.(n) ?? null,
+      tuiInput: (n) => a.tuiInput?.(n) ?? null,
     });
     return mergeCommands(builtin, this.agentCommands);
   }
@@ -513,9 +516,14 @@ export class Chat {
     this.readyResolve?.();
   }
 
+  /** History's user messages with their skills split off, as live ones are. */
+  private historyWithSkills(events: NormalizedEvent[]): NormalizedEvent[] {
+    return events.map((ev) => (ev.type === "user_message" ? { ...ev, ...this.withSkill(ev.text, ev.skill) } : ev));
+  }
+
   private loadHistory(events: NormalizedEvent[]): void {
     const t = this.newTimeline();
-    t.load(events);
+    t.load(this.historyWithSkills(events));
     // Keep what arrived during startup (extension notices) after the history.
     const keep = this.timeline.items.filter((i) => i.kind === "notice");
     for (const it of keep) {
@@ -620,7 +628,7 @@ export class Chat {
         return;
       case "user_message":
         if (ev.source || ev.parent) {
-          this.timeline.apply({ ...ev, source: ev.source ?? "extension" });
+          this.timeline.apply({ ...ev, ...this.withSkill(ev.text, ev.skill), source: ev.source ?? "extension" });
           this.schedule();
         } else this.onUserEcho(ev);
         return;
@@ -831,13 +839,20 @@ export class Chat {
     this.timeline.updateNotice(this.autonomousNotice, { text });
   }
 
+  /** A user message's skill: the adapter's, else the one its text starts with (by the chat's skill commands). */
+  private withSkill(text: string, skill?: SkillRef): { text: string; skill?: SkillRef } {
+    if (skill) return { text, skill };
+    return splitSkill(text, this.state.commands.filter((c) => c.source === "skill").map((c) => c.name)) ?? { text };
+  }
+
   /** The echo of a message: confirms (and enriches) the item `send` showed, adds a queued one's, or adds one from elsewhere. */
   private onUserEcho(ev: EventOf<"user_message">): void {
     const p = ev.clientId ? this.unconfirmed.get(ev.clientId) : undefined;
     if (p) this.unconfirmed.delete(ev.clientId!);
     const shown = p?.item ? this.timeline.get(p.item) : undefined;
-    if (shown?.kind === "user") this.timeline.confirmUser(shown, ev.text, ev.imageBlocks ?? [], ev.ts);
-    else this.timeline.addUser(ev.text, ev.images, p ? p.source : "extension", p?.from, ev.ts ?? Date.now(), ev.imageBlocks ?? []);
+    const { text, skill } = this.withSkill(ev.text, ev.skill);
+    if (shown?.kind === "user") this.timeline.confirmUser(shown, text, ev.imageBlocks ?? [], ev.ts, skill);
+    else this.timeline.addUser(text, ev.images, p ? p.source : "extension", p?.from, ev.ts ?? Date.now(), ev.imageBlocks ?? [], skill);
     if (p?.from) this.setCause(`Started by a message from ${p.from}.`);
     else if (!p && this.adapter.unsentMessageCause) this.setCause(this.adapter.unsentMessageCause);
     this.schedule();
@@ -942,7 +957,7 @@ export class Chat {
     const name = pick(this.state.sessionName) || pick(this.state.title);
     if (name) return name;
     const first = this.timeline.items.find((i) => i.kind === "user");
-    const text = first && first.kind === "user" ? pick(first.text) : "";
+    const text = first && first.kind === "user" ? pick(first.text) || pick(first.skill && `/${first.skill.command}`) : "";
     if (text) return text.length > 60 ? text.slice(0, 59) + "…" : text;
     return this.agent;
   }
@@ -1060,7 +1075,8 @@ export class Chat {
     const id = randomUUID();
     const sent: Sent = { source, text, images: imagePaths, ...(args.from ? { from: args.from } : {}) };
     if (!working) {
-      sent.item = this.timeline.addUser(message, images.length, source, args.from, Date.now(), images).id;
+      const shown = this.withSkill(message);
+      sent.item = this.timeline.addUser(shown.text, images.length, source, args.from, Date.now(), images, shown.skill).id;
       this.urgent();
     }
     this.unconfirmed.set(id, sent);
@@ -1284,7 +1300,7 @@ export class Chat {
       events = await this.requireAgent().history();
     } catch {}
     const t = this.newTimeline();
-    t.load(events);
+    t.load(this.historyWithSkills(events));
     // Extension statuses and widgets are UI state; they survive a session change like in the TUI.
     this.replaceTimeline(t);
     this.set({ usage: null, editorText: null, phase: "idle" });
@@ -1335,6 +1351,31 @@ export class Chat {
 
   async setName(name: string): Promise<void> {
     await this.requireAgent().setName(name);
+  }
+
+  /** /fork's list: the person's messages in this session, newest first. */
+  async forkPoints(): Promise<{ points: ForkPoint[] }> {
+    const agent = this.requireAgent();
+    if (!agent.forkPoints || !agent.fork) throw new Error(`${this.agent} can't fork from the chat`);
+    return { points: (await agent.forkPoints()).reverse().map((p) => ({ id: p.id, text: this.asTyped(p.text) })) };
+  }
+
+  /** A message as the person would type it again: a skill (Pi's expanded block too) as its `/command`. */
+  private asTyped(text: string): string {
+    const s = this.withSkill(text);
+    return typedText(s.text, s.skill);
+  }
+
+  /** A new session holding what came before that message; its text goes back to the client's composer. */
+  async fork(point: string): Promise<{ text: string }> {
+    if (!point) throw new Error("fork needs `point`: an id from fork_points");
+    const agent = this.requireAgent();
+    if (!agent.fork) throw new Error(`${this.agent} can't fork from the chat`);
+    if (this.runActive) await this.abort();
+    const { text } = await agent.fork(point);
+    await this.afterSessionChange();
+    this.notice("info", "Forked: a new session up to that message. The original is unchanged (/resume).");
+    return { text: this.asTyped(text) };
   }
 
   async sessions(): Promise<{ sessions: SessionInfo[] }> {
@@ -1599,6 +1640,10 @@ export class Chat {
       case "set_name":
         await this.setName(String(a.name ?? ""));
         return {};
+      case "fork_points":
+        return this.forkPoints();
+      case "fork":
+        return this.fork(String(a.point ?? ""));
       case "sessions":
         return this.sessions();
       case "switch_session":

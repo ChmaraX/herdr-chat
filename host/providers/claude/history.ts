@@ -18,8 +18,8 @@ function tsOf(r: Rec): number | undefined {
   return Number.isFinite(t) ? t : undefined;
 }
 
-/** The records of the active branch, oldest first. */
-function activeBranch(records: Rec[]): Rec[] {
+/** The records of the active branch, oldest first: back from the last record, or from `upTo`. */
+function activeBranch(records: Rec[], upTo?: string): Rec[] {
   const byUuid = new Map<string, Rec>();
   let leaf: Rec | null = null;
   for (const r of records) {
@@ -27,6 +27,7 @@ function activeBranch(records: Rec[]): Rec[] {
     byUuid.set(r.uuid, r);
     if (r.type === "user" || r.type === "assistant" || r.type === "system" || r.type === "attachment") leaf = r;
   }
+  if (upTo) leaf = byUuid.get(upTo) ?? null;
   const chain: Rec[] = [];
   const seen = new Set<string>();
   for (let r = leaf; r && !seen.has(r.uuid); ) {
@@ -161,12 +162,29 @@ function emitRecords(records: Rec[], ctx: Ctx, parent?: string): void {
   flush();
 }
 
-export function historyEvents(path: string): NormalizedEvent[] {
+/** `upTo`: the record the branch ends at (a fork's `--resume-session-at`), else the last one. */
+export function historyEvents(path: string, upTo?: string): NormalizedEvent[] {
   const records = readTranscript(path);
   if (!records.length) return [];
   const ctx: Ctx = { names: new Map(), out: [], sessionDir: join(dirname(path), path.replace(/^.*\//, "").replace(/\.jsonl$/, "")) };
-  emitRecords(activeBranch(records), ctx);
+  emitRecords(activeBranch(records, upTo), ctx);
   return ctx.out;
+}
+
+/**
+ * The person's prompts on the active branch, oldest first, each with `at`:
+ * the last assistant message before it, where a fork resumes
+ * (`--resume-session-at`); null for the first prompt (nothing before it).
+ */
+export function forkPoints(path: string): { id: string; text: string; at: string | null }[] {
+  const out: { id: string; text: string; at: string | null }[] = [];
+  let at: string | null = null;
+  for (const r of activeBranch(readTranscript(path))) {
+    if (r.type === "assistant") at = r.uuid;
+    const text = promptText(r);
+    if (text !== null && r.type === "user") out.push({ id: r.uuid, text, at });
+  }
+  return out;
 }
 
 /** Whether a transcript has anything to show. */

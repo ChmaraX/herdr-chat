@@ -2,6 +2,7 @@
 // on stdin), and an append-only plain transcript for `hc read`.
 import type { Readable, Writable } from "node:stream";
 import type { Item } from "./timeline.ts";
+import { typedText } from "./skill.ts";
 
 export type TermState = "working" | "blocked" | "done" | "error" | "idle";
 
@@ -225,7 +226,8 @@ export class Terminal {
       case "user": {
         const from = it.from ? `[${it.from}] ` : "";
         const img = it.images ? ` [${it.images} image${it.images > 1 ? "s" : ""}]` : "";
-        return "> " + from + it.text.split("\n").join("\n  ") + img;
+        const text = typedText(it.text, it.skill);
+        return "> " + from + text.split("\n").join("\n  ") + img;
       }
       case "assistant":
         if (it.streaming) return null;

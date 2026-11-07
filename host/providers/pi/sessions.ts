@@ -2,6 +2,7 @@
 import { readdirSync, statSync, openSync, readSync, closeSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { parsePiSkill, typedText } from "../../skill.ts";
 
 export type SessionInfo = { path: string; name: string | null; firstMessage: string; modified: number; messageCount: number };
 
@@ -78,7 +79,11 @@ export function describeSession(path: string): SessionInfo | null {
     if (e.type === "message" && e.message) {
       const role = e.message.role;
       if (role === "user" || role === "assistant") count++;
-      if (role === "user" && !first) first = textOf(e.message.content).slice(0, 200);
+      if (role === "user" && !first) {
+        const text = textOf(e.message.content);
+        const skill = parsePiSkill(text);
+        first = (skill ? typedText(skill.text, skill.skill) : text).slice(0, 200);
+      }
     }
   }
   if (!header) return null;

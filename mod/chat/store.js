@@ -1,6 +1,8 @@
 // The client's copy of the chat: ChatState and the timeline items, applied
 // from the host's snapshot and patch records (protocol.md "Records").
 
+import { typedText } from "./util.js";
+
 export const EMPTY_STATE = {
   phase: "starting", error: null, cwd: "", sessionFile: null, sessionName: null, piVersion: null,
   model: null, thinking: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null,
@@ -85,7 +87,8 @@ export class Store {
     const out = [];
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
-      if (it.kind === "user" && (it.source === "composer" || it.source === "queued") && it.text && out[out.length - 1] !== it.text) out.push(it.text);
+      const text = it.kind === "user" ? typedText(it) : "";
+      if (it.kind === "user" && (it.source === "composer" || it.source === "queued") && text && out[out.length - 1] !== text) out.push(text);
     }
     return out;
   }

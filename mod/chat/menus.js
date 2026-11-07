@@ -8,7 +8,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { icon } from "./util.js";
+import { icon, plural } from "./util.js";
 import { rank } from "./composer.js";
 
 export const ROWS = 8;
@@ -89,8 +89,8 @@ export function menuView(menu, t, o) {
   });
   const more = menu.items.length > ROWS ? ` · ${start + 1}–${start + list.length} of ${menu.items.length}` : "";
   const footer = h_flex().px(10).pt(4).gap(10).text_size(10.5).text_color(t.dim)
-    .child(div().flex_1().child(`${menu.items.length} ${menu.kind === "slash" ? "commands" : "files"}${more}`))
-    .child("↑↓ choose · Enter " + (menu.kind === "slash" ? "run" : "insert") + " · Tab complete · Esc close");
+    .child(div().flex_1().child(`${plural(menu.items.length, menu.kind === "files" ? "file" : menu.skillsOnly ? "skill" : "command")}${more}`))
+    .child("↑↓ choose · Enter " + (menu.kind === "slash" && !menu.skillsOnly ? "run" : "insert") + (menu.skillsOnly ? "" : " · Tab complete") + " · Esc close");
   return card(t, { id: "menu-card", onWheel: (dy, cx) => o.onWheel(dy, cx), onOutside: o.onOutside })
     .child(v_flex().gap(1).children(rows)).child(footer);
 }

@@ -120,3 +120,16 @@ How rich rendering can fail a user, and what covers it (`rich.test.ts` drives `s
 | History differs from live (blocks, SVG path, metadata) | the resumed host's rich fields deep-equal the live ones; the SVG is re-rendered after the image folder is cleared |
 | A huge answer making a record over 8 MiB | span budget per item (60k spans, later blocks lose `lines`), 2000 lines per block, diff text 256 KiB (not tested: a size bound) |
 | Mermaid that beautiful-mermaid can't parse | ASCII art, else the source, plus `error` (checked by hand: `pie`) |
+
+## Fork (`fork.test.ts`; `fork-live.test.ts` with LIVE=1 on the real agents)
+
+| Failure | Covered by |
+|---|---|
+| The fork keeps the chosen message, or drops the one before it | the timeline after the fork is the messages before it; live: the forked agent remembers APPLE, not BANANA |
+| The original session changes | its file is byte-for-byte the same after the fork and the next prompt |
+| The chat stays on the old session (file, lock, timeline), so the next prompt lands there | a new `sessionFile`; the next prompt is in the fork's file, not the original's |
+| A skill comes back as Pi's expanded block | `fork_points` and the reply give `/skill:diagnose the crash` |
+| An extension cancels Pi's fork and the chat half-switches | the error, and the same session and timeline |
+| Claude Code's fork is lost before its first prompt (its transcript isn't written yet): a /reload or the history shows nothing | the history up to the fork from the original; a /reload starts the same `--fork-session --resume-session-at` |
+| Claude Code resumes at the wrong record | `--resume-session-at` is the answer to the message before |
+| Codex forks through the wrong turn, or takes the config's default effort | `thread/fork lastTurnId` is the turn before; the effort is the one set before the fork |

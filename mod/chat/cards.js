@@ -11,7 +11,7 @@
 import { div, image } from "gpui-kit";
 import { appHome } from "herdr";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { absTime, alpha, count, duration, homeRel, icon, money, plural, relTime, shortPath, spinner, unwrapHc } from "./util.js";
+import { absTime, alpha, count, duration, homeRel, icon, money, plural, relTime, shortPath, spinner, typedText, unwrapHc } from "./util.js";
 import { blocks, copyButton, diffView, outputBox, prose, textDiff } from "./rich.js";
 import { groupSummary } from "./rows.js";
 import { SPACE } from "./space.js";
@@ -115,12 +115,39 @@ function user(it, c) {
   if (it.images) tags.push(h_flex().gap(4).items_center().child(icon("image", 11)).child(plural(it.images, "image")));
   // The actions sit left of the bubble, on its last line: no extra height.
   const b = SPACE.bubble;
+  const body = (key) => div().text_size(14).line_height(`${SPACE.lineH}px`).child(prose(`md-${it.id}${key}`, text || " "));
+  const skill = it.skill;
+  // What the agent got for the skill, under its pill once opened.
+  const skillBody = Boolean(skill?.body) && c.expanded.has(`skill:${it.id}`)
+    ? [div().pl(12).border_l_1().border_color(t.border).text_size(12.5).line_height("19px").text_color(t.muted).child(prose(`skill-${it.id}`, skill.body))]
+    : [];
+  // A skill: its pill, then the message: beside it when that is one short line,
+  // else under it (as the bubble's own rows: a nested column sizes the text too narrow).
+  let content;
+  if (!skill) content = [body("")];
+  else if (!text) content = [h_flex().child(skillPill(it, c)), ...skillBody];
+  else if (!text.includes("\n") && text.length <= 80) content = [h_flex().gap(8).items_center().child(skillPill(it, c)).child(body("-i").flex_1().min_w(0)), ...skillBody];
+  else content = [h_flex().child(skillPill(it, c)), ...skillBody, body("-s")];
   return hoverable(h_flex().gap(6).items_end().justify_end(), it, c)
-    .child(div().flex_none().pb(2).child(actions(it, null, c, { align: "end", text })))
+    .child(div().flex_none().pb(2).child(actions(it, null, c, { align: "end", text: typedText(it, text) })))
     .child(v_flex().max_w(Math.round(c.colW * 0.85)).gap(6).px(b.x).py(b.y).rounded(b.r).bg(t.raised)
       .when(tags.length > 0, (e) => e.child(h_flex().gap(8).text_size(11).text_color(t.dim).children(tags)))
-      .child(div().text_size(14).line_height(`${SPACE.lineH}px`).child(prose(`md-${it.id}`, text || " ")))
+      .children(content)
       .children([images(it.imagePaths, it.id, c)].filter(Boolean)));
+}
+
+// The skill a message ran: a tinted pill with its name. Its file shows on
+// hover; a click shows what the agent got (when the agent says).
+function skillPill(it, c) {
+  const t = c.t;
+  const s = it.skill;
+  const open = c.expanded.has(`skill:${it.id}`);
+  const tip = [s.path ? s.path.replace(/^\/Users\/[^/]+/, "~") : `/${s.command}`, s.body ? (open ? "click to hide it" : "click to read it") : null].filter(Boolean).join(" · ");
+  return h_flex().id(`skill-pill-${it.id}`).flex_none().h(22).px(7).gap(5).items_center().rounded(6)
+    .bg(alpha(t.accent, 0.14)).text_color(t.accent).text_size(12).font_medium().tooltip(tip)
+    .when(Boolean(s.body), (e) => e.cursor_pointer().hover((x) => x.bg(alpha(t.accent, 0.22))).on_click((_e, cx) => c.toggle(`skill:${it.id}`, cx)))
+    .child(icon("book", 12)).child(s.name)
+    .when(Boolean(s.body), (e) => e.child(icon(open ? "chevron-up" : "chevron-down", 10)));
 }
 
 // A message another agent sent with `hc send` (a subagent's report, `<hc from=…>`):
