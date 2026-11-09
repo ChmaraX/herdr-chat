@@ -15,6 +15,10 @@ skills and sessions. The chat only draws it.
 
 https://github.com/user-attachments/assets/cefe4c53-19f6-4c3b-8188-f8480f4c2816
 
+> **Pairs well with**
+> - [herdr-gitview](https://github.com/ChmaraX/herdr-gitview): review, stage, and commit agent changes
+> - [herdr-nvim](https://github.com/ChmaraX/herdr-nvim): a persistent nvim sidebar, one key away
+
 ## Features
 
 - **One chat for three agents** - the same timeline, keys and pickers for Pi,
