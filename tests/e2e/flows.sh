@@ -190,9 +190,11 @@ if want agent; then
   cmd focus; sleep 0.3
   send_text "/transcript"
   expect '[ "$(d "d[\"transcript\"]")" = peek ] && overlay_open layout' "/transcript peeks at the host's terminal over the tab (its pane is hidden)" 5
-  [ "$(d 'd["focusedPane"]')" = "$MYPANE" ] && [ "$(d 'd["zoomed"]')" = false ] && ok "the layout didn't move for it (no zoom, the chat's pane focused)" || fail "focus $(d 'd["focusedPane"]') zoomed $(d 'd["zoomed"]')"
+  # Herdr 0.1.14+: the open overlay has the focus (no pane focused); before, the chat's pane kept it.
+  [[ "$(d 'd["focusedPane"]')" =~ ^($MYPANE|None|null)$ ]] && [ "$(d 'd["zoomed"]')" = false ] && ok "the layout didn't move for it (no zoom, no other pane focused)" || fail "focus $(d 'd["focusedPane"]') zoomed $(d 'd["zoomed"]')"
   shot agent-1-transcript 0.3
   do_ overlay.close
+  expect '[ "$(d "d[\"focusedPane\"]")" = "$MYPANE" ]' "closed: the focus is back on the chat" 5
   step "the host stops: the chat says so and restarts it on the same session"
   cmd focus; sleep 0.3; send_text "remember this"
   expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "an answer" 15

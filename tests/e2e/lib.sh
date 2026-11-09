@@ -17,6 +17,9 @@
 # The mods are copied from this checkout's mod/ into the private home
 # (install_mods), with mods/chat/config.json pointing at this checkout's
 # bin/herdr-chat-host. The mod's debug dumps are on (data/herdr-chat/debug/enabled).
+# No pipefail: the checks are `producer | grep -q x`, and grep stops reading at its
+# match, so a producer that gets SIGPIPE (cat, herdr-app ls) must not fail them.
+set +o pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 E2E="$REPO/tests/e2e"
 ART="${1:-$REPO/tests/artifacts/e2e-$(date +%Y%m%d-%H%M%S)}"
