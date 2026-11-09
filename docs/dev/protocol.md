@@ -1,7 +1,7 @@
 # herdr-chat wire protocol (v1)
 
 The contract between **herdr-chat-host** (Node, owns `pi --mode rpc`) and its
-clients (the Herdr mod `chat` (folder `mod/chat`), the `herdr-chat-host inspect` CLI, tests).
+clients (the Herdr mod `chat` (folder `herdr-app/mods/chat`), the `herdr-chat-host inspect` CLI, tests).
 Both sides change only together. Bump `v` on breaking changes.
 
 ## Transport

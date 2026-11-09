@@ -36,7 +36,7 @@
     "host/",
     "install/",
     "install.sh",
-    "mod/",
+    "herdr-app/mods/",
     "extension/",
     "LICENSE",
     "README.md",

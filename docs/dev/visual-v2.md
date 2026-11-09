@@ -105,7 +105,7 @@ keyed, ANSI-to-theme, compact, and never in the way.
   - herdr-nvim when installed (look for `mods/herdr-nvim` and its CLI, the way gitview's `nvim.js` does);
   - else `$EDITOR` in a terminal pane right of the chat.
 - **Spacing and type:** prose 14 px on a 22 px line, UI chrome 12–13 px, code 12.5 px in the terminal font. One radius scale: 6, 10 and 14 px (the user's bubble: 16).
-  - Spacing is on one scale (4, 6, 8, 12, 16, 20, 28), in one place (`mod/chat/space.js`): 28 px above a user message, 16 px after it; 12 px between an answer's paragraphs, lists, code, tables and diagrams; headings 20 px above, 6 px below; 8 px between tool rows or groups and the prose around them; 6 px between cards in a group.
+  - Spacing is on one scale (4, 6, 8, 12, 16, 20, 28), in one place (`herdr-app/mods/chat/space.js`): 28 px above a user message, 16 px after it; 12 px between an answer's paragraphs, lists, code, tables and diagrams; headings 20 px above, 6 px below; 8 px between tool rows or groups and the prose around them; 6 px between cards in a group.
   - The hover actions and the run's footer sit in a 20 px row inside the 28 px turn gap, so a turn has the same spacing with or without them. On an answer in the middle of a run they show over its last line instead.
 - **Motion:** new items fade in (120 ms). Group expand and collapse animate height (`.transition`). The stick-to-bottom scroll stays instant.
 

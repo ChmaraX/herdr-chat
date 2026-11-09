@@ -99,8 +99,8 @@ install changed, and removes the unpacked release.
 - **The chat outlives the window**: its host runs in herdr-core. Reopening
   the app reattaches the chat to it. Closing the chat's tab ends it.
 - **Keys** work only while the chat has the keyboard. They are rebound in
-  `data/herdr-chat/keys.json` in the app home (`mod/chat/KEYS.md` in the
-  repo). Its `"global"` part sets the keys that open a chat, applied by the
+  `data/herdr-chat/keys.json` in the app home (`mods/chat/KEYS.md`, next to
+  this file). Its `"global"` part sets the keys that open a chat, applied by the
   next install.
 
 ## Built from
@@ -111,7 +111,7 @@ install changed, and removes the unpacked release.
   every agent, and serves it to the mod on TCP 127.0.0.1 with a token
   (JSONL; `docs/dev/protocol.md`). It runs in a hidden pane of the chat's
   tab, so Herdr lists it as the tab's agent.
-- **Mods** (`mod/`):
+- **Mods** (`mods/`, next to this file):
   - `chat`: draws the timeline and sends ops; no slow work in the mod;
   - `new-chat`: the launcher and the `new-chat.*` commands;
   - `chat-agents` and `chat-menu`: install-time copies of Herdr's agents

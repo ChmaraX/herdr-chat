@@ -76,7 +76,7 @@ the release and attaches it:
 
 - `herdr-chat-<version>.tar.gz`, from `npm run build` (`scripts/build.mjs`):
   the host and `install/*.ts` built with esbuild into plain JS for Node 20+
-  (`highlight.js` and `beautiful-mermaid` bundled in), with `bin/`, `mod/`,
+  (`highlight.js` and `beautiful-mermaid` bundled in), with `bin/`, `herdr-app/mods/`,
   `extension/`, `install/app.sh` and `install.sh`. It's the same archive for
   every platform.
 - `SHA256SUMS`, which `install.sh` checks the archive against.

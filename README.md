@@ -102,7 +102,7 @@ window to "add the mod at github.com/ChmaraX/herdr-chat".
 
 Change them, or bind a key per agent, in
 `~/.config/herdr-app/data/herdr-chat/keys.json`:
-[mod/chat/KEYS.md](mod/chat/KEYS.md).
+[herdr-app/mods/chat/KEYS.md](herdr-app/mods/chat/KEYS.md).
 
 ## Configuration
 

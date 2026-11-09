@@ -122,9 +122,9 @@ step "herdr-app check on the unpacked mods; the built host answers a prompt"
 # chat-agents and chat-menu load the install-time copy of the app's own mods
 # (agents-base.js, menu-base.js), which a scratch home without a running app
 # doesn't have: the install leaves them out, and says so.
-for m in "$BASE/current/mod"/*/ "$HERDR_APP_HOME/mods"/*/; do
+for m in "$BASE/current/herdr-app/mods"/*/ "$HERDR_APP_HOME/mods"/*/; do
   [ -f "$m/main.js" ] || continue
-  case $m in "$BASE"/*/mod/chat-agents/|"$BASE"/*/mod/chat-menu/) continue ;; esac
+  case $m in "$BASE"/*/herdr-app/mods/chat-agents/|"$BASE"/*/herdr-app/mods/chat-menu/) continue ;; esac
   check "herdr-app check ${m#"$D"/}" herdr-app check "$m"
 done
 check "the install said why chat-agents and chat-menu are left out" grep -q "not installing mods/chat-agents: .*start the app once" "$ART/install-1.out"

@@ -22,7 +22,7 @@
 #   A chord you choose replaces what had it; uninstall puts that back.
 #
 # What it does, in the app home ($HERDR_APP_HOME, else ~/.config/herdr-app):
-#   - copies every folder in mod/ into mods/ (only over folders it made itself,
+#   - copies every folder in herdr-app/mods/ into mods/ (only over folders it made itself,
 #     marked with a .herdr-chat file) and writes mods/chat/config.json
 #     (absolute paths of the host, node, hc and each agent it finds on PATH,
 #     and herdr-chat's version; your own settings go in data/herdr-chat/settings.json,
@@ -78,7 +78,7 @@ PROVIDERS="pi claude codex"
 while [ $# -gt 0 ]; do
   case "$1" in
     --uninstall) UNINSTALL=1 ;;
-    --key|--replace-pi-key) die "$1 is gone: the keys are in $STATE/keys.json, \"global\": {\"open\": \"cmd-i\", \"pi\": \"cmd-j p\"} (see mod/chat/KEYS.md)" ;;
+    --key|--replace-pi-key) die "$1 is gone: the keys are in $STATE/keys.json, \"global\": {\"open\": \"cmd-i\", \"pi\": \"cmd-j p\"} (see herdr-app/mods/chat/KEYS.md)" ;;
     --no-layout) LAYOUT=0 ;;
     --take-agents-slot|--take-menu) TAKE+=("$1") ;;
     --no-subagents|--no-templates) SUBAGENTS=0 ;;
@@ -91,8 +91,8 @@ done
 [ -d "$APP_HOME" ] || die "no Herdr app home at $APP_HOME (start the app once, or set HERDR_APP_HOME)"
 
 MODS=()
-for d in "$ROOT"/mod/*/; do [ -f "$d/mod.json" ] && MODS+=("$(basename "$d")"); done
-[ "${#MODS[@]}" -gt 0 ] || die "no mods in $ROOT/mod"
+for d in "$ROOT"/herdr-app/mods/*/; do [ -f "$d/mod.json" ] && MODS+=("$(basename "$d")"); done
+[ "${#MODS[@]}" -gt 0 ] || die "no mods in $ROOT/herdr-app/mods"
 
 ours() { [ ! -e "$1" ] || [ -f "$1/$MARK" ]; }
 
@@ -151,7 +151,7 @@ fi
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/herdr-chat-stage.XXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 for m in "${MODS[@]}"; do
-  cp -R "$ROOT/mod/$m" "$STAGE/$m"
+  cp -R "$ROOT/herdr-app/mods/$m" "$STAGE/$m"
   touch "$STAGE/$m/$MARK"
 done
 # chat-agents / chat-menu: the shipped agents list and menu they extend, copied now (install/mods.ts checks them).

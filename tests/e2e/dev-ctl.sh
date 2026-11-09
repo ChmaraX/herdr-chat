@@ -7,8 +7,8 @@ for v in $(env | grep -oE '^HERDR_[A-Z_]+=' | tr -d =); do [ "$v" = HERDR_APP_HO
 E2E="$REPO/tests/e2e"
 chat() { cat "$DEV/chat" 2>/dev/null; }
 case "${1:-}" in
-  sync) # copy mod/ into the private home (keeps config.json)
-    for m in "$REPO"/mod/*/; do n=$(basename "$m"); mkdir -p "$HERDR_APP_HOME/mods/$n"
+  sync) # copy herdr-app/mods/ into the private home (keeps config.json)
+    for m in "$REPO"/herdr-app/mods/*/; do n=$(basename "$m"); mkdir -p "$HERDR_APP_HOME/mods/$n"
       (cd "$m" && find . -type f ! -name '*.d.ts' ! -name 'jsconfig.json' ! -name 'config.json' | while read -r f; do
         mkdir -p "$HERDR_APP_HOME/mods/$n/$(dirname "$f")"; cp "$f" "$HERDR_APP_HOME/mods/$n/$f"; done); done
     sleep 1.2; "$APP" status | python3 -c 'import json,sys; e=json.load(sys.stdin).get("errors"); print(json.dumps(e, indent=1) if e else "no errors")' ;;

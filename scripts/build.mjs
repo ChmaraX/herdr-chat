@@ -9,7 +9,7 @@
 //     host/main.js                 host/main.ts and its dependencies (highlight.js,
 //                                  beautiful-mermaid) in one file, for Node >= NODE_MIN
 //     install/*.js                 install/*.ts, each one file; install/app.sh
-//     bin/ mod/ extension/ install.sh LICENSE README.md CHANGELOG.md
+//     bin/ herdr-app/mods/ extension/ install.sh LICENSE README.md CHANGELOG.md
 //     package.json                 name, version, engines (node >= NODE_MIN), herdr
 //   herdr-chat-<version>.tar.gz    that tree
 //   SHA256SUMS                     its SHA-256, as `shasum -a 256` writes it
@@ -47,7 +47,7 @@ for (const f of readdirSync(join(ROOT, "install")).filter((f) => f.endsWith(".ts
 
 // What the Herdr app writes into a mod folder in a clone (and hidden files) isn't shipped.
 const shipped = (src) => !/(^|\/)(\.[^/]*|gpui-kit\.d\.ts|herdr\.d\.ts|jsconfig\.json)$/.test(src);
-for (const p of ["bin", "mod", "extension"]) cpSync(join(ROOT, p), join(tree, p), { recursive: true, filter: shipped });
+for (const p of ["bin", "herdr-app/mods", "extension"]) cpSync(join(ROOT, p), join(tree, p), { recursive: true, filter: shipped });
 for (const f of ["install.sh", "LICENSE", "README.md", "CHANGELOG.md"]) if (existsSync(join(ROOT, f))) cpSync(join(ROOT, f), join(tree, f));
 cpSync(join(ROOT, "install", "app.sh"), join(tree, "install", "app.sh"));
 const release = {

@@ -14,7 +14,7 @@
 # - keys go to the private app's process only (keys.py, CGEventPostToPid);
 # - no Cmd+Q: the app is ended with a signal at the end.
 #
-# The mods are copied from this checkout's mod/ into the private home
+# The mods are copied from this checkout's herdr-app/mods/ into the private home
 # (install_mods), with mods/chat/config.json pointing at this checkout's
 # bin/herdr-chat-host. The mod's debug dumps are on (data/herdr-chat/debug/enabled).
 # No pipefail: the checks are `producer | grep -q x`, and grep stops reading at its
@@ -302,7 +302,7 @@ install_mods() {
   local extra="${1:-}"
   [ -n "$extra" ] || extra='{}'
   mkdir -p "$HERDR_APP_HOME/mods"
-  for m in "$REPO"/mod/*/; do
+  for m in "$REPO"/herdr-app/mods/*/; do
     [ -f "$m/main.js" ] || continue
     local name; name=$(basename "$m")
     # chat-agents / chat-menu extend the app's shipped agents list and menu: only once the app wrote them (it does at start).

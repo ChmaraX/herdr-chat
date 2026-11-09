@@ -37,11 +37,11 @@ Herdr tab
   The Pi extension `extension/herdr-chat-lock.ts` reads that lock, so a Pi
   TUI never writes a session a chat has open.
 
-## The mods (`mod/`)
+## The mods (`herdr-app/mods/`)
 
 | Mod | What it does |
 |---|---|
-| `chat` | The chat itself. Only draws and sends ops; slow work goes through the host. Its keys: [`mod/chat/KEYS.md`](../../mod/chat/KEYS.md) |
+| `chat` | The chat itself. Only draws and sends ops; slow work goes through the host. Its keys: [`herdr-app/mods/chat/KEYS.md`](../../herdr-app/mods/chat/KEYS.md) |
 | `new-chat` | The launcher (⌘I) and the `new-chat.*` commands. An empty block of it floats in the layout, so those commands reach it |
 | `chat-agents` | An install-time copy of Herdr's agents list: a click on a chat sub-agent opens its chat |
 | `chat-menu` | An install-time copy of Herdr's right-click menu: Open as chat, Continue as chat |

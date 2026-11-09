@@ -1,7 +1,7 @@
 // What a chat runs an agent with: what install found (mods/chat/config.json:
 // the host, node, hc and each agent's command) with the person's settings over
 // it (<app home>/data/herdr-chat/settings.json, which install never writes).
-// The chat mod reads the same two files the same way (mod/chat/connection.js
+// The chat mod reads the same two files the same way (herdr-app/mods/chat/connection.js
 // readConfig); README "Configuration" documents the person's file.
 //
 //   {

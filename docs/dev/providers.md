@@ -4,7 +4,7 @@ Goal: the same chat UI (mod `chat`) for **Pi, Claude Code and Codex**, then
 others. The rule: nothing provider-specific is hard-coded outside an adapter
 (`host/providers/<agent>/`); the core and the mod read capabilities and the
 adapter's answers. The ids and names are listed once on each side:
-`host/providers/index.ts` (the host) and `mod/chat/util.js` (the mod; a mod
+`host/providers/index.ts` (the host) and `herdr-app/mods/chat/util.js` (the mod; a mod
 can't import the host's code).
 
 ## The seam
@@ -91,5 +91,5 @@ What else differs, from each agent's own mechanism, not from the chat:
 ## Adding an agent
 
 1. `host/providers/<id>/`: the adapter (`ProviderAdapter`), its `tools.ts` (ToolMap), a fake agent under `tests/fake-<id>/`, host tests.
-2. Register it in `host/providers/index.ts`, and its name and icon in `mod/chat/util.js` (`PROVIDER_NAMES`, `icons/providers/<id>.svg`).
-3. The launcher's entry (`mod/new-chat/main.js` `CHOICES`), its key name (`install/keys.ts`), its instruction file (`install/instructions.ts`) and `PROVIDERS` in `install/app.sh`.
+2. Register it in `host/providers/index.ts`, and its name and icon in `herdr-app/mods/chat/util.js` (`PROVIDER_NAMES`, `icons/providers/<id>.svg`).
+3. The launcher's entry (`herdr-app/mods/new-chat/main.js` `CHOICES`), its key name (`install/keys.ts`), its instruction file (`install/instructions.ts`) and `PROVIDERS` in `install/app.sh`.

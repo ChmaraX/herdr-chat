@@ -25,7 +25,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: node --check the mods
-        run: for f in mod/*/*.js; do node --check "$f"; done
+        run: for f in herdr-app/mods/*/*.js; do node --check "$f"; done
       - name: shell syntax
         run: sh -n install.sh && bash -n install/app.sh && bash -n tests/release/install-e2e.sh
       - run: npm run build
