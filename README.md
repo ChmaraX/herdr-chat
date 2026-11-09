@@ -13,9 +13,7 @@ A native chat for **Pi, Claude Code and Codex** in the
 agent is the CLI you already use, with your login, settings, extensions,
 skills and sessions. The chat only draws it.
 
-<!-- video: a short GIF or video of a chat goes here -->
-
-![A chat: a test run, a file read and an edit with its diff](docs/media/chat.png)
+https://github.com/user-attachments/assets/cefe4c53-19f6-4c3b-8188-f8480f4c2816
 
 ## Features
 
