@@ -62,9 +62,11 @@ function launch(name: string, opts: { args?: string[]; env?: Record<string, stri
       for (const f of files) if (readRegistry(stateDir, f.slice(0, -5))?.pid === proc.pid || plain(screen).includes(`chat ${f.slice(0, -5)} `)) return f.slice(0, -5);
       return null;
     },
-    async waitStatus(re: RegExp, ms = LOAD_MS, what = String(re)) {
+    /** Until the latest status matches, or with `since`, any status from that index on (a quick turn's `working` is soon gone). */
+    async waitStatus(re: RegExp, ms = LOAD_MS, what = String(re), since?: number) {
       const t0 = Date.now();
-      while (!re.test(statuses(screen).at(-1) ?? "")) {
+      const seen = () => since === undefined ? re.test(statuses(screen).at(-1) ?? "") : statuses(screen).slice(since).some((s) => re.test(s));
+      while (!seen()) {
         if (exitCode !== undefined) throw new Error(`exited ${exitCode} before ${what}:\n${plain(screen)}`);
         if (Date.now() - t0 > ms) throw new Error(`status ${statuses(screen).at(-1)} never matched ${what}\n${plain(screen)}`);
         await sleep(15);
@@ -86,8 +88,9 @@ test("a template launch of herdr-chat-subagent: own labels, the app's state dir,
     await h.waitStatus(/^idle:pi$/, LOAD_MS, "first status");
     const body = "You run as a sub-agent. Report back with hc send when done.";
     const task = "quick: review src/x.rs only.";
+    const before = h.statuses.length;
     h.proc.stdin!.write(`\u001b[200~${body}\n\n${task}\u001b[201~\r`);
-    await h.waitStatus(/^working/, LOAD_MS, "working after the pasted task");
+    await h.waitStatus(/^working/, LOAD_MS, "working after the pasted task", before);
     await h.waitStatus(/^(done|idle)/, LOAD_MS, "the turn ended (hc wait returns)");
 
     const chat = h.chat();
