@@ -24,7 +24,8 @@ test("pi: /skill:name shows a pill at once, Pi's expanded echo keeps it, and a r
   let liveUser: any;
   try {
     const c = live.client;
-    await c.waitFor(idle, 10_000, "started");
+    // The pill comes from Pi's skill list, which loads just after the agent starts.
+    await c.waitFor((x) => idle(x) && x.state.commands.some((m: any) => m.source === "skill" && m.name === "skill:diagnose"), 10_000, "started, its skills listed");
     const sent = c.req("send", { text: "/skill:diagnose the crash\non save" });
     await c.waitFor((x) => users(x).length === 1, 150, "shown at once");
     assert.deepEqual([users(c)[0].text, users(c)[0].skill], ["the crash\non save", { name: "diagnose", command: "skill:diagnose" }], "a pill before the echo");
