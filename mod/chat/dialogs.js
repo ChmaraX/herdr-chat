@@ -8,6 +8,7 @@ import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } 
 import { alpha, icon } from "./util.js";
 import { SPACE } from "./space.js";
 import { toolIcon, toolTitle } from "./cards.js";
+import { diffView } from "./rich.js";
 
 export class DialogCard {
   constructor(onChange) {
@@ -163,6 +164,8 @@ export class DialogCard {
     const head = tl ? h_flex().h(34).px(10).gap(8).items_center().rounded(10).border_1().border_color(t.border).bg(t.surface)
       .child(icon(toolIcon(tl.detail), 13).text_color(t.dim))
       .child(toolTitle({ ...tl, id: `perm-${d.id}` }, tl.detail ?? { type: "generic", tool: tl.name }, c)) : null;
+    // An edit to approve: its change, as an edit card shows it.
+    const diff = tl?.detail?.diffLines?.length ? div().id(`dlg-diff-${d.id}`).max_h(240).overflow_y_scroll().child(diffView(`perm-${d.id}`, tl.detail.diffLines, c)) : null;
     const args = tl && !tl.detail && tl.args && tl.args !== "{}" ? div().px(10).py(6).rounded(8).bg(t.background).font_family(c.mono).text_size(11.5)
       .text_color(t.dim).max_h(120).overflow_hidden().child(tl.args) : null;
     const button = (ch, i) => {
@@ -184,6 +187,7 @@ export class DialogCard {
     }
     return this.frame(d, pending, t, answer, "shield", hasDeny ? "deny" : "cancel")
       .children(head ? [head] : [])
+      .children(diff ? [diff] : [])
       // A plan to approve (Claude's ExitPlanMode) is markdown: render it as such, scrolling when long.
       .when(Boolean(d.message), (e) => e.child(/\n|^#|\*\*/.test(d.message)
         ? div().id("dlg-message").max_h(260).overflow_y_scroll().px(10).py(8).rounded(8).bg(t.background).text_size(13).child(TextView.markdown(`dlg-md-${d.id}`, d.message))

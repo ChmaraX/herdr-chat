@@ -145,7 +145,8 @@ export function diffLines(diff: string, path: string): { lines: DiffLine[]; adde
       inHunk = true;
       oldN = h ? Number(h[1]) : undefined;
       newN = h ? Number(h[2]) : undefined;
-      if (full) lines.push({ kind: "hunk", spans: [{ text: l }] });
+      // A hunk with no positions (an edit's own old/new text, before its result's patch): a plain separator.
+      if (full && (h || lines.length)) lines.push({ kind: "hunk", spans: [{ text: h ? l : "⋯" }] });
       continue;
     }
     if (!inHunk || l.startsWith("\\")) {

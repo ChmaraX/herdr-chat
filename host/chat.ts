@@ -17,7 +17,7 @@ import { takeLock, releaseLock, readLock, pidAlive, readRegistry } from "./regis
 import { ChatClient } from "./client.ts";
 import { FileIndex } from "./files.ts";
 import { clipboardImage, loadImages } from "./clipboard.ts";
-import { Renderer } from "./render.ts";
+import { Renderer, diffLines } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
 import type {
@@ -49,6 +49,11 @@ export type PermissionDialog = {
 };
 export type QuestionsDialog = { id: string; method: "questions"; title: string; questions: Question[]; timeoutAt?: number };
 export type Dialog = ExtensionDialog | PermissionDialog | QuestionsDialog;
+
+const diffLinesOf = (diff: string, path: string) => {
+  const r = diffLines(diff, path);
+  return { diffLines: r.lines, added: r.added, removed: r.removed };
+};
 export type ChatState = {
   phase: Phase;
   error: string | null;
@@ -905,7 +910,9 @@ export class Chat {
         let tool: PermissionDialog["tool"];
         if (ask.tool) {
           const p = presentTool(this.adapter.tools, ask.tool.name, ask.tool.args, this.opts.cwd);
-          tool = { name: ask.tool.name, title: p.title, detail: p.detail, ...(ask.tool.args !== undefined ? { args: prettyArgs(ask.tool.args) } : {}) };
+          // An edit to approve shows its change, highlighted like an edit card's.
+          const detail = p.detail.type === "edit" && p.detail.diff ? { ...p.detail, ...diffLinesOf(p.detail.diff, p.detail.path) } : p.detail;
+          tool = { name: ask.tool.name, title: p.title, detail, ...(ask.tool.args !== undefined ? { args: prettyArgs(ask.tool.args) } : {}) };
         }
         d = {
           id, method: "permission", title, ...(ask.message !== undefined ? { message: stripAnsi(ask.message) } : {}),
