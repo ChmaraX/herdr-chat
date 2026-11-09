@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/ChmaraX/herdr-chat/compare/v0.1.0...v0.1.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* works with Herdr 0.1.14: sub-agent rows open as chats again, and no newer-than-tested warning ([e5b1f2a](https://github.com/ChmaraX/herdr-chat/commit/e5b1f2a941e090a70ce5c87b4c5b54d0b8a5f609))
+
 ## 0.1.0 (2026-11-09)
 
 
