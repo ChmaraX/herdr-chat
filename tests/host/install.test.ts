@@ -126,6 +126,7 @@ export default class Agents extends View {
 }
 `;
   assert.equal(agentsBase(shipped(".on_click(() => this.peek(k.address))")).ok, true);
+  assert.equal(agentsBase(shipped(`.on_click(() => (this.listed.has(k.address) ? run("pane.focus", { terminal: k.address }) : this.peek(k.address)))`)).ok, true, "0.1.14's row");
   const inline = agentsBase(shipped(`.on_click(() => run("terminal.peek", { terminal: k.address }))`));
   assert.equal(inline.ok, false);
   assert.match((inline as { why: string }).why, /no longer calls this\.peek/);

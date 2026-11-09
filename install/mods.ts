@@ -34,7 +34,8 @@ export function agentsBase(src: string): Base {
   if (!/terminal\.peek/.test(peek)) return { ok: false, why: "mods/agents/main.js's peek() no longer runs terminal.peek" };
   const row = methodBody(src, "subRow");
   if (row === null) return { ok: false, why: "mods/agents/main.js has no subRow() (the sub-agent rows)" };
-  if (!/on_click\([^)]*\)\s*=>\s*this\.peek\(/.test(row)) return { ok: false, why: "a sub-agent row's click no longer calls this.peek(): the chat override would never run" };
+  // Herdr 0.1.14: a row in a pane focuses it, any other still peeks (a chat's sub-agent has no pane).
+  if (!/on_click\([^)]*\)\s*=>[^\n]*this\.peek\(/.test(row)) return { ok: false, why: "a sub-agent row's click no longer calls this.peek(): the chat override would never run" };
   return { ok: true, base: HEADER("mods/agents/main.js") + src };
 }
 

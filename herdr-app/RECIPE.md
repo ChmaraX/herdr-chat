@@ -30,7 +30,7 @@ Tell the person first what it does:
   `~/.local/share/herdr-chat/<version>`, with a `current` link to it;
 - needs macOS, Herdr 0.1.12 or later with `hc` on `PATH`, Node 20 or
   later, and at least one agent on `PATH`: `pi`, `claude` or `codex`. A
-  Herdr newer than the tested 0.1.13 gets a warning; an older one than
+  Herdr newer than the tested 0.1.14 gets a warning; an older one than
   0.1.12 is refused;
 - adds the mods `chat`, `new-chat`, `chat-agents` and `chat-menu`;
 - edits the person's layout: the agents list becomes `chat-agents`, the
