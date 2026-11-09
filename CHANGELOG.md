@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/ChmaraX/herdr-chat/compare/v0.1.1...v0.1.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* a turn's last answer is in the terminal before it reports done ([eca95ee](https://github.com/ChmaraX/herdr-chat/commit/eca95eeeb9562abeec8fd3433352e411a87a3d58))
+* the mods live in herdr-app/mods, so herdr.dev/mods lists herdr-chat ([f09eb19](https://github.com/ChmaraX/herdr-chat/commit/f09eb19bfe095c9c639e9e6393a6db47068f1eab))
+
 ## [0.1.1](https://github.com/ChmaraX/herdr-chat/compare/v0.1.0...v0.1.1) (2026-11-09)
 
 
