@@ -990,6 +990,8 @@ export class Chat {
       this.onTerminalState("blocked", this.dialogs[0]!.title);
       return;
     }
+    // A turn's end: its last items reach the terminal first, so `hc wait` then `hc read` has the answer.
+    if (state !== "working") this.flush();
     this.onTerminalState(state, msg ?? (state === "working" || state === "done" ? this.state.sessionName ?? undefined : undefined));
   }
 
