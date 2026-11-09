@@ -51,10 +51,12 @@ test("tui-session: Pi by its label (with the session's model and thinking), Clau
 
     // Codex: the newest rollout in this folder written since the TUI started.
     const codex = join(d, "codex");
-    const day = join(codex, "sessions", "2026", "11", "07");
+    const now = new Date(); // Codex files rollouts by the day they started, and looks back only so far
+    const ymd = [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((n) => String(n).padStart(2, "0"));
+    const day = join(codex, "sessions", ...ymd);
     mkdirSync(day, { recursive: true });
     const rollout = (id: string, folder: string, model: string, ageS: number) => {
-      const f = join(day, `rollout-2026-11-07T10-00-00-${id}.jsonl`);
+      const f = join(day, `rollout-${ymd.join("-")}T10-00-00-${id}.jsonl`);
       writeFileSync(f, jsonl([{ type: "session_meta", payload: { id, cwd: folder } }, { type: "turn_context", payload: { model, effort: "high" } }]));
       const t = new Date(Date.now() - ageS * 1000);
       utimesSync(f, t, t);
