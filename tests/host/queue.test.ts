@@ -224,6 +224,7 @@ test("steer removal (claude): × cancels the steer by uuid; ⇄ moves a steer to
     await c.waitFor(answered(/^And now: after C/), 15_000, "both done");
     const seen = c.items.filter((i: any) => i.kind === "user" || i.kind === "assistant").map((i: any) => `${i.kind}:${i.text}`);
     assert.deepEqual(seen, ["user:Build it", "user:say B", "assistant:Built. Also: say B", "user:after C", "assistant:And now: after C"]);
+    await h.waitStatus(/^done/);
     assert.deepEqual(runs(h), ["idle", "working", "done"]);
     h.artifact("queue-claude-steer-remove");
   } finally {

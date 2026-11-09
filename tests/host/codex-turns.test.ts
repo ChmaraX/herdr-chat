@@ -1,7 +1,7 @@
 // Codex runs through the real host: abort mid-tool, steer and follow-up mid-run, a plan, retries and failed turns.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { idle } from "./harness.ts";
+import { idle, sleep } from "./harness.ts";
 import { codexHost } from "../fake-codex/host.ts";
 
 const answered = (text: RegExp) => (x: any) => idle(x) && x.items.some((i: any) => i.kind === "assistant" && text.test(i.text) && !i.streaming);
@@ -34,7 +34,10 @@ test("codex: Esc mid-tool interrupts the turn; the open command is closed, queue
     assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
     const interrupts = h.requests("turn/interrupt");
     assert.equal(interrupts.length, 1);
-    assert.ok(h.requests("thread/backgroundTerminals/clean").length >= 1, "background terminals cleaned after the interrupt");
+    // Sent as the turn settles; fake-codex logs it a moment later.
+    for (const t0 = Date.now(); !h.requests("thread/backgroundTerminals/clean").length; await sleep(20)) {
+      assert.ok(Date.now() - t0 < 3000, "background terminals cleaned after the interrupt");
+    }
     assert.equal(h.requests("turn/start").length, 1, "the restored follow-up was not sent");
     await h.waitStatus(/^idle$/);
     // The chat works after an abort.
@@ -73,6 +76,7 @@ test("codex: a steer mid-run lands in the same turn; a follow-up (held by the ho
     assert.equal(h.requests("turn/steer").length, 1);
     assert.equal(h.requests("turn/start").length, 2);
     assert.ok(!c.items.some((i) => i.kind === "notice" && /on its own/.test(i.text)), "the follow-up turn is not an autonomous run");
+    await h.waitStatus(/^done/);
     assert.deepEqual(h.statuses.filter((s, i, a) => s !== a[i - 1]).slice(-2), ["working", "done"]);
     h.artifact("codex-steer-follow-up");
   } finally {

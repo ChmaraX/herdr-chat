@@ -77,7 +77,9 @@ test("codex: every tool kind in one turn, with the details a user sees", async (
     assert.equal(top.filter((i) => i.kind === "user").length, 1);
     await h.waitStatus(/^done/);
     await h.waitTranscript(/^· \$ npm test ✗/m);
-    await h.waitTranscript(/^  · \$ echo 4 ✓\n  4$/m);
+    // The transcript prints items as they finish, so the wait card can land before or after the subagent's answer.
+    await h.waitTranscript(/^  · \$ echo 4 ✓$/m);
+    await h.waitTranscript(/^  4$/m);
     h.artifact("codex-every-tool");
   } finally {
     await h.stop();

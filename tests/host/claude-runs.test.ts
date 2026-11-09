@@ -66,7 +66,8 @@ test("claude: a steer folds into the running turn at the next tool boundary; a f
     const prompts = h.inputs().filter((r) => r.type === "user");
     assert.deepEqual(prompts.map((p) => p.priority), ["next", "next", "next"]);
     assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
-    // One run from the user's view: working once, then done.
+    // One run from the user's view: working once, then done (the status comes on the host's output, after the state).
+    await h.waitStatus(/^done/);
     assert.deepEqual(h.statuses.filter((s, i, a) => s.replace(/\(.*/, "") !== a[i - 1]?.replace(/\(.*/, "")).map((s) => s.replace(/\(.*/, "")), ["idle", "working", "done"]);
     h.artifact("claude-steer-followup");
   } finally {

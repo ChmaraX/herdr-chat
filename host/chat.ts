@@ -511,6 +511,8 @@ export class Chat {
     if (gen !== this.generation) return;
     for (const t of this.startupTimers) clearTimeout(t);
     if (this.stalledPrefixes().some((p) => this.state.error?.startsWith(p))) this.set({ error: null });
+    // A startup dialog with a timeout: the agent resolved it itself, which is how it got past startup.
+    for (const d of this.dialogs.filter((d) => d.timeoutAt !== undefined)) this.removeDialog(d.id);
     this.refreshCommands();
     this.refreshStats();
     // Stay "starting" until the history is in, so a send can't race the timeline swap.

@@ -35,7 +35,7 @@ async function session(name: string): Promise<{ dir: string; file: string }> {
 
 test("after-pid: the chat waits for the TUI to exit, then opens its session (no conflict) on the TUI's model and thinking", async () => {
   const { dir, file } = await session("ap-wait");
-  const tui = holder(1200);
+  const tui = holder(2500); // outlives the chat's start and the checks below, even on a slow runner
   let b: Host | null = null;
   try {
     const before = existsSync(`${dir}/pi-commands.jsonl`) ? readFileSync(`${dir}/pi-commands.jsonl`, "utf8").split("\n").filter(Boolean).length : 0;
