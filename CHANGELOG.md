@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/ChmaraX/herdr-chat/compare/v0.1.3...v0.2.0) (2026-11-10)
+
+
+### Features
+
+* code blocks scroll sideways by their scrollbar and select text for ⌘C ([ebbd5e1](https://github.com/ChmaraX/herdr-chat/commit/ebbd5e149b8da8cffbde0ba8277afc025ba77995))
+
+
+### Bug Fixes
+
+* a chat in a folder that doesn't exist says so and stops retrying ([6fef487](https://github.com/ChmaraX/herdr-chat/commit/6fef4876e36fbd465ef524d8e9706851d9ea7cff))
+
 ## [0.1.3](https://github.com/ChmaraX/herdr-chat/compare/v0.1.2...v0.1.3) (2026-11-10)
 
 
