@@ -66,6 +66,16 @@ export function hostTerminal(chat) {
   return terminals().find((t) => t.labels?.["herdr-chat.chat"] === chat && t.state === "live" && runsHost(t)) ?? null;
 }
 
+// hc run's error, for the person. The host starts as /usr/bin/env, which is
+// always there: "No such file" from the spawn is the folder (a space whose
+// worktree was deleted).
+export function startError(text, cwd) {
+  if (/spawn_failed/.test(text) && /No such file or directory/.test(text)) {
+    return `The chat's folder ${cwd} doesn't exist (a deleted worktree?). Open the chat in a space whose folder exists.`;
+  }
+  return `couldn't start the host: ${text}`;
+}
+
 const BACKOFF = [250, 500, 1000, 2000, 2000];
 
 export class Connection {
@@ -88,6 +98,7 @@ export class Connection {
   }
 
   restart() {
+    this.startFailed = false;
     this.autoStart = true;
     this.startedHostAt = 0;
     this.attempt = 0;
@@ -220,6 +231,8 @@ export class Connection {
       else this.set("stopped", "The sub-agent ended", cx);
       return;
     }
+    // A start that failed stays failed (its error shown) until Retry (restart).
+    if (this.startFailed) return;
     if (live || Date.now() - this.startedHostAt < 8000) {
       this.set(this.connects ? "reconnecting" : "starting", null, cx);
       return;
@@ -242,6 +255,7 @@ export class Connection {
     const host = cfg.host;
     const agent = cfg.agent(provider);
     if (!host) {
+      this.startFailed = true;
       this.set("failed", `mods/${MOD}/config.json has no "host"`, cx);
       return;
     }
@@ -270,7 +284,10 @@ export class Connection {
     ];
     const r = await hc(args);
     this.o.log?.(`hc run host: code ${r.code} ${r.stdout.trim()} ${r.stderr.trim()}`);
-    if (r.code !== 0) this.set("failed", `couldn't start the host: ${(r.stderr || r.stdout).trim()}`, cx);
+    if (r.code !== 0) {
+      this.startFailed = true;
+      this.set("failed", startError((r.stderr || r.stdout).trim(), this.o.cwd), cx);
+    }
     else this.o.onHostStarted?.(r.stdout, cx);
   }
 

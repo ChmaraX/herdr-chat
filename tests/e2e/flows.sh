@@ -282,6 +282,24 @@ if want misc; then
   expect '[ "$(phase)" = idle ]' "Restart Pi: idle again" 15
 fi
 
+# --- flow: a chat whose folder is gone (a space on a deleted worktree) ------------------------
+if want folder; then
+  step "folder: a chat in a folder that doesn't exist says so, and starts on Retry once it does"
+  GONE="$BASE/deleted-worktree"
+  CHAT="c-$(openssl rand -hex 4)"
+  do_ tab.new "{\"name\":\"gone\",\"space\":\"$SPACE\",\"mod\":\"chat\",\"props\":{\"chat\":\"$CHAT\",\"cwd\":\"$GONE\"}}"
+  expect '[ "$(d "d[\"connection\"][\"status\"]")" = failed ]' "the start fails" 15
+  d 'd["connection"]["error"]' | grep -qF "folder $GONE doesn't exist" && ok "the error names the missing folder" || fail "error: $(d 'd["connection"]["error"]')"
+  # It used to retry every ~10 s, back to "Starting Pi…" each time.
+  T=$SECONDS; steady=1
+  while [ $((SECONDS - T)) -lt 12 ]; do [ "$(d 'd["connection"]["status"]')" = failed ] || steady=0; sleep 0.5; done
+  [ "$steady" = 1 ] && ok "it stays failed, no retry loop (12 s)" || fail "it went back to starting"
+  shot folder-1-missing 0.3
+  mkdir -p "$GONE"
+  cmd click:restart
+  expect connected "Retry, once the folder exists: connected" 25
+fi
+
 # --- flow: a tool-result image, an extension's draft, an hc envelope, a long history -------
 if want extras; then
   step "a tool result's image shows as a thumbnail"
