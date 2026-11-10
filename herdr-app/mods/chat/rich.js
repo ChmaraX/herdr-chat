@@ -116,9 +116,11 @@ export function codeCard(key, lang, code, lines, open, c) {
     .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(lang || "text"))
     .when(Boolean(open), (e) => e.child(spinner(11, t.dim)))
     .child(copyButton(`code:${key}`, code, c));
-  const body = v_flex().id(`code-${key}`).px(12).py(8).overflow_x_scroll()
-    .font_family(c.mono).text_size(12.5).line_height(`${LINE_H}px`).text_color(t.foreground)
-    .children(shown.map((l) => codeLine(l, t, t.foreground)));
+  const rendered = shown.map((l) => codeLine(l, t, t.foreground));
+  // A finished block (codeview.js) scrolls sideways and selects; a streaming one is clipped.
+  const body = (c.codeBody ? c.codeBody(rendered, code.replace(/\n$/, "").split("\n").slice(0, shown.length))
+    : v_flex().px(12).py(8).overflow_hidden().children(rendered))
+    .font_family(c.mono).text_size(12.5).line_height(`${LINE_H}px`).text_color(t.foreground);
   const foot = more > 0 || (full && n > CODE_CAP)
     ? h_flex().id(`code-more-${key}`).h(28).px(12).items_center().gap(6).border_t_1().border_color(c.line).cursor_pointer()
       .text_size(11.5).text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground))
@@ -159,7 +161,7 @@ function mermaid(key, b, c) {
       .when(c.svgHover === key, (e) => e.child(div().absolute().top(8).right(8).w(26).h(26).flex().items_center().justify_center()
         .rounded(6).bg(alpha(t.popover, 0.92)).border_1().border_color(t.input).text_size(14).text_color(t.foreground).child("⤢")));
   } else {
-    body = v_flex().id(`ascii-${key}`).px(12).py(8).overflow_x_scroll().font_family(c.mono).text_size(12.5).line_height(`${LINE_H}px`)
+    body = v_flex().id(`ascii-${key}`).px(12).py(8).overflow_hidden().font_family(c.mono).text_size(12.5).line_height(`${LINE_H}px`)
       .children(b.ascii.map((l) => codeLine(l, t, t.foreground)));
   }
   return v_flex().w_full().rounded(10).overflow_hidden().border_1().border_color(t.border).bg(c.codeBg)

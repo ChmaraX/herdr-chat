@@ -65,6 +65,15 @@ if want v2; then
   cmd "toggle:code:$A:3"
   expect '[ "$(d "\"code:$A:3\" in d[\"expanded\"]")" = true ]' "Show all 60 lines" 5
   shot v2-3-code-all 0.4 # the card grows below the lines already in view
+  # Select across two lines (as a drag does: chat.codesel), ⌘C: the copy is that text, cut from the host's code.
+  WANT=$(host | python3 -c 'import json,sys; L=[b for i in json.load(sys.stdin)["items"] if i["id"]==sys.argv[1] for b in i["blocks"]][3]["code"].split("\n"); print(L[1][4:] + "\n" + L[2][:6], end="")' "$A")
+  cmd "codesel:$A:3:1:4:2:6"
+  expect '[ "$(d "[b[\"focused\"] for b in d[\"codeBlocks\"] if b[\"key\"]==\"$A:3\"][0]")" = true ]' "a selection gives the code block the keyboard" 5
+  shot v2-3-code-selected 0.3
+  keys 8:cmd
+  expect '[ "$(d "d[\"lastCopy\"][\"text\"]")" = "$WANT" ]' "⌘C copies the selected text, across the line break" 5
+  keys 53
+  expect '[ "$(d "[b[\"sel\"] for b in d[\"codeBlocks\"] if b[\"key\"]==\"$A:3\"][0]")" = null ]' "Esc clears the selection" 5
   cmd click:latest
 
   step "v2 §5 message actions: hover, copy, edit and resend"

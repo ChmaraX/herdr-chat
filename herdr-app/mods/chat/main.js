@@ -94,7 +94,8 @@ export default class HerdrChat extends View {
     this.groups = new Map(); // work group id → open (the person's choice)
     this.groupAnims = new Map(); // work group id → {target, step, h} while it slides
     this.groupH = new Map(); // work group id → its cards' natural height
-    this.codeViews = new Map(); // "<item>:<block>" → {entity, props}: finished code blocks (codeview.js)
+    this.codeViews = new Map();
+    this.codeSel = new Map(); // code block key → its CodeView (codeview.js registers itself): the E2E's chat.codesel // "<item>:<block>" → {entity, props}: finished code blocks (codeview.js)
     this.uid = `v${++VIEWS}`;
     owners.set(this.uid, this);
     this.svgSizes = new Map(); // image path → {w, h} | null (loading)
@@ -651,7 +652,7 @@ export default class HerdrChat extends View {
         this.setCodeProps(key, b, cx);
       });
     }
-    for (const [k, v] of this.codeViews) if (!seen.has(k)) { v.entity.release(); this.codeViews.delete(k); }
+    for (const [k, v] of this.codeViews) if (!seen.has(k)) { v.entity.release(); this.codeViews.delete(k); this.codeSel.delete(k); }
   }
 
   setCodeProps(key, b, cx) {
@@ -1315,6 +1316,13 @@ export default class HerdrChat extends View {
     cx.notify();
   }
 
+  // Text selected in a code block (codeview.js), on ⌘C.
+  copySelection(text, cx) {
+    cx.write_to_clipboard(text);
+    this.lastCopy = { id: "code-selection", len: text.length, text: text.slice(0, 500) };
+    this.flash(`Copied ${text.length} character${text.length === 1 ? "" : "s"}`, cx);
+  }
+
   copy(id, text, cx) {
     cx.write_to_clipboard(text ?? "");
     this.copied = (text ?? "").length;
@@ -1529,6 +1537,15 @@ export default class HerdrChat extends View {
 
   command(c, cx) {
     this.log(`command ${c}`);
+    // codesel:<block key>:<line>:<col>:<line>:<col>: select in a code block, as a drag does (E2E).
+    if (c.startsWith("codesel:")) {
+      const [r0, c0, r1, c1] = c.split(":").slice(-4).map(Number);
+      const key = c.slice(8).split(":").slice(0, -4).join(":");
+      const v = this.codeSel.get(key);
+      if (v) { v.sel = { a: { r: r0, c: c0 }, b: { r: r1, c: c1 } }; v.focus?.focus(); cx.notify(this.codeViews.get(key)?.entity); }
+      else this.log(`codesel: no code block ${key}`);
+      return;
+    }
     if (c === "focus") this.focusInput(); else if (c.startsWith("toggle:")) this.toggle(c.slice(7), cx);
     else if (c.startsWith("click:")) this.control(c.slice(6), cx);
     else if (c === "scroll:up") this.timeline.scrollBy(600);
@@ -1841,7 +1858,8 @@ export default class HerdrChat extends View {
       // Built here too, not taken from the last render: a window that isn't drawn (locked screen) doesn't render.
       rows: space(buildRows(this.store.items, s)).map((r) => ({ id: r.id, kind: r.kind, gap: r.gap, slot: r.slot, ...(r.kind === "group" ? { items: r.items.map((x) => x.id), open: this.groups.get(r.id) ?? defaultOpen(r) } : {}),
         ...(r.footer ? { footer: r.footer } : {}), ...(r.kind === "item" ? { item: r.item.kind } : {}) })),
-      activity: this.activity(), lastCopy: this.lastCopy ?? null, lastOpen: this.lastOpen ?? null, editorTerm: this.editorTerm ?? null,
+      activity: this.activity(), lastCopy: this.lastCopy ?? null,
+      codeBlocks: [...this.codeSel].map(([key, v]) => ({ key, linesW: Math.round(v.linesW), viewW: Math.round(v.viewW), sel: v.sel, focused: Boolean(v.focus?.is_focused?.()) })), lastOpen: this.lastOpen ?? null, editorTerm: this.editorTerm ?? null,
       statusesShown: this.visibleStatuses().map((x) => x.key), statusesHidden: this.prefs.hiddenStatuses, footerChips: this.footerChips ?? null,
       widgetsOpen: this.prefs.widgetsOpen, themeSent: Boolean(this.themeSent), themeOk: this.themeOk ?? null,
       enlarged: this.enlarged ?? null, svgHover: this.svgHover ?? null, svgSizes: Object.fromEntries(this.svgSizes),
