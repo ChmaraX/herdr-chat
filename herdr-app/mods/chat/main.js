@@ -31,7 +31,7 @@ import { randomBytes } from "crypto";
 import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
 import { SHORTCUTS, actionName, bindShortcuts, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
-import { Connection, hostTerminal, readConfig } from "./connection.js";
+import { Connection, hostTerminal, readConfig, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
 import { lineOf, row } from "./cards.js";
@@ -618,11 +618,14 @@ export default class HerdrChat extends View {
       const missing = new Set();
       for (const t of terminals()) {
         const chat = t.labels?.["herdr-chat.chat"];
+        if (t.state !== "live" || !chat) continue;
+        // The shell herdr-core restored in a host's place (connection.js runsHost): nobody's, end it.
+        const shell = !runsHost(t);
         // A sub-agent (a parent, or the launcher's role=subagent) has no pane by design: never an orphan.
-        if (t.state !== "live" || t.parent || t.labels?.["herdr-chat.role"] !== "host" || !chat || chats.has(chat)) continue;
+        if (!shell && (t.parent || t.labels?.["herdr-chat.role"] !== "host" || chats.has(chat))) continue;
         missing.add(t.address);
         if (!this.orphans?.has(t.address)) continue;
-        this.log(`orphan host ${t.address} (chat ${chat} has no pane): ending it`);
+        this.log(shell ? `${t.address} is a shell restored in chat ${chat}'s host's place: ending it` : `orphan host ${t.address} (chat ${chat} has no pane): ending it`);
         run("terminal.kill", { terminal: t.address });
       }
       this.orphans = missing;

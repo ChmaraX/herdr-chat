@@ -52,9 +52,18 @@ export async function readRegistry(chat) {
   }
 }
 
+// Whether a terminal runs a host (herdr-chat-host, or herdr-chat-subagent for a
+// sub-agent; a template runs it as `sh -c '…/herdr-chat-subagent …'`). After
+// herdr-core restarts, it brings a kept terminal back as a login shell with
+// the same labels: that shell is no host.
+const HOST_BIN = /herdr-chat-(host|subagent)\b/;
+export function runsHost(t) {
+  return !Array.isArray(t.argv) || t.argv.some((a) => HOST_BIN.test(a));
+}
+
 // The live core terminal running this chat's host, if any.
 export function hostTerminal(chat) {
-  return terminals().find((t) => t.labels?.["herdr-chat.chat"] === chat && t.state === "live") ?? null;
+  return terminals().find((t) => t.labels?.["herdr-chat.chat"] === chat && t.state === "live" && runsHost(t)) ?? null;
 }
 
 const BACKOFF = [250, 500, 1000, 2000, 2000];
