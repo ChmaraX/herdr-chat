@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/ChmaraX/herdr-chat/compare/v0.1.2...v0.1.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* a chat whose host became a shell starts a new host ([e7023a5](https://github.com/ChmaraX/herdr-chat/commit/e7023a5d697b1d1b0f9012fe725880d4ec372493))
+
 ## [0.1.2](https://github.com/ChmaraX/herdr-chat/compare/v0.1.1...v0.1.2) (2026-11-09)
 
 
