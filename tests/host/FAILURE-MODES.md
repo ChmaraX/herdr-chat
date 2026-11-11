@@ -143,7 +143,7 @@ How rich rendering can fail a user, and what covers it (`rich.test.ts` drives `s
 | A folder that isn't a repo errors, or shows a stale branch | "not a repo, then one": `git` is null, no error notice |
 | A repo made during the chat (`git init`) never shows | the same test: its unborn branch once the next run settles |
 | A switch outside a run (the agent's bash, another terminal) shows only at the next turn | "the branch follows switches": a new branch, a rename, with no run |
-| Detached HEAD breaks it | the same test: `branch` null, `head` the commit |
+| Detached HEAD breaks it | the same test: `detached`, `name` the commit |
 | A linked worktree: its HEAD is under `.git/worktrees/<name>`, so watching the main `.git` misses its switches | "a linked worktree": a switch inside it updates; one in the main checkout doesn't |
 | A folder below the repo's top | the worktree test runs in a subfolder |
 

@@ -535,8 +535,8 @@ click), `chat-agents.menu:<address>` (the right-click menu for a terminal),
 ### ChatState
 
 ```ts
-git: { branch: string | null;    // null: detached HEAD
-       head: string | null }     // the short commit when detached, else null
+git: { name: string;             // the branch, or the short commit when detached
+       detached: boolean }
    | null;                       // null: the folder isn't in a repo (or there's no git)
 ```
 

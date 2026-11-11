@@ -1488,11 +1488,11 @@ export default class HerdrChat extends View {
       case "statuses": return this.setStatusesOpen(!this.statusesOpen, cx);
       case "update:restart": this.updater.want(); break;
       case "branch": {
-        const g = this.store.state.git;
-        const what = g?.branch ?? g?.head;
+        const what = this.store.state.git?.name;
         if (!what) return;
         cx.write_to_clipboard(what);
         this.copied = what.length;
+        this.lastCopy = { id: "branch", len: what.length, text: what };
         return this.flash(`Copied ${what}`, cx);
       }
       case "status:toggle-hidden": this.showHidden = !this.showHidden; break;
@@ -2098,7 +2098,7 @@ export default class HerdrChat extends View {
       .child(composer)
       .children([widgetTray(this, below, t)].filter(Boolean))
       // The hint line, and the branch at its right end.
-      .child(h_flex().h(16).pl(6).gap(10).items_center()
+      .child(h_flex().h(16).px(6).gap(10).items_center()
         .child(div().flex_1().min_w(0).text_size(11).truncate().text_color(this.flashText ? t.blocked : t.dim).child(hintText ?? ""))
         .children([branchChip(this, t, { width: this.colW() })].filter(Boolean)));
     let root = v_flex().id("herdr-chat").key_context("HerdrChat").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)

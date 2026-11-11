@@ -900,7 +900,7 @@ export class Chat {
     if (this.state.phase === "working" || this.state.phase === "starting") this.set({ phase: "idle" });
     this.clearCommandHint();
     this.refreshStats();
-    this.git.refresh(); // files the run wrote; a repo it made
+    this.git.refresh(); // a repo the run made, or a switch the watcher missed
     this.schedule();
     // Stopped (from elsewhere: our own abort took them already) or failed: the follow-ups wait in the composer.
     if (stopped || this.lastRunError) this.returnHeld();

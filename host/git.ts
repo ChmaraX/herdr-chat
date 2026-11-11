@@ -7,14 +7,15 @@ import { watch } from "node:fs";
 import type { FSWatcher } from "node:fs";
 
 export type GitState = {
-  /** null: detached HEAD. */
-  branch: string | null;
-  /** The short commit when detached; null on a branch. */
-  head: string | null;
+  /** The branch, or the short commit when detached. */
+  name: string;
+  detached: boolean;
 };
 
 const TIMEOUT_MS = 5_000;
 const DEBOUNCE_MS = 100;
+/** A watch that fails is tried again at most this often. */
+const RETRY_MS = 1_000;
 
 function git(cwd: string, args: string[]): Promise<string | null> {
   return new Promise((done) => {
@@ -29,6 +30,7 @@ export class GitWatch {
   private gitDir: string | null = null;
   private watcher: FSWatcher | null = null;
   private debounce: NodeJS.Timeout | null = null;
+  private lastRetry = 0;
   private busy = false;
   private again = false;
 
@@ -60,19 +62,21 @@ export class GitWatch {
     if (!gitDir) return this.onChange(null);
     // A branch, born or not; else detached: the commit.
     const branch = await git(this.cwd, ["symbolic-ref", "--short", "-q", "HEAD"]);
-    if (branch) return this.onChange({ branch, head: null });
+    if (branch) return this.onChange({ name: branch, detached: false });
     const head = await git(this.cwd, ["rev-parse", "--short", "HEAD"]);
-    this.onChange(head ? { branch: null, head } : null);
+    this.onChange(head ? { name: head, detached: true } : null);
   }
 
   // The git dir's HEAD (a linked worktree has its own). Not recursive.
+  // Installed only once fs.watch succeeds; a failure clears it and looks again.
   private watch(gitDir: string | null): void {
-    this.watcher?.close();
-    this.watcher = null;
-    this.gitDir = gitDir;
-    if (!gitDir) return;
+    this.unwatch();
+    if (!gitDir) {
+      this.gitDir = null;
+      return;
+    }
     try {
-      this.watcher = watch(gitDir, { persistent: false }, (_ev, name) => {
+      const watcher = watch(gitDir, { persistent: false }, (_ev, name) => {
         if (name && String(name) !== "HEAD") return;
         if (this.debounce) clearTimeout(this.debounce);
         this.debounce = setTimeout(() => {
@@ -80,14 +84,30 @@ export class GitWatch {
           this.refresh();
         }, DEBOUNCE_MS);
       });
-      this.watcher.on("error", (e) => {
-        this.log(`git watch: ${e}`);
-        this.watcher?.close();
-        this.watcher = null;
-        this.gitDir = null; // the next refresh looks again
+      watcher.on("error", (e) => {
+        if (this.watcher !== watcher) return;
+        this.failed(e);
       });
+      this.watcher = watcher;
+      this.gitDir = gitDir;
     } catch (e) {
-      this.log(`git watch: ${e}`);
+      this.failed(e);
     }
+  }
+
+  private unwatch(): void {
+    this.watcher?.close();
+    this.watcher = null;
+  }
+
+  // Not watched: the next read sets it up again, at most once a second.
+  private failed(e: unknown): void {
+    this.log(`git watch: ${e}`);
+    this.unwatch();
+    this.gitDir = null;
+    const now = Date.now();
+    if (now - this.lastRetry < RETRY_MS) return;
+    this.lastRetry = now;
+    this.refresh();
   }
 }

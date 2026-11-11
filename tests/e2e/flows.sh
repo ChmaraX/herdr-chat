@@ -311,6 +311,7 @@ if want branch; then
   expect '[ "$(d "d[\"branch\"]")" = e2e/branch-chip ]' "a switch outside the chat shows without a turn" 5
   cmd click:branch
   expect '[ "$(d "d[\"flash\"]")" = "Copied e2e/branch-chip" ]' "a click copies the name" 3
+  expect '[ "$(d "d[\"lastCopy\"][\"text\"]")" = e2e/branch-chip ]' "the clipboard has the branch" 3
   shot branch-1-switched 3
   git -C "$PROJ" checkout -q "$FIRST"; git -C "$PROJ" branch -qD e2e/branch-chip
   expect '[ "$(d "d[\"branch\"]")" = "$FIRST" ]' "back on $FIRST" 5

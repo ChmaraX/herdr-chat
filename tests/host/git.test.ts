@@ -22,7 +22,7 @@ function repo(dir: string): string {
   return dir;
 }
 
-const branchIs = (b: string | null) => (c: ChatClient) => c.state.git?.branch === b;
+const branchIs = (b: string) => (c: ChatClient) => c.state.git?.name === b && !c.state.git.detached;
 
 async function turn(c: ChatClient, text: string): Promise<void> {
   const answers = c.items.filter((i: any) => i.kind === "assistant").length;
@@ -37,15 +37,15 @@ test("the branch follows switches made outside the chat: new, renamed, detached"
   try {
     const c = h.client;
     await c.waitFor((x) => idle(x) && branchIs("main")(x), 10_000, "main at start");
-    assert.deepEqual(c.state.git, { branch: "main", head: null });
+    assert.deepEqual(c.state.git, { name: "main", detached: false });
     // No run: the watcher sees HEAD change.
     git(cwd, "checkout", "-qb", "feature/login");
     await c.waitFor(branchIs("feature/login"), 3000, "a new branch");
     git(cwd, "branch", "-m", "feature/sign-in");
     await c.waitFor(branchIs("feature/sign-in"), 3000, "a renamed branch");
     git(cwd, "checkout", "-q", "--detach");
-    await c.waitFor(branchIs(null), 3000, "detached");
-    assert.equal(c.state.git.head, git(cwd, "rev-parse", "--short", "HEAD"));
+    await c.waitFor((x) => x.state.git?.detached === true, 3000, "detached");
+    assert.deepEqual(c.state.git, { name: git(cwd, "rev-parse", "--short", "HEAD"), detached: true });
     git(cwd, "checkout", "-q", "main");
     await c.waitFor(branchIs("main"), 3000, "back on main");
     assert.ok(!c.items.some((i: any) => i.kind === "notice" && i.level === "error"), "no error notices");
@@ -72,6 +72,7 @@ test("not a repo, then one; a linked worktree from a subfolder", async () => {
     // From then on it's watched: a switch with no run.
     git(cwd, "checkout", "-qb", "next");
     await c.waitFor(branchIs("next"), 3000, "watched after git init");
+    assert.ok(!c.items.some((i: any) => i.kind === "notice" && i.level === "error"), "no error notices");
     h.artifact("git-norepo");
   } finally {
     await h.stop();
@@ -90,7 +91,7 @@ test("not a repo, then one; a linked worktree from a subfolder", async () => {
     await c.waitFor(branchIs("wt-next"), 3000, "a switch inside the worktree");
     git(main, "checkout", "-qb", "main-next");
     await sleep(500);
-    assert.equal(c.state.git.branch, "wt-next", "the main checkout's switch isn't the worktree's");
+    assert.equal(c.state.git.name, "wt-next", "the main checkout's switch isn't the worktree's");
     w.artifact("git-worktree");
   } finally {
     await w.stop();
