@@ -43,7 +43,7 @@ import { Composer } from "./composer.js";
 import { Picker, menuView, slashItems, wheel as wheelMenu } from "./menus.js";
 import { DialogCard } from "./dialogs.js";
 import { Debug } from "./debug.js";
-import { outdated, quiet, restartAll } from "./update.js";
+import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readImageSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
@@ -139,9 +139,8 @@ export default class HerdrChat extends View {
       log: (m) => this.log(m),
     });
     if (!this.cwd) this.cwd = p.cwd ?? null;
-    this.cfg = null; // the install's config.json (readConfig): its build, against the host's (update.js)
-    this.restartWanted = false;
-    cx.spawn(async (cx) => { this.cfg = await readConfig(); this.debug.mark(); cx.notify(); });
+    this.updater = new Updater({ sub: Boolean(this.sub), log: (m) => this.log(m) }); // a host older than the install (update.js)
+    cx.spawn(async (cx) => { await this.updater.load(); this.debug.mark(); cx.notify(); });
     this.conn.start(cx);
     this.commands(cx);
     // Data, not animation: where the host pane is, a TUI that finished, a
@@ -430,20 +429,17 @@ export default class HerdrChat extends View {
     else kill();
   }
 
-  // The install has newer host code than this chat runs (update.js): the
-  // banner offers a restart. Once asked for (the banner, /reload, or new-chat's
-  // popup for every chat), it happens as soon as the chat is quiet.
+  // A replacement host is on its way (replaceHost): the old one's bye and welcome are ours.
+  replacing() {
+    return Boolean(this.healing && !this.healing.restarted);
+  }
+
+  // A host older than the install (update.js): restart it once the person asked and the chat is quiet.
   updateTick(cx) {
-    if (this.sub || this.conn.status !== "connected" || !this.store.loaded || !outdated(this.conn.welcome, this.cfg)) return false;
-    if (this.restartedFor === this.cfg.build) return false; // tried once for this install: never a loop
-    if (!this.restartWanted && restartAll(this.cfg)) { this.restartWanted = true; this.log(`restart on ${this.cfg.build}: asked for every chat`); }
-    if (!this.restartWanted || !quiet(this.store.state) || (this.healing && !this.healing.restarted)) return false;
-    const term = hostTerminal(this.chat);
-    if (!term) return false;
-    this.log(`host ${term.address} runs ${this.conn.welcome.host?.build ?? "an older build"}, the install ${this.cfg.build}: restarting it`);
-    this.updatingTo = this.cfg.version ?? "the new version";
-    this.restartedFor = this.cfg.build;
-    this.replaceHost(term, "update", cx);
+    if (this.conn.status !== "connected" || !this.store.loaded) return false;
+    const host = hostTerminal(this.chat);
+    if (!this.updater.due({ welcome: this.conn.welcome, state: this.store.state, host, replacing: this.replacing() })) return false;
+    this.replaceHost(host, "update", cx);
     return true;
   }
 
@@ -724,16 +720,9 @@ export default class HerdrChat extends View {
 
   onRecord(rec, cx) {
     if (rec.t === "welcome") {
-      // A new install may have written another build since: read it again.
       cx.spawn(async (cx) => {
-        this.cfg = await readConfig();
-        if (this.updatingTo && rec.host?.pid !== this.healing?.oldPid) {
-          // The new host: on the install's build, or (a build the install got wrong) not, and then no second try.
-          if (outdated(rec, this.cfg)) this.log(`restarted, but the host says ${rec.host?.build ?? "no build"}, the install ${this.cfg?.build}`);
-          else this.flash(`Restarted on herdr-chat ${this.updatingTo}`, cx);
-          this.updatingTo = null;
-          this.restartWanted = false;
-        }
+        const note = await this.updater.onWelcome(rec, this.healing?.oldPid);
+        if (note) this.flash(note, cx);
         this.debug.mark();
         cx.notify();
       });
@@ -758,7 +747,7 @@ export default class HerdrChat extends View {
     } else if (rec.t === "bye") {
       this.log(`bye: ${rec.reason}`);
       // Closed on purpose: another chat took the session over (not our own replaceHost).
-      if (rec.reason === "shutdown" && !(this.healing && !this.healing.restarted)) this.byeAt = Date.now();
+      if (rec.reason === "shutdown" && !this.replacing()) this.byeAt = Date.now();
     }
   }
 
@@ -827,11 +816,11 @@ export default class HerdrChat extends View {
     if (!text.trim() && !images.length) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
     // /reload on a host older than the install restarts the host, not just the agent.
-    if (m?.[1] === "reload" && !images.length && !this.sub && outdated(this.conn.welcome, this.cfg)) {
+    if (m?.[1] === "reload" && !images.length && this.updater.canRestart(this.conn.welcome)) {
       this.composer.clear();
-      this.restartWanted = true;
-      const v = this.cfg.version ? `herdr-chat ${this.cfg.version}` : "the new herdr-chat";
-      return this.flash(quiet(this.store.state) ? `Restarting on ${v}` : `Restarts on ${v} when ${this.providerName()} is done`, cx);
+      this.updater.want();
+      const quietNow = quiet(this.store.state, hostTerminal(this.chat)?.address);
+      return this.flash(quietNow ? `Restarting on ${this.updater.label()}` : `Restarts on ${this.updater.label()} when ${this.providerName()} is done`, cx);
     }
     if (m && !images.length) {
       const cmd = this.commandList().find((c) => c.name === m[1]);
@@ -1494,7 +1483,7 @@ export default class HerdrChat extends View {
       case "conflict:go": return this.goToConflict(cx);
       case "conflict:take": return this.fire("take_over", {}, cx);
       case "statuses": return this.setStatusesOpen(!this.statusesOpen, cx);
-      case "update:restart": this.restartWanted = true; break;
+      case "update:restart": this.updater.want(); break;
       case "status:toggle-hidden": this.showHidden = !this.showHidden; break;
       case "latest": this.timeline.toBottom(); break;
       case "send": return this.send(cx);
@@ -1919,7 +1908,7 @@ export default class HerdrChat extends View {
       activity: this.activity(), lastCopy: this.lastCopy ?? null,
       codeBlocks: [...this.codeSel].map(([key, v]) => ({ key, linesW: Math.round(v.linesW), viewW: Math.round(v.viewW), sel: v.sel, focused: Boolean(v.focus?.is_focused?.()) })), lastOpen: this.lastOpen ?? null, editorTerm: this.editorTerm ?? null,
       statusesShown: this.visibleStatuses().map((x) => x.key), statusesHidden: this.prefs.hiddenStatuses, footerChips: this.footerChips ?? null,
-      update: { outdated: outdated(this.conn.welcome, this.cfg), wanted: this.restartWanted, hostBuild: this.conn.welcome?.host?.build ?? null, build: this.cfg?.build ?? null, healing: this.healing ?? null },
+      update: { ...this.updater.dump(this.conn.welcome), healing: this.healing ?? null },
       widgetsOpen: this.prefs.widgetsOpen, themeSent: Boolean(this.themeSent), themeOk: this.themeOk ?? null,
       enlarged: this.enlarged ?? null, svgHover: this.svgHover ?? null, svgSizes: Object.fromEntries(this.svgSizes),
       blocks: this.store.items.filter((it) => it.kind === "assistant" && it.blocks?.length).map((it) => ({ id: it.id, types: it.blocks.map((b) => b.type + (b.open ? "*" : "")) })),
@@ -1965,12 +1954,8 @@ export default class HerdrChat extends View {
       return row(t.blocked, icon("alert", 13), `This session is open in ${where}. Two writers would corrupt it.`,
         [["conflict-go", "Go to that chat", "conflict:go"], ["conflict-take", "Take over", "conflict:take"]]);
     }
-    if (!this.sub && outdated(c.welcome, this.cfg) && this.restartedFor !== this.cfg.build) {
-      const v = this.cfg.version ? `herdr-chat ${this.cfg.version}` : "A new herdr-chat";
-      if (this.restartWanted) return row(t.muted, icon("rotate", 13), `${v}: this chat restarts when ${this.providerName()} is done. The conversation stays.`);
-      return row(t.muted, icon("rotate", 13), `${v} is installed. This chat still runs the version from before. Restart it to update; the conversation stays.`,
-        [["update-restart", "Restart", "update:restart"]]);
-    }
+    const u = this.updater.bar(c.welcome, this.providerName());
+    if (u) return row(t.muted, icon("rotate", 13), u.text, u.button ? [["update-restart", "Restart", "update:restart"]] : []);
     return null;
   }
 

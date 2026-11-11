@@ -171,11 +171,13 @@ HC="$(command -v hc)"
 # The host's build (host/build.ts): a chat whose host reports another one runs older code and offers a restart.
 BUILD=$("$NODE" "$ROOT/host/main.$EXT" build | "$NODE" -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).build)') ||
   die "the host couldn't say its build ($ROOT/host/main.$EXT build)"
-# release: installed by the one-liner, which can update it; clone: ./install.sh in a checkout.
-CHANNEL=$([ "$EXT" = js ] && echo release || echo clone)
+# release: installed by the one-liner (install.sh gives its command), which can update it;
+# clone: anything else (./install.sh in a checkout, an unpacked release run in place).
+CHANNEL=$([ -n "${HERDR_CHAT_INSTALL_CMD:-}" ] && [ "$EXT" = js ] && echo release || echo clone)
+# installedAt: a chat whose host started before it, on another build, runs older code.
 "$NODE" -e 'const [path, host, node, hc, version, build, channel, update, pi, claude, codex] = process.argv.slice(1);
 const agents = Object.fromEntries(Object.entries({ pi, claude, codex }).filter(([, v]) => v));
-require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, build, channel, update, ...agents }, null, 2) + "\n")' \
+require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, build, installedAt: Date.now(), channel, update, ...agents }, null, 2) + "\n")' \
   "$STAGE/chat/config.json" "$LINK/bin/herdr-chat-host" "$NODE" "$HC" "$VERSION" "$BUILD" "$CHANNEL" "$INSTALL_CMD" "$BIN_pi" "$BIN_claude" "$BIN_codex"
 for m in "${MODS[@]}"; do
   "$APP" check "$STAGE/$m" >/dev/null 2>&1 || { "$APP" check "$STAGE/$m" || true; die "mods/$m failed herdr-app check; nothing installed"; }

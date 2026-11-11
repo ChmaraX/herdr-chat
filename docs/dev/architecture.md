@@ -42,7 +42,7 @@ Herdr tab
 | Mod | What it does |
 |---|---|
 | `chat` | The chat itself. Only draws and sends ops; slow work goes through the host. Its keys: [`herdr-app/mods/chat/KEYS.md`](../../herdr-app/mods/chat/KEYS.md) |
-| `new-chat` | The launcher (⌘I) and the `new-chat.*` commands. An empty block of it floats in the layout, so those commands reach it |
+| `new-chat` | The launcher (⌘I) and the `new-chat.*` commands. An empty block of it floats in the layout, so those commands reach it. It also asks about updates: a new release, and restarting chats whose host is older than the install (protocol.md v3.5) |
 | `chat-agents` | An install-time copy of Herdr's agents list: a click on a chat sub-agent opens its chat |
 | `chat-menu` | An install-time copy of Herdr's right-click menu: Open as chat, Continue as chat |
 

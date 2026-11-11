@@ -133,3 +133,24 @@ How rich rendering can fail a user, and what covers it (`rich.test.ts` drives `s
 | Claude Code's fork is lost before its first prompt (its transcript isn't written yet): a /reload or the history shows nothing | the history up to the fork from the original; a /reload starts the same `--fork-session --resume-session-at` |
 | Claude Code resumes at the wrong record | `--resume-session-at` is the answer to the message before |
 | Codex forks through the wrong turn, or takes the config's default effort | `thread/fork lastTurnId` is the turn before; the effort is the one set before the fork |
+
+## Updates (`update.test.ts`; E2E `update`, `update-release`)
+
+A chat whose host started before an install runs older code (protocol.md v3.5).
+
+| Failure | Covered by |
+|---|---|
+| The welcome, the registry and `herdr-chat-host build` disagree, so the install's build never matches a host's and every chat looks outdated | `update.test.ts` "the build"; `install-e2e.sh`: config.json's build is the installed host's |
+| A restart's shutdown hangs on a client that never closes its side, so the new host never starts | `update.test.ts` "shutdown ends the host even when a client never closes its side" |
+| A host from before 0.3 hangs on its way out (it had that bug) | not covered: the chat kills a host terminal that's still live 5 s after its shutdown |
+| A chat restarts without the person's answer | E2E `update`: A's host pid unchanged until Restart |
+| A restart loses the conversation | E2E `update`: the same session file and the same messages after the restart |
+| A working chat is cut off mid-turn | E2E `update`: B keeps its old host while working, restarts once stopped |
+| A sub-agent's host is restarted (its parent loses it) | E2E `update`: the sub-agent's pid and terminal unchanged |
+| A chat waiting on its own sub-agents restarts, and their reports go to a dead terminal | not covered (quiet() requires no live child of the host's terminal) |
+| A new host still on another build restarts again and again | E2E `update`: no second restart; not covered: a host that comes back on another build |
+| A clone's edited host code makes every chat look outdated | not covered (a host started after `installedAt` never counts) |
+| Later is ignored, or asks again on every reload | E2E `update`: no restart after Later, no question after a reload |
+| A failed update looks like success, or is silent | E2E `update-release`: the dialog stays open on exit 7 |
+| The release check runs more than once a day | E2E `update-release`: no question after a reload |
+| A release tag runs as shell (`0.9.0;cmd`) | not covered (only `X.Y.Z` is offered, and it's an argument) |

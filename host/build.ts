@@ -28,9 +28,10 @@ let cached: Build | null = null;
 /** Read once, at start: what this process loaded. */
 export function hostBuild(): Build {
   if (cached) return cached;
-  let version = "0.0.0";
+  let version = "0.0.0"; // no package.json beside host/ (never in a clone or a release)
   try {
-    version = JSON.parse(readFileSync(join(HOST_DIR, "..", "package.json"), "utf8")).version ?? version;
+    const pkg: unknown = JSON.parse(readFileSync(join(HOST_DIR, "..", "package.json"), "utf8"));
+    if (pkg && typeof pkg === "object" && "version" in pkg && typeof pkg.version === "string") version = pkg.version;
   } catch {}
   const h = createHash("sha256");
   for (const f of files(HOST_DIR).sort()) {

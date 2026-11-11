@@ -110,7 +110,7 @@ export class ChatServer implements Sink {
         // Flush pending changes to the others first: this client starts from the snapshot.
         this.chat.flush();
         this.clients.add(client);
-        client.send({ t: "welcome", v: PROTOCOL_VERSION, chat: this.chat.opts.chat, host: { pid: process.pid, ...hostBuild() } });
+        client.send({ t: "welcome", v: PROTOCOL_VERSION, chat: this.chat.opts.chat, host: { pid: process.pid, ...hostBuild(), startedAt: Math.round(performance.timeOrigin) } });
         this.sendSnapshot(client);
         return;
       }

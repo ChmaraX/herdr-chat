@@ -45,6 +45,7 @@ test("shutdown ends the host even when a client never closes its side", async ()
     assert.ok(Date.now() - t0 < 3000, `exited in ${Date.now() - t0} ms`);
     assert.equal(h.registry?.pid, null);
     raw.destroy();
+    h.artifact("update-shutdown", { exitedMs: Date.now() - t0 });
   } finally {
     await h.stop();
   }

@@ -209,6 +209,9 @@ class Commands {
     };
     cx.timer.after(3000, () => void updates());
     cx.timer.every(3600 * 1000, () => void updates());
+    // An update the dialog started: its end (checkRunning does nothing while none runs). On
+    // success question 2, once the dialog (it polls every second) has closed.
+    cx.timer.every(3000, () => void checkRunning().then((ok) => ok && cx.timer.after(1500, () => void checkHosts())).catch(() => {}));
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
