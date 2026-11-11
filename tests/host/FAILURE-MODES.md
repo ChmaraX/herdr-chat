@@ -134,6 +134,19 @@ How rich rendering can fail a user, and what covers it (`rich.test.ts` drives `s
 | Claude Code resumes at the wrong record | `--resume-session-at` is the answer to the message before |
 | Codex forks through the wrong turn, or takes the config's default effort | `thread/fork lastTurnId` is the turn before; the effort is the one set before the fork |
 
+## The branch (`git.test.ts`)
+
+`ChatState.git`: the branch of the chat's folder, shown under the composer.
+
+| Failure | Covered by |
+|---|---|
+| A folder that isn't a repo errors, or shows a stale branch | "not a repo, then one": `git` is null, no error notice |
+| A repo made during the chat (`git init`) never shows | the same test: its unborn branch once the next run settles |
+| A switch outside a run (the agent's bash, another terminal) shows only at the next turn | "the branch follows switches": a new branch, a rename, with no run |
+| Detached HEAD breaks it | the same test: `branch` null, `head` the commit |
+| A linked worktree: its HEAD is under `.git/worktrees/<name>`, so watching the main `.git` misses its switches | "a linked worktree": a switch inside it updates; one in the main checkout doesn't |
+| A folder below the repo's top | the worktree test runs in a subfolder |
+
 ## Updates (`update.test.ts`; E2E `update`, `update-release`)
 
 A chat whose host started before an install runs older code (protocol.md v3.5).

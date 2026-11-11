@@ -30,6 +30,8 @@ https://github.com/user-attachments/assets/cefe4c53-19f6-4c3b-8188-f8480f4c2816
   queues a follow-up. Queued messages can be edited, moved or removed.
 - **Pickers** - model, thinking effort and permission mode, from the chips
   under the composer or by key.
+- **The branch** - under the composer, a click copies it. It follows
+  switches made anywhere, the agent's own included.
 - **Slash commands and skills** - your commands, prompt templates and
   skills, plus the built-ins (`/model`, `/compact`, `/resume`, `/fork`,
   `/tui`…). A skill becomes a pill in your message.

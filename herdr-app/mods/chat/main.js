@@ -39,7 +39,7 @@ import { Timeline } from "./timeline.js";
 import { lineOf, row } from "./cards.js";
 import { buildRows } from "./rows.js";
 import { space } from "./space.js";
-import { emptyState, footerControls, queueChips, queueLabels, widgetTray } from "./chrome.js";
+import { branchChip, emptyState, footerControls, queueChips, queueLabels, widgetTray } from "./chrome.js";
 import { openFile } from "./files.js";
 import { Composer } from "./composer.js";
 import { Picker, menuView, slashItems, wheel as wheelMenu } from "./menus.js";
@@ -1487,6 +1487,14 @@ export default class HerdrChat extends View {
       case "conflict:take": return this.fire("take_over", {}, cx);
       case "statuses": return this.setStatusesOpen(!this.statusesOpen, cx);
       case "update:restart": this.updater.want(); break;
+      case "branch": {
+        const g = this.store.state.git;
+        const what = g?.branch ?? g?.head;
+        if (!what) return;
+        cx.write_to_clipboard(what);
+        this.copied = what.length;
+        return this.flash(`Copied ${what}`, cx);
+      }
       case "status:toggle-hidden": this.showHidden = !this.showHidden; break;
       case "latest": this.timeline.toBottom(); break;
       case "send": return this.send(cx);
@@ -1910,7 +1918,7 @@ export default class HerdrChat extends View {
         ...(r.footer ? { footer: r.footer } : {}), ...(r.kind === "item" ? { item: r.item.kind } : {}) })),
       activity: this.activity(), lastCopy: this.lastCopy ?? null,
       codeBlocks: [...this.codeSel].map(([key, v]) => ({ key, linesW: Math.round(v.linesW), viewW: Math.round(v.viewW), sel: v.sel, focused: Boolean(v.focus?.is_focused?.()) })), lastOpen: this.lastOpen ?? null, editorTerm: this.editorTerm ?? null,
-      statusesShown: this.visibleStatuses().map((x) => x.key), statusesHidden: this.prefs.hiddenStatuses, footerChips: this.footerChips ?? null,
+      statusesShown: this.visibleStatuses().map((x) => x.key), statusesHidden: this.prefs.hiddenStatuses, footerChips: this.footerChips ?? null, branch: this.branchShown ?? null,
       update: { ...this.updater.dump(this.conn.welcome), healing: this.healing ?? null },
       widgetsOpen: this.prefs.widgetsOpen, themeSent: Boolean(this.themeSent), themeOk: this.themeOk ?? null,
       enlarged: this.enlarged ?? null, svgHover: this.svgHover ?? null, svgSizes: Object.fromEntries(this.svgSizes),
@@ -2089,7 +2097,10 @@ export default class HerdrChat extends View {
       .children([widgetTray(this, above, t), queueChips(this, s, t)].filter(Boolean))
       .child(composer)
       .children([widgetTray(this, below, t)].filter(Boolean))
-      .child(div().h(16).px(6).text_size(11).truncate().text_color(this.flashText ? t.blocked : t.dim).child(hintText ?? ""));
+      // The hint line, and the branch at its right end.
+      .child(h_flex().h(16).pl(6).gap(10).items_center()
+        .child(div().flex_1().min_w(0).text_size(11).truncate().text_color(this.flashText ? t.blocked : t.dim).child(hintText ?? ""))
+        .children([branchChip(this, t, { width: this.colW() })].filter(Boolean)));
     let root = v_flex().id("herdr-chat").key_context("HerdrChat").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.width) > 0.5) { this.width = sz.width; this.sized(sz.width); cx.notify(); } })
       .on_drop((e, cx) => this.drop(e.paths ?? [], cx))

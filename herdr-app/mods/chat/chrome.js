@@ -237,6 +237,20 @@ export function queueChips(v, s, t) {
   return v_flex().w_full().gap(6).children([steer, follow].filter(Boolean));
 }
 
+// The branch of the chat's folder (host git.ts, state.git), right of the hint
+// line under the composer; a detached HEAD shows its commit. A click copies it.
+export function branchChip(v, t, { width }) {
+  const g = v.store.state.git;
+  const name = g?.branch ?? g?.head ?? null;
+  v.branchShown = name;
+  if (!name) return null;
+  return h_flex().id("branch").flex_none().max_w(Math.max(60, Math.round(width * 0.45))).min_w(0).h(16).px(4).gap(4).items_center()
+    .rounded(4).text_size(11).text_color(t.dim).cursor_pointer().hover((st) => st.bg(t.hover).text_color(t.muted))
+    .on_click((_e, cx) => v.control("branch", cx))
+    .child(icon(g.branch ? "git-branch" : "git-commit", 11))
+    .child(div().min_w(0).truncate().child(name));
+}
+
 // A new chat: the agent's name and the folder it runs in.
 export function emptyState(v, t) {
   const s = v.store.state;
