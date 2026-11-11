@@ -16,6 +16,9 @@ export type RegistryEntry = {
   terminal: string | null;
   startedAt: number;
   agentVersion: string | null;
+  /** The host's herdr-chat version and build (build.ts): the chat asks for a restart when the install's differs. Absent before 0.3. */
+  version?: string;
+  build?: string;
 };
 
 export function registryPath(stateDir: string, chat: string): string {

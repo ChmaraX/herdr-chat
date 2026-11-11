@@ -4,9 +4,9 @@ import type { Server, Socket } from "node:net";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { LineFramer, MAX_RECORD_BYTES } from "./framing.ts";
 import type { Chat, Patch, Sink } from "./chat.ts";
+import { hostBuild } from "./build.ts";
 
 export const PROTOCOL_VERSION = 1;
-export const HOST_VERSION = "0.1.0";
 const HELLO_TIMEOUT_MS = 5000;
 const MAX_CLIENT_BUFFER = 64 * 1024 * 1024;
 /** Keepalive: Herdr's mod runtime fails a socket read after ~30 s idle. */
@@ -75,10 +75,12 @@ export class ChatServer implements Sink {
     });
   }
 
+  /** Stops listening and ends every client; one that doesn't close its side in 500 ms is cut, so a shutdown never waits on a client. */
   close(): Promise<void> {
     clearInterval(this.pinger);
     for (const c of this.clients) c.socket.end();
-    return new Promise((r) => this.server.close(() => r()));
+    const cut = setTimeout(() => { for (const c of this.clients) c.socket.destroy(); }, 500);
+    return new Promise((r) => this.server.close(() => { clearTimeout(cut); r(); }));
   }
 
   private accept(socket: Socket): void {
@@ -108,7 +110,7 @@ export class ChatServer implements Sink {
         // Flush pending changes to the others first: this client starts from the snapshot.
         this.chat.flush();
         this.clients.add(client);
-        client.send({ t: "welcome", v: PROTOCOL_VERSION, chat: this.chat.opts.chat, host: { pid: process.pid, version: HOST_VERSION } });
+        client.send({ t: "welcome", v: PROTOCOL_VERSION, chat: this.chat.opts.chat, host: { pid: process.pid, ...hostBuild() } });
         this.sendSnapshot(client);
         return;
       }

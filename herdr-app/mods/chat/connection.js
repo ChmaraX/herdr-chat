@@ -40,7 +40,7 @@ export async function readConfig() {
       tui: list(a.tui),
     };
   };
-  return { host: cfg.host ?? null, node: cfg.node ?? null, hc: cfg.hc ?? null, agent };
+  return { host: cfg.host ?? null, node: cfg.node ?? null, hc: cfg.hc ?? null, version: cfg.version ?? null, build: cfg.build ?? null, agent };
 }
 
 export async function readRegistry(chat) {

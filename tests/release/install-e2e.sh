@@ -108,6 +108,8 @@ check "unpacked to $BASE/$V1, current → $V1" test "$(readlink "$BASE/current")
 check "mods chat and new-chat installed, ours (.herdr-chat)" test -f "$HERDR_APP_HOME/mods/chat/.herdr-chat" -a -f "$HERDR_APP_HOME/mods/new-chat/.herdr-chat"
 check "config.json host is current's herdr-chat-host" test "$(cfg host)" = "$BASE/current/bin/herdr-chat-host"
 check "config.json version $V1, node the one the install found" test "$(cfg version)" = "$V1" -a "$(cfg node)" = "$BIN/node"
+check "config.json build is the installed host's (herdr-chat-host build)" test "$(cfg build)" = "$("$NODE" -p 'JSON.parse(process.argv[1]).build' "$("$BASE/current/bin/herdr-chat-host" build)")"
+check "config.json: a release, updated by the one-liner" test "$(cfg channel)" = release -a -n "$(cfg update | grep -F 'install.sh | sh -s --')"
 check "templates start current's herdr-chat-subagent" grep -qx "command: '$BASE/current/bin/herdr-chat-subagent' --provider pi" "$XDG_CONFIG_HOME/herdr-core/templates/pi-chat.md"
 check "the Pi lock extension installed" cmp "$PI_CODING_AGENT_DIR/extensions/herdr-chat-lock.ts" "$REPO/extension/herdr-chat-lock.ts"
 check "the sub-agents note in Codex's AGENTS.md" grep -q "herdr-chat:subagents begin" "$HOME/.codex/AGENTS.md"

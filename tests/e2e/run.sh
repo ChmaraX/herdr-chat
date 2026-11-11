@@ -265,6 +265,7 @@ fi
 . "$E2E/flows-fix1.sh"
 . "$E2E/flows-skills.sh"
 . "$E2E/flows-subagent.sh" # it switches the app to a clone of main
+. "$E2E/flows-update.sh" # after subagent: it needs the floating new-chat block
 . "$E2E/flows-core.sh" # last: it restarts the core
 expect no_mod_errors "no mod errors: none in the app's status, no chat's last render threw (run.log)" 3
 hidden

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// herdr-chat-host: serve | inspect | send | op
+// herdr-chat-host: serve | run | tui-session | inspect | send | op | build
 import { randomBytes } from "node:crypto";
 import { appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -16,6 +16,7 @@ import type { Args } from "./args.ts";
 import { appHomeOf, labelSelf, newChatId, planSubagent } from "./subagent.ts";
 import { readChatConfig } from "./settings.ts";
 import { PaneWatch } from "./panewatch.ts";
+import { hostBuild } from "./build.ts";
 
 const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir> [--provider pi] [--session <file>] [--after-pid <pid> [--model <provider/id>] [--thinking <level>]] [--app-home <dir>] [--<provider> <cmd>] [-- <agent args>]
   (--app-home: the Herdr app's home, whose app it asks to close its hidden pane once its chat's pane is gone; default $HERDR_APP_HOME, else ~/.config/herdr-app)
@@ -27,7 +28,9 @@ herdr-chat-host tui-session --provider <id> --pid <pid> --cwd <dir> [--label <se
 herdr-chat-host inspect --chat <id> --state-dir <dir> [--wait 'phase=idle,items>=3'] [--timeout <s>]
   (inspect/send/op wait up to --timeout seconds, default 10 s for connecting and 30 s for --wait, for a starting host)
 herdr-chat-host send    --chat <id> --state-dir <dir> [--mode auto|steer|followUp] [--image <path>]... <text>
-herdr-chat-host op      --chat <id> --state-dir <dir> <op> ['<json args>']`;
+herdr-chat-host op      --chat <id> --state-dir <dir> <op> ['<json args>']
+herdr-chat-host build
+  (this host's {version, build} as JSON: the install records it, so a chat can tell a host older than the install)`;
 
 function die(msg: string): never {
   process.stderr.write(`herdr-chat-host: ${msg}\n`);
@@ -79,7 +82,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     provider,
     // A session of another provider can't be resumed by this one.
     sessionFile: session ?? (previous?.provider === provider ? previous?.sessionFile ?? null : null),
-    terminal: terminalId, startedAt, agentVersion: null,
+    terminal: terminalId, startedAt, agentVersion: null, ...hostBuild(),
   };
   const save = (patch: Partial<RegistryEntry>) => {
     entry = { ...entry, ...patch };
@@ -210,6 +213,9 @@ async function main(): Promise<void> {
   switch (a.cmd) {
     case "serve":
       return serve(a);
+    case "build":
+      process.stdout.write(JSON.stringify(hostBuild()) + "\n");
+      return;
     case "run": {
       // A sub-agent chat (bin/herdr-chat-subagent): a fresh chat, the app's state dir, the mod's config, self-labels.
       let plan;

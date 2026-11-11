@@ -529,3 +529,10 @@ The dialog's debug dump is `debug/<chat>.peek.json`. Commands:
 `chat.click:peek:tab|peek:close`, `chat-agents.peek:<address>` (a row's
 click), `chat-agents.menu:<address>` (the right-click menu for a terminal),
 `chat-menu.pick:<n>` (its n-th chat item).
+
+## v3.5: updates (additive)
+
+- **The host's build.** `welcome.host` is `{pid, version, build}`: `version` from package.json, `build` a hash of the host's own code (`host/build.ts`). The registry records both. `herdr-chat-host build` prints them; the install writes them into `mods/chat/config.json` with `channel` (`release` | `clone`) and `update` (the command that updates a release).
+- **An outdated chat.** A host whose `build` differs from config.json's (or has none: before 0.3) runs older code. The chat (`mods/chat/update.js`) restarts it on the same session (`shutdown`, then a new host, as `healHost` does) once the person asks and the chat is quiet: idle (or the agent exited), no dialog, nothing queued. Never a sub-agent's. One try per build.
+- **The questions** (`mods/new-chat/update.js`, the layout's floating block): after an install, "Restart N chats?" (Restart sets the shared `herdr-chat.update.restart` to the build: every chat restarts when quiet; Later sets `herdr-chat.update.later`: a bar in each chat, its Restart and `/reload` still work). For a release install, once a day (or `new-chat.update-check`), GitHub's latest release: "X is available" → Update runs `update --version X` in a core terminal; the restart question follows. Settings: `"updates": {"check": false}` turns the lookup off; `feed` points it elsewhere.
+- **Shutdown** cuts a client that doesn't close its side within 500 ms, so a restart never waits on a client.
