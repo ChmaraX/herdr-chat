@@ -45,6 +45,7 @@ import { Composer } from "./composer.js";
 import { Picker, menuView, slashItems, wheel as wheelMenu } from "./menus.js";
 import { DialogCard } from "./dialogs.js";
 import { Debug } from "./debug.js";
+import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readImageSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
@@ -141,6 +142,8 @@ export default class HerdrChat extends View {
       log: (m) => this.log(m),
     });
     if (!this.cwd) this.cwd = p.cwd ?? null;
+    this.updater = new Updater({ sub: Boolean(this.sub), log: (m) => this.log(m) }); // a host older than the install (update.js)
+    cx.spawn(async (cx) => { await this.updater.load(); this.debug.mark(); cx.notify(); });
     this.conn.start(cx);
     this.commands(cx);
     // Data, not animation: where the host pane is, a TUI that finished, a
@@ -318,6 +321,7 @@ export default class HerdrChat extends View {
     const shown = Boolean(me) && focused()?.tab === me.tab;
     if (!this.sub) {
       if (this.healHost(cx)) changed = true;
+      if (this.updateTick(cx)) changed = true;
       this.keepHostHidden(me, cx);
       if (this.redirectFocus(cx)) changed = true;
     }
@@ -392,6 +396,12 @@ export default class HerdrChat extends View {
     // The old host, shutting down, can still take a reconnect (its welcome clears
     // autoStart): once its terminal has ended, start the new one for certain.
     const hl = this.healing;
+    // An old host that said bye but hangs on its way out (hosts before 0.3 waited on their clients): ended for it.
+    if (hl && !hl.restarted && !hl.killed && Date.now() - hl.at > 5000 && this.conn.status !== "connected" && terminals().some((t) => t.address === hl.terminal && t.state === "live")) {
+      hl.killed = true;
+      this.log(`the old host ${hl.terminal} didn't end after its shutdown: killing it`);
+      run("terminal.kill", { terminal: hl.terminal });
+    }
     if (hl && !hl.restarted && !terminals().some((t) => t.address === hl.terminal && t.state === "live") && this.conn.status !== "connected") {
       hl.restarted = true;
       this.byeAt = null; // (its bye was ours, not another chat's)
@@ -405,13 +415,34 @@ export default class HerdrChat extends View {
     const tab = label || docTab;
     if (!term || !tab || this.placeFrom !== "doc" || !this.place || tab === this.place.tab) return false;
     if (this.healing && Date.now() - this.healing.at < 15000) return false;
-    this.healing = { at: Date.now(), from: tab, terminal: term.address };
     this.healed = (this.healed ?? 0) + 1;
     this.log(`host ${term.address} sits in tab ${tab}, not this chat's ${this.place.tab}: restarting it here on the same session`);
+    this.replaceHost(term, tab, cx);
+    return true;
+  }
+
+  // A new host on the same session (the registry keeps it): the old one shuts
+  // down (killed if it doesn't answer), and healHost starts the new one once
+  // the old terminal has ended. `from`: why, for the dump (a tab, "update").
+  replaceHost(term, from, cx) {
+    this.healing = { at: Date.now(), from, terminal: term.address, oldPid: this.conn.welcome?.host?.pid ?? null };
     this.conn.restart();
     const kill = () => run("terminal.kill", { terminal: term.address });
     if (this.conn.status === "connected") this.req("shutdown", {}, cx, { timeout: 5000 }).catch(kill);
     else kill();
+  }
+
+  // A replacement host is on its way (replaceHost): the old one's bye and welcome are ours.
+  replacing() {
+    return Boolean(this.healing && !this.healing.restarted);
+  }
+
+  // A host older than the install (update.js): restart it once the person asked and the chat is quiet.
+  updateTick(cx) {
+    if (this.conn.status !== "connected" || !this.store.loaded) return false;
+    const host = hostTerminal(this.chat);
+    if (!this.updater.due({ welcome: this.conn.welcome, state: this.store.state, host, replacing: this.replacing() })) return false;
+    this.replaceHost(host, "update", cx);
     return true;
   }
 
@@ -691,7 +722,14 @@ export default class HerdrChat extends View {
   }
 
   onRecord(rec, cx) {
-    if (rec.t === "snapshot") {
+    if (rec.t === "welcome") {
+      cx.spawn(async (cx) => {
+        const note = await this.updater.onWelcome(rec, this.healing?.oldPid);
+        if (note) this.flash(note, cx);
+        this.debug.mark();
+        cx.notify();
+      });
+    } else if (rec.t === "snapshot") {
       this.store.snapshot(rec);
       this.loadedAt = Date.now();
       if (!this.cwd) this.cwd = this.store.state.cwd;
@@ -711,7 +749,8 @@ export default class HerdrChat extends View {
       this.log(`toast ${rec.level}: ${rec.text}`);
     } else if (rec.t === "bye") {
       this.log(`bye: ${rec.reason}`);
-      if (rec.reason === "shutdown") this.byeAt = Date.now(); // closed on purpose (another chat took the session over)
+      // Closed on purpose: another chat took the session over (not our own replaceHost).
+      if (rec.reason === "shutdown" && !this.replacing()) this.byeAt = Date.now();
     }
   }
 
@@ -779,6 +818,13 @@ export default class HerdrChat extends View {
     const images = this.composer.chips.map((c) => c.path);
     if (!text.trim() && !images.length) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
+    // /reload on a host older than the install restarts the host, not just the agent.
+    if (m?.[1] === "reload" && !images.length && this.updater.canRestart(this.conn.welcome)) {
+      this.composer.clear();
+      this.updater.want();
+      const quietNow = quiet(this.store.state, hostTerminal(this.chat)?.address);
+      return this.flash(quietNow ? `Restarting on ${this.updater.label()}` : `Restarts on ${this.updater.label()} when ${this.providerName()} is done`, cx);
+    }
     if (m && !images.length) {
       const cmd = this.commandList().find((c) => c.name === m[1]);
       if (cmd?.handler === "client") {
@@ -1440,6 +1486,7 @@ export default class HerdrChat extends View {
       case "conflict:go": return this.goToConflict(cx);
       case "conflict:take": return this.fire("take_over", {}, cx);
       case "statuses": return this.setStatusesOpen(!this.statusesOpen, cx);
+      case "update:restart": this.updater.want(); break;
       case "status:toggle-hidden": this.showHidden = !this.showHidden; break;
       case "latest": this.timeline.toBottom(); break;
       case "send": return this.send(cx);
@@ -1864,6 +1911,7 @@ export default class HerdrChat extends View {
       activity: this.activity(), lastCopy: this.lastCopy ?? null,
       codeBlocks: [...this.codeSel].map(([key, v]) => ({ key, linesW: Math.round(v.linesW), viewW: Math.round(v.viewW), sel: v.sel, focused: Boolean(v.focus?.is_focused?.()) })), lastOpen: this.lastOpen ?? null, editorTerm: this.editorTerm ?? null,
       statusesShown: this.visibleStatuses().map((x) => x.key), statusesHidden: this.prefs.hiddenStatuses, footerChips: this.footerChips ?? null,
+      update: { ...this.updater.dump(this.conn.welcome), healing: this.healing ?? null },
       widgetsOpen: this.prefs.widgetsOpen, themeSent: Boolean(this.themeSent), themeOk: this.themeOk ?? null,
       enlarged: this.enlarged ?? null, svgHover: this.svgHover ?? null, svgSizes: Object.fromEntries(this.svgSizes),
       blocks: this.store.items.filter((it) => it.kind === "assistant" && it.blocks?.length).map((it) => ({ id: it.id, types: it.blocks.map((b) => b.type + (b.open ? "*" : "")) })),
@@ -1909,6 +1957,8 @@ export default class HerdrChat extends View {
       return row(t.blocked, icon("alert", 13), `This session is open in ${where}. Two writers would corrupt it.`,
         [["conflict-go", "Go to that chat", "conflict:go"], ["conflict-take", "Take over", "conflict:take"]]);
     }
+    const u = this.updater.bar(c.welcome, this.providerName());
+    if (u) return row(t.muted, icon("rotate", 13), u.text, u.button ? [["update-restart", "Restart", "update:restart"]] : []);
     return null;
   }
 

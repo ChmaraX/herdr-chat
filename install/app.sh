@@ -25,7 +25,8 @@
 #   - copies every folder in herdr-app/mods/ into mods/ (only over folders it made itself,
 #     marked with a .herdr-chat file) and writes mods/chat/config.json
 #     (absolute paths of the host, node, hc and each agent it finds on PATH,
-#     and herdr-chat's version; your own settings go in data/herdr-chat/settings.json,
+#     herdr-chat's version, the host's build, and how it was installed (release
+#     or clone, and the command that updates it); your own settings go in data/herdr-chat/settings.json,
 #     which install never writes: README "Configuration")
 #   - checks Herdr's and herdr-core's versions against the tested ones
 #     (package.json "herdr"): newer warns, older than the minimum is refused
@@ -167,10 +168,17 @@ done
 MODS=("${KEEP[@]}")
 has_mod() { case " ${MODS[*]} " in *" $1 "*) return 0 ;; esac; return 1; }
 HC="$(command -v hc)"
-"$NODE" -e 'const [path, host, node, hc, version, pi, claude, codex] = process.argv.slice(1);
+# The host's build (host/build.ts): a chat whose host reports another one runs older code and offers a restart.
+BUILD=$("$NODE" "$ROOT/host/main.$EXT" build | "$NODE" -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")).build)') ||
+  die "the host couldn't say its build ($ROOT/host/main.$EXT build)"
+# release: installed by the one-liner (install.sh gives its command), which can update it;
+# clone: anything else (./install.sh in a checkout, an unpacked release run in place).
+CHANNEL=$([ -n "${HERDR_CHAT_INSTALL_CMD:-}" ] && [ "$EXT" = js ] && echo release || echo clone)
+# installedAt: a chat whose host started before it, on another build, runs older code.
+"$NODE" -e 'const [path, host, node, hc, version, build, channel, update, pi, claude, codex] = process.argv.slice(1);
 const agents = Object.fromEntries(Object.entries({ pi, claude, codex }).filter(([, v]) => v));
-require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, ...agents }, null, 2) + "\n")' \
-  "$STAGE/chat/config.json" "$LINK/bin/herdr-chat-host" "$NODE" "$HC" "$VERSION" "$BIN_pi" "$BIN_claude" "$BIN_codex"
+require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, build, installedAt: Date.now(), channel, update, ...agents }, null, 2) + "\n")' \
+  "$STAGE/chat/config.json" "$LINK/bin/herdr-chat-host" "$NODE" "$HC" "$VERSION" "$BUILD" "$CHANNEL" "$INSTALL_CMD" "$BIN_pi" "$BIN_claude" "$BIN_codex"
 for m in "${MODS[@]}"; do
   "$APP" check "$STAGE/$m" >/dev/null 2>&1 || { "$APP" check "$STAGE/$m" || true; die "mods/$m failed herdr-app check; nothing installed"; }
 done

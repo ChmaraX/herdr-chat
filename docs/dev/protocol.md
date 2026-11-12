@@ -43,7 +43,7 @@ The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
 ## Records: host → client
 
 ```jsonc
-{"t":"welcome","v":1,"chat":"c-…","host":{"pid":1,"version":"0.1.0"}}
+{"t":"welcome","v":1,"chat":"c-…","host":{"pid":1,"version":"0.3.0","build":"9b33f09757a7","startedAt":1793700000000}}   // build, startedAt: v3.5
 {"t":"snapshot","seq":12,"state":ChatState,"items":Item[],"hasOlder":false}
 {"t":"patch","seq":13,"state":{…partial ChatState},"upsert":[Item…],"remove":["id"]}
 {"t":"res","id":"r1","ok":true,"data":…}            // or {"ok":false,"error":"text"}
@@ -529,3 +529,10 @@ The dialog's debug dump is `debug/<chat>.peek.json`. Commands:
 `chat.click:peek:tab|peek:close`, `chat-agents.peek:<address>` (a row's
 click), `chat-agents.menu:<address>` (the right-click menu for a terminal),
 `chat-menu.pick:<n>` (its n-th chat item).
+
+## v3.5: updates (additive)
+
+- **The host's build.** `welcome.host` is `{pid, version, build, startedAt}`: `version` from package.json, `build` a hash of the host's own code (`host/build.ts`), `startedAt` the process start (ms). The registry records `version` and `build` (it has `startedAt`). `herdr-chat-host build` prints `{version, build}`; the install writes them into `mods/chat/config.json` with `installedAt` (ms), `channel` (`release` when the one-liner installed it, else `clone`) and `update` (the command that updates a release).
+- **An outdated chat.** A host that started before `installedAt` and whose `build` differs (or has none: before 0.3) runs older code. A host started after the install never counts, so in a clone, edited code isn't an update until `./install.sh`. The chat (`mods/chat/update.js`, one `Updater`) restarts it on the same session (`shutdown`, then a new host, as `healHost` does) once the person asks and the chat is quiet: idle (or the agent exited), no dialog, nothing queued, no live sub-agent of its own (their reports go to the host's terminal). Never a sub-agent's chat. One try per install build.
+- **The questions** (`mods/new-chat/update.js`, the layout's floating block): after an install, "Restart N chats?" (Restart sets the shared `herdr-chat.update.restart` to the build: every chat restarts when quiet; Later sets `herdr-chat.update.later`: a bar in each chat, its Restart and `/reload` still work). For a release install, once a day (or `new-chat.update-check`), GitHub's latest release (tags `X.Y.Z` only): "X is available" → Update runs `update --version X` in a core terminal, with a PATH holding the node, hc and agents config.json names (a core terminal lacks the login PATH). The update is done when that terminal ends (shared `herdr-chat.update.running`, then `.result`); on success the restart question follows. Settings: `"updates": {"check": false}` turns the lookup off; `feed` points it elsewhere.
+- **Shutdown** cuts a client that doesn't close its side within 500 ms, so a restart never waits on a client.

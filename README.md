@@ -67,8 +67,11 @@ launcher where it's free, and points the agents list and the right-click
 menu at the chat. No clone, no npm install. Or ask the agent in your Herdr
 window to "add the mod at github.com/ChmaraX/herdr-chat".
 
-- **Update:** run the same command again. Open chats keep the old version
-  until you reopen them.
+- **Update:** once a day the app looks for a new release and offers it
+  (**Update** installs it), or run the same command again. Then it asks to
+  restart the open chats on the new version: each keeps its conversation,
+  and one that's working restarts when it's done. **Later** leaves a
+  Restart button in each of them; `/reload` does the same.
 - **Uninstall:** the same command with `--uninstall`. It puts back exactly
   what install changed.
 - **Options:** `--no-subagents` (no sub-agent templates or notes),
@@ -117,13 +120,16 @@ it; every key is optional):
   "env": { "KEY": "value" },
   "pi":     { "command": "/path/to/pi", "args": ["--model", "anthropic/claude-sonnet-4-5"] },
   "claude": { "env": { "CLAUDE_CONFIG_DIR": "/path/to/config" } },
-  "codex":  { "tui": ["my-wrapper", "codex"] }
+  "codex":  { "tui": ["my-wrapper", "codex"] },
+  "updates": { "check": false }
 }
 ```
 
 `env` is for every agent. Per agent: `command` (instead of the one install
 found), `args` (added to the agent's), `env`, and `tui` (the program `/tui`
-runs). A new chat picks up a change.
+runs). A new chat picks up a change. `updates.check: false` stops the daily
+look for a new release (a release install only); `updates.feed` points it at
+another URL with GitHub's release JSON.
 
 ## Limitations
 

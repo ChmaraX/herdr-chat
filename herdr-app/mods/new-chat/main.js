@@ -15,13 +15,18 @@
 // - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`: that agent's chat, in a new tab;
 // - `new-chat.continue:<terminal>`: chat-menu's Continue as chat (an agent's
 //   TUI handed over to a chat on its session, see continueAsChat);
-//   `new-chat.continue`: the same on the focused terminal (the "continue" key).
+//   `new-chat.continue`: the same on the focused terminal (the "continue" key);
+// - `new-chat.update-check`: the update questions now, the release lookup too (update.js;
+//   they also run a few seconds after this block starts, an install reloads it, and
+//   once an hour, with the lookup at most once a day).
+//   The question's dialog takes `new-chat.update:<button>` (restart, later, update, notes, output).
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, spaces, terminals, theme } from "herdr";
 import * as fs from "fs/promises";
 import { randomBytes } from "crypto";
+import { UpdateDialog, checkHosts, checkRelease, checkRunning } from "./update.js";
 
 const CHOICES = [
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
@@ -192,6 +197,21 @@ export async function continueInPlace(t, agent, pid, cwd, found, cx) {
 // The floating block: commands only, nothing drawn.
 class Commands {
   constructor(cx) {
+    // After an install (which reloads this mod) or at start: an update that ran, chats on older
+    // code (asked first), else a newer release.
+    const updates = async (now = false) => {
+      try {
+        await checkRunning();
+        if (!(await checkHosts())) await checkRelease({ now });
+      } catch (e) {
+        notify({ title: "herdr-chat update", body: String(e?.message ?? e), level: "error" });
+      }
+    };
+    cx.timer.after(3000, () => void updates());
+    cx.timer.every(3600 * 1000, () => void updates());
+    // An update the dialog started: its end (checkRunning does nothing while none runs). On
+    // success question 2, once the dialog (it polls every second) has closed.
+    cx.timer.every(3000, () => void checkRunning().then((ok) => ok && cx.timer.after(1500, () => void checkHosts())).catch(() => {}));
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
@@ -199,6 +219,7 @@ class Commands {
           if (c === "open") run("mod.open", { name: "new-chat" });
           else if (CHOICES.some((x) => x.id === c)) await openChat(c);
           else if (c === "continue" || c.startsWith("continue:")) await continueAsChat(c.slice(9), cx);
+          else if (c === "update-check") await updates(true);
         } catch (e) {
           notify({ title: c.startsWith("continue") ? "Continue as chat" : "New chat", body: String(e?.message ?? e), level: "error" });
         }
@@ -210,6 +231,21 @@ class Commands {
 export default class NewChat extends View {
   init(_props, cx) {
     if (props()?.role === "commands") { this.commands = new Commands(cx); return; }
+    if (props()?.role === "update") {
+      this.handle = cx.focus_handle();
+      this.update = new UpdateDialog(props(), cx);
+      cx.timer.after(120, () => this.handle.focus());
+      // Its buttons by command (`new-chat.update:restart|later|update|notes|output`), as a click.
+      cx.spawn(async (cx) => {
+        for (;;) {
+          const c = await nextCommand();
+          if (c === "focus") this.handle.focus();
+          else if (c.startsWith("update:")) this.update.answer(c.slice(7), cx);
+          cx.notify();
+        }
+      });
+      return;
+    }
     this.sel = 0;
     this.done = false;
     this.installed = null; // provider id → installed (knownAgents), null until known
@@ -277,6 +313,7 @@ export default class NewChat extends View {
 
   render() {
     if (this.commands) return div();
+    if (this.update) return this.update.render(this.handle);
     const t = theme();
     const mark = (c) => {
       const path = `mods/chat/icons/providers/${c.icon}.svg`;
