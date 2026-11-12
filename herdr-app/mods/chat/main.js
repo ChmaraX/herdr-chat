@@ -9,7 +9,8 @@
 // measured scroller), cards (rows), rich (blocks, code, diffs, output),
 // composer (text, keys, the card), chrome (footer controls, statuses,
 // widgets, queue, empty state), menus (slash/@ menus, pickers), dialogs,
-// files (open in an editor), debug (E2E dump).
+// files (open in an editor), keymap (its key bindings, kept when Herdr rebuilds
+// the app's keymap), debug (E2E dump).
 //
 // Commands (`chat.<c>`, also how E2E drives what a click does):
 //   focus · toggle:<id> (an item, a group `g-…`, `code:…`) · click:<control>
@@ -30,7 +31,8 @@ import { agents, appHome, closeOverlay, focused, hc, home, nextCommand, notify, 
 import { randomBytes } from "crypto";
 import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
-import { SHORTCUTS, actionName, bindShortcuts, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
+import { SHORTCUTS, actionName, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
+import { keepKeys } from "./keymap.js";
 import { Connection, hostTerminal, readConfig, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
@@ -108,10 +110,11 @@ export default class HerdrChat extends View {
     this.fallback = null; // {terminal, reason, at}: the hidden flag can't be written, the pane is 0 px instead
     this.debug = new Debug(cx, this.peekMode ? `${this.chat}.peek` : this.chat, () => this.dump());
     if (!this.peekMode) this.lookupPlace(cx);
-    // Chat-scoped shortcuts (shortcuts.js): defaults, then the person's keys.json.
+    // Chat-scoped shortcuts (shortcuts.js): defaults, then the person's keys.json; then the
+    // chat's bindings in the app's keymap, kept there when Herdr rebuilds it (keymap.js).
     cx.spawn(async (cx) => {
       await loadShortcuts();
-      bindShortcuts(cx);
+      keepKeys(cx);
       this.keysReady = true;
       this.debug.mark();
       cx.notify();

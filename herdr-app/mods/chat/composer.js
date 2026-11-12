@@ -23,12 +23,8 @@ const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "Herdr
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 export const ACTIONS = ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape", ...DIGITS.map((d) => `herdrchat_digit_${d}`)];
 
-// Once per build of the mod (module state resets on reload, like the keymap
-// entries the old build installed may).
-let bound = false;
-export function bindKeys(cx) {
-  if (bound) return;
-  bound = true;
+// The composer's bindings in the app's keymap (keymap.js says when).
+export function bindComposerKeys(cx) {
   const b = [];
   for (const ctx of CONTEXTS) {
     // Sending (Enter steers, Alt+Enter queues a follow-up) is the `steer` and `followUp` shortcuts
@@ -92,7 +88,6 @@ export class Composer {
     this.ta.on("focus", (_e, cx) => { this.focused = true; cx.notify(); });
     this.ta.on("blur", (_e, cx) => { this.focused = false; cx.notify(); });
     this.ta.on("paste_other", (_e, cx) => onPasteOther?.(cx));
-    bindKeys(cx);
   }
 
   focus() {
