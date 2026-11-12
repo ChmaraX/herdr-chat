@@ -300,6 +300,23 @@ if want folder; then
   expect connected "Retry, once the folder exists: connected" 25
 fi
 
+# --- flow: the branch under the composer -------------------------------------------------------
+if want branch; then
+  step "branch: the folder's branch at the hint line's end; it follows a switch made in another terminal"
+  FIRST=$(git -C "$PROJ" branch --show-current)
+  CHAT=$(open_chat branch)
+  ready
+  expect '[ "$(d "d[\"branch\"]")" = "$FIRST" ]' "the chat shows $FIRST" 10
+  git -C "$PROJ" checkout -qb e2e/branch-chip
+  expect '[ "$(d "d[\"branch\"]")" = e2e/branch-chip ]' "a switch outside the chat shows without a turn" 5
+  cmd click:branch
+  expect '[ "$(d "d[\"flash\"]")" = "Copied e2e/branch-chip" ]' "a click copies the name" 3
+  expect '[ "$(d "d[\"lastCopy\"][\"text\"]")" = e2e/branch-chip ]' "the clipboard has the branch" 3
+  shot branch-1-switched 3
+  git -C "$PROJ" checkout -q "$FIRST"; git -C "$PROJ" branch -qD e2e/branch-chip
+  expect '[ "$(d "d[\"branch\"]")" = "$FIRST" ]' "back on $FIRST" 5
+fi
+
 # --- flow: a tool-result image, an extension's draft, an hc envelope, a long history -------
 if want extras; then
   step "a tool result's image shows as a thumbnail"

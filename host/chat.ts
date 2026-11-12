@@ -16,6 +16,8 @@ import type { Command } from "./commands.ts";
 import { takeLock, releaseLock, readLock, pidAlive, readRegistry } from "./registry.ts";
 import { ChatClient } from "./client.ts";
 import { FileIndex } from "./files.ts";
+import { GitWatch } from "./git.ts";
+import type { GitState } from "./git.ts";
 import { clipboardImage, loadImages } from "./clipboard.ts";
 import { Renderer, diffLines } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
@@ -78,6 +80,8 @@ export type ChatState = {
   permissionMode: string | null;
   handoff: Handoff | null;
   conflict: Conflict | null;
+  /** The branch of the folder (git.ts); null outside a repo. */
+  git: GitState | null;
 };
 
 const URGENT = new Set<keyof ChatState>(["phase", "dialog", "dialogsPending", "queue", "error", "editorText", "handoff", "conflict"]);
@@ -197,6 +201,7 @@ export class Chat {
   private lockedFile: string | null = null;
   private sessionId: string | null = null;
   private files: FileIndex;
+  private git: GitWatch;
   private generation = 0;
 
   constructor(opts: ChatOptions) {
@@ -210,9 +215,10 @@ export class Chat {
       model: null, thinking: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
       statuses: [], widgets: [], title: null, editorText: null, commands: [],
       provider: this.adapter.id, providerName: this.adapter.name, capabilities: structuredClone(this.adapter.capabilities), permissionMode: null,
-      handoff: null, conflict: null,
+      handoff: null, conflict: null, git: null,
     };
     this.state.commands = this.menu();
+    this.git = new GitWatch(opts.cwd, (git) => this.set({ git }), opts.log);
   }
 
   /** The agent's own commands, from the last `commands()`. */
@@ -366,6 +372,7 @@ export class Chat {
    */
   start(sessionFile: string | null = this.state.sessionFile, opts: { agentGuard?: boolean } = {}): void {
     const gen = ++this.generation;
+    this.git.refresh();
     this.stopping = false;
     this.runActive = false;
     this.expectRun = 0;
@@ -893,6 +900,7 @@ export class Chat {
     if (this.state.phase === "working" || this.state.phase === "starting") this.set({ phase: "idle" });
     this.clearCommandHint();
     this.refreshStats();
+    this.git.refresh(); // a repo the run made, or a switch the watcher missed
     this.schedule();
     // Stopped (from elsewhere: our own abort took them already) or failed: the follow-ups wait in the composer.
     if (stopped || this.lastRunError) this.returnHeld();

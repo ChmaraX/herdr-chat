@@ -530,6 +530,22 @@ The dialog's debug dump is `debug/<chat>.peek.json`. Commands:
 click), `chat-agents.menu:<address>` (the right-click menu for a terminal),
 `chat-menu.pick:<n>` (its n-th chat item).
 
+## v3.4: the branch (additive)
+
+### ChatState
+
+```ts
+git: { name: string;             // the branch, or the short commit when detached
+       detached: boolean }
+   | null;                       // null: the folder isn't in a repo (or there's no git)
+```
+
+The host (`host/git.ts`) reads it when the agent starts, when a run settles
+(a repo the agent made), and when the repo's `HEAD` changes, so a switch
+from the agent's bash or another terminal shows without a turn. Read-only:
+no op switches branches. The mod shows it at the right end of the hint line
+under the composer; a click copies it.
+
 ## v3.5: updates (additive)
 
 - **The host's build.** `welcome.host` is `{pid, version, build, startedAt}`: `version` from package.json, `build` a hash of the host's own code (`host/build.ts`), `startedAt` the process start (ms). The registry records `version` and `build` (it has `startedAt`). `herdr-chat-host build` prints `{version, build}`; the install writes them into `mods/chat/config.json` with `installedAt` (ms), `channel` (`release` when the one-liner installed it, else `clone`) and `update` (the command that updates a release).
