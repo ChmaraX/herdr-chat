@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/ChmaraX/herdr-chat/compare/v0.2.0...v0.3.0) (2026-11-12)
+
+
+### Features
+
+* offer updates, and restart open chats on the new version ([#10](https://github.com/ChmaraX/herdr-chat/issues/10)) ([20205cc](https://github.com/ChmaraX/herdr-chat/commit/20205cc9a54d4739678020cfd1bf0706fa983338))
+* the branch under the composer, a click copies it ([#9](https://github.com/ChmaraX/herdr-chat/issues/9)) ([fcdd5bc](https://github.com/ChmaraX/herdr-chat/commit/fcdd5bc1c5b81c35c4d0441d6c2f8cd368b7b610))
+
+
+### Bug Fixes
+
+* chat keys keep working after Herdr's keys.json is saved ([#7](https://github.com/ChmaraX/herdr-chat/issues/7)) ([de073ca](https://github.com/ChmaraX/herdr-chat/commit/de073ca1a930a5cee73b02e16e19b2b2ea4a336f))
+
 ## [0.2.0](https://github.com/ChmaraX/herdr-chat/compare/v0.1.3...v0.2.0) (2026-11-10)
 
 
