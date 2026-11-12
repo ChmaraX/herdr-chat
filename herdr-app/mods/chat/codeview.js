@@ -19,11 +19,16 @@ import { LINE_H, codeCard, markdown } from "./rich.js";
 export const owners = new Map(); // owner id → the chat view (main.js)
 
 const COPY = "herdrchat_code_copy", CLEAR = "herdrchat_code_clear";
-let bound = false;
 const PAD_X = 12, PAD_Y = 8;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const before = (a, b) => a.r < b.r || (a.r === b.r && a.c <= b.c);
 const WORD = /[\p{L}\p{N}_$]/u;
+
+// A code card's bindings in the app's keymap (keymap.js says when).
+export function bindCodeKeys(cx) {
+  cx.bind_keys([{ keystroke: "cmd-c", action: COPY, context: "HerdrChatCode" }, { keystroke: "ctrl-c", action: COPY, context: "HerdrChatCode" },
+    { keystroke: "escape", action: CLEAR, context: "HerdrChatCode" }]);
+}
 
 export class CodeView extends View {
   init(props, cx) {
@@ -34,11 +39,6 @@ export class CodeView extends View {
     this.dragging = false;
     this.linesW = 0; // the lines' own width (the widest)
     this.viewW = 0;
-    if (!bound) {
-      bound = true;
-      cx.bind_keys([{ keystroke: "cmd-c", action: COPY, context: "HerdrChatCode" }, { keystroke: "ctrl-c", action: COPY, context: "HerdrChatCode" },
-        { keystroke: "escape", action: CLEAR, context: "HerdrChatCode" }]);
-    }
     owners.get(this.p.owner)?.codeSel?.set(this.p.key, this); // the E2E's chat.codesel command
   }
 

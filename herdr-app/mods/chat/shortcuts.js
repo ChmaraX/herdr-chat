@@ -41,7 +41,6 @@ const ONLY = { cycleMode: COMPOSER, cycleEffort: COMPOSER, steer: SENDING, follo
 const FALLBACK = { steer: "enter", followUp: "alt-enter" };
 
 let map = {}; // action → [chords]
-let bound = false;
 export let errors = [];
 
 function chords(v) {
@@ -85,11 +84,9 @@ export async function loadShortcuts() {
   return out;
 }
 
-// Once per build of the mod. One binding list per action: bind_keys refuses a
-// whole list for one bad chord, so a typo in the person's file costs only that action.
+// The shortcuts' bindings in the app's keymap (keymap.js says when). One binding list per action:
+// bind_keys refuses a whole list for one bad chord, so a typo in the person's file costs only that action.
 export function bindShortcuts(cx) {
-  if (bound) return;
-  bound = true;
   for (const [a, list] of Object.entries(map)) {
     if (!list.length) continue;
     const b = [];
@@ -98,7 +95,8 @@ export function bindShortcuts(cx) {
     try {
       cx.bind_keys(b);
     } catch (e) {
-      errors.push(`${a}: ${list.join(", ")}: ${e?.message ?? e}`);
+      const err = `${a}: ${list.join(", ")}: ${e?.message ?? e}`;
+      if (!errors.includes(err)) errors.push(err); // (installed again after Herdr's keys.json is written)
     }
   }
 }
