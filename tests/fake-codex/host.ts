@@ -17,6 +17,9 @@ export type CodexHostOptions = {
   session?: string;
   /** Reuse a temp dir (restart on the same Codex home and state). */
   dir?: string;
+  /** Another chat in the same dir (one Codex home): its own cwd and chat id. */
+  cwd?: string;
+  chat?: string;
   /** The stall watchdog's threshold (HERDR_CHAT_CODEX_STALL_MS). */
   stallMs?: number;
   agent?: string;
@@ -45,7 +48,7 @@ export class CodexHost extends Host {
 }
 
 export async function codexHost(o: CodexHostOptions): Promise<CodexHost> {
-  const h = new CodexHost({ name: o.name, provider: "codex", agent: o.agent ?? FAKE_CODEX, ...(o.dir ? { dir: o.dir } : {}), ...(o.session ? { session: o.session } : {}) });
+  const h = new CodexHost({ name: o.name, provider: "codex", agent: o.agent ?? FAKE_CODEX, ...(o.dir ? { dir: o.dir } : {}), ...(o.cwd ? { cwd: o.cwd } : {}), ...(o.chat ? { chat: o.chat } : {}), ...(o.session ? { session: o.session } : {}) });
   const fake = !o.agent || o.agent === FAKE_CODEX;
   const env: Record<string, string> = {
     // The fake's own home (CODEX_HOME also points the adapter's ~/.codex/prompts there); a real Codex keeps the user's.

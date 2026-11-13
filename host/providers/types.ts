@@ -220,7 +220,22 @@ export type Disposition = "started" | "handled" | "queued" | (string & {});
 
 export type AgentCommand = { name: string; description: string; source: "extension" | "prompt" | "skill" };
 export type AgentModel = { provider: string; id: string; name: string; reasoning: boolean; enabled: boolean };
-export type SessionInfo = { path: string; name: string | null; firstMessage: string; modified: number; messageCount: number };
+/**
+ * A saved session. `cwd`: the folder it ran in (null when the agent doesn't say);
+ * `messageCount`: null when the agent's list doesn't count them (Codex).
+ */
+export type SessionInfo = { path: string; name: string | null; firstMessage: string; modified: number; messageCount: number | null; cwd: string | null };
+/** Which sessions /resume lists: this chat's folder, or every folder (Pi's Tab in its own picker). */
+export type SessionScope = "cwd" | "all";
+/**
+ * Where /resume's sessions come from (the core lists and searches them: host/sessions.ts).
+ * `files`: session files the core reads with `describe` (synchronous, one file at a
+ * time; it keeps the result until the file's size or mtime changes); `current` is the
+ * session open now, null before one. `agent`: the agent lists them itself, every one, newest first (Codex's thread/list).
+ */
+export type SessionSource =
+  | { kind: "files"; files(current: string | null, scope: SessionScope): string[]; describe(path: string): SessionInfo | null }
+  | { kind: "agent"; list(scope: SessionScope): Promise<SessionInfo[]> };
 export type UsageInfo = { contextTokens: number | null; contextWindow: number | null; percent: number | null; cost: number | null };
 
 /** Errors from commands. `agentExited`: the agent went away before answering (the exit is reported separately). */
@@ -296,8 +311,11 @@ export interface ProviderAdapter {
   // ---- queries
   /** The normalized events that rebuild the current session's timeline. */
   history(): Promise<NormalizedEvent[]>;
-  /** This cwd's sessions, newest first (async for agents that list them over RPC). */
-  listSessions(current: string | null): SessionInfo[] | Promise<SessionInfo[]>;
+  /**
+   * /resume's sessions: this cwd's, or with `all` every folder's. The core keeps only
+   * this folder's for `cwd`, by `SessionInfo.cwd` (a Pi --session-dir holds every folder's).
+   */
+  readonly sessions: SessionSource;
   listModels(): Promise<AgentModel[]>;
   commands(): Promise<AgentCommand[]>;
   usage(): Promise<UsageInfo>;

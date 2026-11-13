@@ -7,11 +7,12 @@ import { basename, dirname } from "node:path";
 import { PiProcess } from "./rpc.ts";
 import type { PiRecord, Oversized } from "./rpc.ts";
 import { contentText, echoText, countImages, imageBlocks, resultText, resultImages } from "./content.ts";
-import { listSessions, defaultSessionDir, readSettings } from "./sessions.ts";
+import { describeSession, sessionDirs, readSettings } from "./sessions.ts";
+import { jsonlFiles } from "../../jsonl.ts";
 import { newId } from "../../timeline.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AssistantBlock, AskAnswer, ImageBlock,
-  ModelInfo, AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, StopReason, Usage, EventOf, ForkPoint,
+  ModelInfo, AgentCommand, AgentModel, SessionSource, UsageInfo, PromptMode, Disposition, StopReason, Usage, EventOf, ForkPoint,
 } from "../types.ts";
 import { PI_TOOLS } from "./tools.ts";
 import { userText } from "./skill.ts";
@@ -597,12 +598,12 @@ export class PiAdapter implements ProviderAdapter {
     return historyEvents(Array.isArray(data?.messages) ? data.messages : []);
   }
 
-  listSessions(current: string | null): SessionInfo[] {
-    const dirs = new Set<string>();
-    if (current) dirs.add(dirname(current));
-    dirs.add(defaultSessionDir(this.opts.cwd));
-    return listSessions([...dirs]);
-  }
+  // As Pi's own picker (Tab for `all`), plus the current session's folder (a --session given by path).
+  readonly sessions: SessionSource = {
+    kind: "files",
+    files: (current, scope) => jsonlFiles([...sessionDirs(this.opts.cwd, this.opts.args, scope), ...(current ? [dirname(current)] : [])]),
+    describe: describeSession,
+  };
 
   async listModels(): Promise<AgentModel[]> {
     const d = (await this.require().request("get_available_models", {}, 30_000)) as Rec;

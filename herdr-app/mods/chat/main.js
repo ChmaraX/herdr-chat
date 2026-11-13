@@ -19,7 +19,7 @@
 //   · shortcut:<action> (keys.default.json's actions, as their keys do)
 //   controls: chip:model|thinking|permission, latest, send, stop, restart,
 //   dialog:submit|cancel|choice:<id>|reason:<text>|other:<q>:<text>,
-//   picker:<n>, copy:<itemId>, edit:<itemId>, open:<itemId>, enlarge:<itemId>:<k> (the viewer: viewer.js, its own viewer:… commands),
+//   picker:<n>, picker:scope:<n> (its scope tabs: /resume's folder/all), copy:<itemId>, edit:<itemId>, open:<itemId>, enlarge:<itemId>:<k> (the viewer: viewer.js, its own viewer:… commands),
 //   enlarge:chip:<i>, chip-x:<i> (a composer image chip's thumbnail and ✕),
 //   widget:<key>, status:hide|show:<key>, queue:edit|move|remove:<message id> (a queued row),
 //   status:toggle-hidden, statuses (the +N popover), plan (opens or closes the plan strip's steps),
@@ -50,7 +50,7 @@ import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readSvgSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
-import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, spansText, spinner, typedText, unwrapHc } from "./util.js";
+import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, spinner, tildePath, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
@@ -1006,7 +1006,9 @@ export default class HerdrChat extends View {
       this.composer.menu = null;
       this.send(cx);
     }
-    this.composer.focus();
+    // A command that opened a picker (/resume, /thinking) leaves the keyboard in it.
+    if (this.picker) this.picker.focus();
+    else this.composer.focus();
     this.debug.mark();
     cx.notify();
   }
@@ -1141,15 +1143,15 @@ export default class HerdrChat extends View {
     this.log(`unknown queue control ${op}`);
   }
 
-  // A new chat tab beside this one: same agent, same folder.
-  newChat(cx) {
+  // A new chat tab beside this one: same agent, this folder, or `cwd` on `session` (/resume, another folder's).
+  newChat(cx, { cwd = this.cwd, session = null } = {}) {
     const place = this.findPlace();
     const provider = this.providerId();
     const chat = `c-${randomBytes(4).toString("hex")}`;
     const hostEnv = props()?.hostEnv; // (E2E: the fake agent's scenario)
     this.lastNewChat = chat;
     run("tab.new", { name: provider, ...(place?.space ? { space: place.space } : {}), mod: MOD,
-      props: { chat, provider, ...(this.cwd ? { cwd: this.cwd } : {}), ...(hostEnv ? { hostEnv } : {}) } });
+      props: { chat, provider, ...(cwd ? { cwd } : {}), ...(session ? { session } : {}), ...(hostEnv ? { hostEnv } : {}) } });
     this.debug.mark();
   }
 
@@ -1207,23 +1209,59 @@ export default class HerdrChat extends View {
     return this.store.state.providerName ?? PROVIDER_NAMES[this.providerId()] ?? "the agent";
   }
 
+  // /resume: this folder's sessions, or every folder's (Tab, as in Pi's own picker),
+  // every one, newest first. The host searches them (name, first message, folder) as
+  // the filter changes, and is asked again while it's still reading them (`loading`).
+  // This folder's switches this chat; another folder's opens in a chat tab there.
   openSessionsPicker(cx) {
-    cx.spawn(async (cx) => {
-      try {
-        const d = await this.req("sessions", {}, cx);
-        const cur = this.store.state.sessionFile;
-        const items = (d?.sessions ?? []).map((s) => ({
-          value: s.path, label: s.name || (s.firstMessage ?? "").slice(0, 80) || s.path.split("/").pop(),
-          detail: `${s.messageCount ?? 0} messages · ${new Date(s.modified).toLocaleString?.() ?? s.modified}`, current: s.path === cur,
-        }));
-        this.openPicker(new Picker("sessions", "Resume a session", items, (it, cx) => {
-          this.closePicker(cx);
-          this.fire("switch_session", { path: it.value }, cx);
-        }, { hint: keyHint("resume") }), cx);
-      } catch (e) {
-        this.flash(`sessions: ${message(e)}`, cx);
-      }
+    const SCOPES = ["cwd", "all"];
+    let seq = 0;
+    const row = (s, scope, now) => ({
+      value: s.path, s, current: s.path === this.store.state.sessionFile,
+      label: oneLine(s.name || s.firstMessage) || s.path.split("/").pop(),
+      meta: [scope === "all" && s.cwd ? tildePath(s.cwd, this.homeDir) : null, s.messageCount == null ? null : plural(s.messageCount, "message"), relTime(s.modified, now)]
+        .filter(Boolean).join(" · "),
     });
+    const load = (cx, refresh) => {
+      const n = ++seq;
+      const live = () => n === seq && this.picker === picker;
+      cx.spawn(async (cx) => {
+        try {
+          for (let again = refresh; ; again = false) {
+            const scope = SCOPES[picker.scopes.index];
+            const d = await this.req("sessions", { scope, query: picker.query, refresh: again }, cx);
+            if (!live()) return;
+            const now = Date.now();
+            picker.empty = scope === "all" ? "No sessions yet" : "No sessions in this folder yet";
+            // A host from before this picker (a chat open across the upgrade) ignores `query`, has no
+            // `loading`: the picker filters what it sent itself, as it did then.
+            if (d && !("loading" in d)) picker.onQuery = null;
+            picker.setItems((d?.sessions ?? []).map((s) => row(s, scope, now)), { progress: d?.loading ?? null }, cx);
+            this.debug.mark();
+            cx.notify();
+            if (!d?.loading) return;
+            await cx.sleep(300);
+            if (!live()) return;
+          }
+        } catch (e) {
+          if (!live()) return;
+          picker.setItems([], {}, cx);
+          this.flash(`sessions: ${message(e)}`, cx);
+        }
+      });
+    };
+    const picker = new Picker("sessions", "Resume a session", [], (it, cx) => {
+      this.closePicker(cx);
+      // (A host older than `here` lists only this folder's.)
+      if (it.s.here !== false || !it.s.cwd) this.fire("switch_session", { path: it.value }, cx);
+      else this.newChat(cx, { cwd: it.s.cwd, session: it.value });
+    }, {
+      hint: keyHint("resume"), loading: true,
+      scopes: { labels: ["This folder", "All folders"], index: 0, onChange: (_i, cx) => load(cx, true) },
+      onQuery: (cx) => load(cx, false),
+    });
+    this.openPicker(picker, cx);
+    load(cx, true);
   }
 
   // /fork: the person's messages, newest first. The pick makes a new session up to
@@ -1271,7 +1309,8 @@ export default class HerdrChat extends View {
     } else if (pk) {
       if (a === "herdrchat_up") pk.move(-1);
       else if (a === "herdrchat_down") pk.move(1);
-      else if (a === "herdrchat_enter" || a === "herdrchat_tab") pk.choose(null, cx);
+      else if (a === "herdrchat_enter") pk.choose(null, cx);
+      else if (a === "herdrchat_tab") pk.tab(cx);
       else if (a === "herdrchat_escape") this.closePicker(cx);
     } else if (a === "herdrchat_up" && m) this.composer.moveSel(-1);
     else if (a === "herdrchat_down" && m) this.composer.moveSel(1);
@@ -1553,6 +1592,7 @@ export default class HerdrChat extends View {
           this.dialog.form?.setOther(Number(qi), rest.join(":"));
           break;
         }
+        if (what.startsWith("picker:scope:")) return this.picker?.scope(Number(what.slice(13)), cx);
         if (what.startsWith("picker:")) return this.picker?.choose(Number(what.slice(7)), cx);
         if (what.startsWith("copy:")) {
           const it = this.store.get(what.slice(5));
@@ -1943,8 +1983,7 @@ export default class HerdrChat extends View {
       composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), chipSizes: this.composer.chips.map((c) => c.size), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
       menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
-      picker: this.picker ? { kind: this.picker.kind, sel: this.picker.sel, top: this.picker.top ?? 0, wheeled: this.picker.wheeled ?? 0,
-        count: this.picker.items().length, hint: this.picker.hint, items: this.picker.items().slice(0, 12).map((x) => x.value) } : null,
+      picker: this.picker ? pickerDump(this.picker) : null,
       closedBy: this.closedBy ?? null, footerTier: this.footerTier ?? null, footerStatuses: this.footerStatuses ?? null, bottomH: this.bottomH ?? null, queueLabels: queueLabels(s).map((x) => x[0]), byeAt: this.byeAt ?? null,
       handoff: this.handoff, transcript: this.transcript, hostHandoff: s.handoff ?? null, conflict: s.conflict ?? null,
       confirmClose: Boolean(this.confirmClose), lastGo: this.lastGo ?? null,
@@ -2217,14 +2256,25 @@ export default class HerdrChat extends View {
   }
 }
 
-// A message another agent sent (cards.js draws it as a report card): an
-// `hc send` report (source external, or queued as a steer first) with its sender.
+// The open picker in the debug dump: its first 12 rows.
+function pickerDump(pk) {
+  const items = pk.items();
+  const top = items.slice(0, 12);
+  return {
+    kind: pk.kind, sel: pk.sel, top: pk.top ?? 0, wheeled: pk.wheeled ?? 0, count: items.length, hint: pk.hint,
+    items: top.map((x) => x.value), labels: top.map((x) => x.label), metas: top.map((x) => x.meta ?? null),
+    scope: pk.scopes?.index ?? null, loading: pk.loading, stale: pk.stale, progress: pk.progress,
+  };
+}
+
 // A message on one line, for a picker row.
 function oneLine(text) {
   const t = (text ?? "").replace(/\s+/g, " ").trim();
   return t.length > 140 ? t.slice(0, 139).trimEnd() + "…" : t;
 }
 
+// A message another agent sent (cards.js draws it as a report card): an
+// `hc send` report (source external, or queued as a steer first) with its sender.
 function isReport(it) {
   return Boolean(it.from ?? unwrapHc(it.text).from);
 }

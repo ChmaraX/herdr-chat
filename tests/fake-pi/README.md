@@ -13,7 +13,7 @@ FAKE_PI_SCENARIO=tests/fake-pi/scenarios/tools.json \
 
 - Pi's normal flags are accepted and mostly ignored. It reads these:
   - `--session <file>` loads that Pi session file if it exists. Otherwise it starts a session at that path, seeded with the scenario's `history`.
-  - `--session-dir <dir>` is where new session files go. The default is `$TMPDIR/fake-pi-sessions/--<cwd>--/`.
+  - `--session-dir <dir>` is where new session files go. The default is Pi's `$PI_CODING_AGENT_DIR/sessions/--<cwd>--/` when that's set (the E2E sets it), else `$TMPDIR/fake-pi-sessions/--<cwd>--/`.
   - `--no-session` means no session file.
   - `--model provider/id`, `--thinking <level>` and `--name <name>` set the start state.
   - `--version` prints `1.5.0` and exits.

@@ -662,7 +662,10 @@ async function handle(msg) {
         }
       }
       out.sort((a, b) => (b._updatedMs ?? 0) - (a._updatedMs ?? 0));
-      return { data: out.slice(0, p.limit ?? 50), nextCursor: null };
+      // Pages as Codex does: `limit` (FAKE_CODEX_PAGE caps it, so a test sees several pages), `cursor`, `nextCursor`.
+      const size = Math.min(p.limit ?? 50, Number(process.env.FAKE_CODEX_PAGE) || Infinity);
+      const start = p.cursor ? Number(p.cursor) : 0;
+      return { data: out.slice(start, start + size), nextCursor: start + size < out.length ? String(start + size) : null };
     }
     case "thread/read": {
       const t = threads.get(p.threadId);
