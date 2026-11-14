@@ -100,7 +100,7 @@ keyed, ANSI-to-theme, compact, and never in the way.
   - while it streams, a shimmering "Thinking…" (native `.loop("opacity")`) with elapsed seconds;
   - once done, "Thought for 6s", collapsed and expandable, with the text in dim italic.
 - **A live activity line** at the bottom of the timeline while working: `● Running bash · 8s`, `● Waiting for you`, `● Compacting…`. Use the spinner and native animation, no timers.
-  - While a thinking row streams, the row counts the seconds and the line says `● Working`. A subagent's thinking in its folded card has no row on screen, so the line says `● Thinking · 8s`.
+  - While a thinking streams, the line says `● Working` and one place counts its seconds: its row, or, inside a folded agent card, the card's live row (`Thinking… 8s`). A folded card shows the steps at work inside it, at any depth, and a closed group shows each card that has one.
 - **Empty state** for a new chat: "Pi" and the cwd, with the composer centered vertically.
 - **Clickable file paths** in tool cards (read/edit/write) open the file in an editor:
   - herdr-nvim when installed (look for `mods/herdr-nvim` and its CLI, the way gitview's `nvim.js` does);

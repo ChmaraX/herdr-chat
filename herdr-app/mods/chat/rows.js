@@ -34,15 +34,29 @@ export function defaultOpen(r) {
   return r.items.some((x) => x.status === "error" || x.status === "declined");
 }
 
-// The cards a work group shows: all of them while open; closed, the ones at work.
-export function groupCards(r, open) {
-  return open ? r.items : r.items.filter((x) => x.status === "running" || x.status === "pending" || x.streaming);
+const atWork = (it) => (it.kind === "thinking" ? Boolean(it.streaming) : it.kind === "tool" && (it.status === "running" || it.status === "pending"));
+
+// The steps at work in `it`: the deepest among the steps its run produced,
+// else `it` itself while it works. A closed group shows each card that has one
+// and a folded agent card shows them on its live rows, so a streaming thinking
+// always has its seconds on screen, however deep it nests.
+export function liveSteps(it, children) {
+  const below = (children.get(it.id) ?? []).flatMap((k) => liveSteps(k, children));
+  return below.length ? below : atWork(it) ? [it] : [];
 }
 
-// What a folded agent card shows under its head: while it runs, its newest tool.
+// The cards a work group shows: all of them while open; closed, the ones at work.
+export function groupCards(r, open, children) {
+  return open ? r.items : r.items.filter((x) => liveSteps(x, children).length);
+}
+
+// What a folded agent card shows under its head: the steps at work inside it;
+// while it runs and none is, its newest tool.
 export function cardLive(card, children) {
-  if (card.status !== "running" && card.status !== "pending") return [];
-  return (children.get(card.id) ?? []).filter((k) => k.kind === "tool").slice(-1);
+  const kids = children.get(card.id) ?? [];
+  const live = kids.flatMap((k) => liveSteps(k, children));
+  if (live.length || (card.status !== "running" && card.status !== "pending")) return live;
+  return kids.filter((k) => k.kind === "tool").slice(-1);
 }
 
 // state: ChatState. Returns rows: {id, kind: "item"|"group"|"footer"|"activity", ...},

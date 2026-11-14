@@ -1872,7 +1872,7 @@ export default class HerdrChat extends View {
     const rows = buildRows(this.store.items, s);
     const group = (r) => {
       const open = this.groups.get(r.id) ?? defaultOpen(r);
-      return { items: r.items.map((x) => x.id), open, cards: groupCards(r, open).map((x) => x.id) };
+      return { items: r.items.map((x) => x.id), open, cards: groupCards(r, open, rows.children).map((x) => x.id) };
     };
     return {
       chat: this.chat, cwd: this.cwd, props: props(), renders: this.renders ?? 0,
@@ -1991,10 +1991,8 @@ export default class HerdrChat extends View {
     for (let i = items.length - 1; i >= 0 && i >= items.length - 40; i--) {
       const it = items[i];
       if (it.kind === "tool" && (it.status === "running" || it.status === "pending")) return { text: `Running ${it.name}`, since: it.ts };
-      // A thinking row counts its own seconds; only a folded agent card hides it.
-      if (it.kind === "thinking" && it.streaming) {
-        return it.parent && !this.expanded.has(`kids:${it.parent}`) ? { text: "Thinking", since: it.ts } : { text: "Working", since: null };
-      }
+      // Its row counts the seconds, or the live row of the folded card it's in (rows.js liveSteps).
+      if (it.kind === "thinking" && it.streaming) return { text: "Working", since: null };
       if (it.kind === "assistant" && it.streaming) return { text: it.text ? "Writing" : "Working", since: null };
       if (it.kind === "user") break;
     }
