@@ -1,14 +1,13 @@
-// The clipboard image → a temp PNG, and image files → ImageContent (base64 + MIME type).
+// The clipboard image → a PNG file, and image files → ImageContent (base64 + MIME type).
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
-export function clipboardImage(dir = join(tmpdir(), "herdr-chat-images")): Promise<string | null> {
+/** Saves the clipboard's image as `path` (its folder must exist): `path`, or null when it holds none. */
+export function clipboardImage(path: string): Promise<string | null> {
   if (process.platform !== "darwin") return Promise.resolve(null);
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, `paste-${Date.now()}-${randomBytes(3).toString("hex")}.png`);
   const script = [
     "set png to (the clipboard as «class PNGf»)",
     `set f to open for access (POSIX file ${JSON.stringify(path)}) with write permission`,

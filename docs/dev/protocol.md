@@ -214,8 +214,9 @@ type ToolDetail =
   - Base64 never goes over the wire.
 - **Attachments** (the composer's images, `host/attachments.ts`):
   - A pasted image (`clipboard_image`) and a copy of a dropped one (`attach_image`) are files of the chat's own: `<stateDir>/attachments/<chat>/`. The app's `image()` and viewer take only files under its home, so this is what lets the composer show an image before it's sent. The chip holds that path, and `send` sends it.
-  - They live with the chat, not one host. The chip's ✕ removes one (`detach_image`), unless a held follow-up or a queued steer lists it. Sending keeps it: a queued message taken back (`queue_edit`) and an agent without image input (`[Image available at: …]`) read it later. A restart (`shutdown {restart: true}`) keeps them all, for the composer, which outlives its host. Any other end of the host (the chat's pane closed, `shutdown`, a signal) removes the folder.
-  - A host that crashed leaves its chat's folder until that chat's next host ends.
+  - They live with the chat, not one host. The chip's ✕ removes one (`detach_image`). Sending keeps it: a queued message taken back (`queue_edit`) and an agent without image input (`[Image available at: …]`) read it later.
+  - `detach_image` keeps a file a held follow-up or a queued steer lists. The bundled composer never holds such a path (`send` clears it, `queue_edit` takes the message out of its lane first), so this guards other clients, and only as far as the host remembers queued messages (`unconfirmed` forgets its oldest past 100).
+  - The folder goes only when the chat closes, which is when its pane is gone. The host's pane watch removes it before the host exits. Every other end of a host keeps it, because the chat's composer may still hold its files: `shutdown` (a restart, a take-over), a signal (a restart that falls back to a kill), a crash.
 - **Skills:** a message that runs a skill carries `skill`, and `text` is only
   what the person wrote after it. The mod draws the skill as a pill (a click
   shows `body`, what the agent got). `command` is what the person types to run
@@ -247,14 +248,14 @@ type ToolDetail =
 | `fork_points` | | `{points: {id, text}[]}` | the person's messages in this session, newest first, as typed (a skill as its `/command`). Refused when the agent can't fork (`capabilities.fork`) |
 | `fork` | `point` | `{text}` | a new session holding what came before that message (the agent's own fork: Pi `fork`, Claude Code `--fork-session --resume-session-at`, Codex `thread/fork`); the original is unchanged. Then a new snapshot, and `text` (the message, as typed) is the client's to put in its composer |
 | `files` | `query`, `limit?` | `{files: string[]}` | cwd-relative paths, fuzzy-ranked. `git ls-files` (else a bounded walk), cached and refreshed every 30 s |
-| `clipboard_image` | | `{path: string \| null}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/paste-<ms>-<hex>.png` (macOS: osascript «class PNGf»); null when the clipboard holds none |
-| `attach_image` | `path` | `{path}` | a copy of an image file (a drop) as an attachment, `<ms>-<hex>-<name>`. It checks the file as `send` does and fails with the same messages (type, unreadable or over 64 MiB, not a valid PNG/JPEG/GIF/WebP) |
+| `clipboard_image` | | `{path: string \| null}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»); null when the clipboard holds none |
+| `attach_image` | `path` | `{path}` | a copy of an image file (a drop) as an attachment, `<ms>-<hex>-<name>` (a name over 200 bytes is shortened, its extension kept). It checks the file as `send` does and fails with the same messages (type, unreadable or over 64 MiB, not a valid PNG/JPEG/GIF/WebP) |
 | `detach_image` | `path` | `{}` | the chip's ✕: removes an attachment, unless a held or queued message lists it. Any path outside the chat's attachments is left alone |
 | `history` | `before` (item id), `limit?` | `{items, hasOlder}` | older items |
 | `tool_output` | `item` | `{text}` | full output, up to 1 MiB |
 | `handoff` | | `{sessionFile}` | stops Pi (aborts first if working), releases the lock, phase → `handoff` |
 | `resume` | | `{}` | after a handoff, or to restart Pi: `--session <sessionFile>` (re-reads auth and settings) |
-| `shutdown` | `restart?: boolean` | `{}` | stop Pi and the host (closing the chat: its attachments are removed). `restart: true`: a new host follows on this chat (the mod's `replaceHost`), so the attachments stay |
+| `shutdown` | | `{}` | stop Pi and the host. The mod's restart and another chat's take-over send it while the chat's pane stays open, so its attachments stay |
 | `set_theme` | `colors: {background, foreground, muted, border, accent, ansi0..ansi15}`, `dark: boolean` | `{}` | v2: colors for host-rendered SVGs (mermaid). Re-renders the closed mermaid blocks and sends them as upserts |
 
 ## Built-in slash commands (in `state.commands`, `source: "builtin"`)

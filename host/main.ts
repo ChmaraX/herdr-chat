@@ -5,6 +5,7 @@ import { appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { Chat } from "./chat.ts";
+import { Attachments } from "./attachments.ts";
 import { ChatServer } from "./server.ts";
 import { Terminal } from "./terminal.ts";
 import { writeRegistry, readRegistry, pidAlive } from "./registry.ts";
@@ -94,12 +95,13 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   };
 
   let shuttingDown = false;
+  const attachments = new Attachments(join(stateDir, "attachments", chatId));
   const term = new Terminal(process.stdout, process.stdin, provider);
   const chat = new Chat({
     chat: chatId, cwd, session, adapter, terminal: terminalId, log,
     afterPid: handOver ? afterPid : null,
     imageDir: join(stateDir, "images", chatId),
-    attachDir: join(stateDir, "attachments", chatId),
+    attachments,
     stateDir,
     hcCommand: process.env.HERDR_CHAT_HC || "hc",
     ...(Number(process.env.HERDR_CHAT_HANDOFF_POLL_MS) > 0 ? { handoffPollMs: Number(process.env.HERDR_CHAT_HANDOFF_POLL_MS) } : {}),
@@ -108,7 +110,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
       if (f && f !== entry.sessionFile) save({ sessionFile: f });
     },
     onVersion: (v) => save({ agentVersion: v }),
-    onShutdown: (restart) => void exit(0, restart),
+    onShutdown: () => void exit(0),
   });
   const server = new ChatServer(chat, token, log);
   chat.onTerminalState = (s, m) => term.status(s, m);
@@ -131,21 +133,24 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   term.onAbort = () => void chat.abort();
 
   // Its chat's pane closed: its own hidden pane (and the tab) closes, then it exits (panewatch.ts).
+  // Only then is the chat closed: any other end (a restart, its kill, a take-over) leaves a composer
+  // that still holds the attachments.
   const watch = terminalId
     ? new PaneWatch({ chat: chatId, terminal: terminalId, appHome: resolve(a.flags.get("app-home")?.[0] ?? appHomeOf(process.env, homedir())),
-        hc: process.env.HERDR_CHAT_HC || "hc", log, onGone: () => void exit(0) })
+        hc: process.env.HERDR_CHAT_HC || "hc", log, onGone: () => {
+          attachments.clear();
+          void exit(0);
+        } })
     : null;
-  // `restart`: a new host follows (the shutdown op from the chat's restart); otherwise the chat is closing.
-  const exit = async (code: number, restart = false) => {
+  const exit = async (code: number) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log(restart ? "shutting down for a restart" : "shutting down");
+    log("shutting down");
     watch?.stop();
     try {
       await chat.stopAgent();
     } catch {}
     chat.releaseLock();
-    if (!restart) chat.attachments.clear();
     save({ pid: null, port: null, wsPort: null });
     term.status("idle");
     term.close();

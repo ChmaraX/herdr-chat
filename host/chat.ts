@@ -19,7 +19,7 @@ import { FileIndex } from "./files.ts";
 import { GitWatch } from "./git.ts";
 import type { GitState } from "./git.ts";
 import { loadImages } from "./clipboard.ts";
-import { Attachments } from "./attachments.ts";
+import type { Attachments } from "./attachments.ts";
 import { Renderer, diffLines } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
@@ -119,8 +119,8 @@ export type ChatOptions = {
   terminal: string | null;
   /** Where images from tool results and user messages are saved (<stateDir>/images/<chat>). */
   imageDir?: string | null;
-  /** The composer's pasted and dropped images (<stateDir>/attachments/<chat>). */
-  attachDir: string;
+  /** The composer's pasted and dropped images (<stateDir>/attachments/<chat>). The folder outlives this host: main.ts removes it once the chat's pane is gone. */
+  attachments: Attachments;
   /** The state dir: other chats' registries (take_over) and the hand-off file (<stateDir>/handoff/<chat>.json). */
   stateDir?: string | null;
   /** The `hc` binary that watches the hand-off's terminal. */
@@ -137,8 +137,7 @@ export type ChatOptions = {
   log: (msg: string) => void;
   onSessionFile?: (file: string | null) => void;
   onVersion?: (v: string | null) => void;
-  /** `restart`: a new host follows on this chat (the composer keeps its images). */
-  onShutdown?: (restart: boolean) => void;
+  onShutdown?: () => void;
 };
 
 /**
@@ -205,7 +204,6 @@ export class Chat {
   private lockedFile: string | null = null;
   private sessionId: string | null = null;
   private files: FileIndex;
-  readonly attachments: Attachments;
   private git: GitWatch;
   private generation = 0;
 
@@ -215,7 +213,6 @@ export class Chat {
     this.timeline = this.newTimeline();
     this.render = new Renderer(opts.imageDir ?? null, (id) => this.timeline.rawOutput.get(id), opts.log);
     this.files = new FileIndex(opts.cwd);
-    this.attachments = new Attachments(opts.attachDir);
     this.state = {
       phase: "starting", error: null, cwd: opts.cwd, sessionFile: opts.session, sessionName: null, agentVersion: null,
       model: null, thinking: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
@@ -1424,12 +1421,16 @@ export class Chat {
   }
 
   async clipboardImage(): Promise<{ path: string | null }> {
-    return { path: await this.attachments.fromClipboard() };
+    return { path: await this.opts.attachments.fromClipboard() };
   }
 
-  /** detach_image: the chip's ✕. A held or queued message that lists the image keeps it. */
+  /**
+   * detach_image: the chip's ✕. A held or queued message that lists the image keeps it: the bundled
+   * composer never holds such a path (send clears it, queue_edit takes the message out first), so this
+   * guards other clients, best effort (`unconfirmed` forgets its oldest past MAX_UNCONFIRMED).
+   */
   detachImage(path: string): Record<string, never> {
-    if (![...this.held, ...this.unconfirmed.values()].some((m) => m.images.includes(path))) this.attachments.remove(path);
+    if (![...this.held, ...this.unconfirmed.values()].some((m) => m.images.includes(path))) this.opts.attachments.remove(path);
     return {};
   }
 
@@ -1623,11 +1624,11 @@ export class Chat {
     if (this.state.phase === "error") throw new Error(this.state.error ?? `${this.agent} failed to start`);
   }
 
-  async shutdown(restart = false): Promise<void> {
+  async shutdown(): Promise<void> {
     this.stopHandoffWatch();
     for (const s of this.sinks) s.bye("shutdown");
     await this.stopAgent();
-    this.opts.onShutdown?.(restart);
+    this.opts.onShutdown?.();
   }
 
   /** Colors for host-rendered SVGs; the closed mermaid blocks are re-rendered and re-sent. */
@@ -1697,7 +1698,7 @@ export class Chat {
       case "clipboard_image":
         return this.clipboardImage();
       case "attach_image":
-        return { path: this.attachments.fromFile(String(a.path ?? "")) };
+        return { path: this.opts.attachments.fromFile(String(a.path ?? "")) };
       case "detach_image":
         return this.detachImage(String(a.path ?? ""));
       case "history":
@@ -1721,7 +1722,7 @@ export class Chat {
         await this.resume();
         return {};
       case "shutdown":
-        setImmediate(() => void this.shutdown(a.restart === true));
+        setImmediate(() => void this.shutdown());
         return {};
       case "set_theme":
         this.setTheme(a.colors, a.dark);

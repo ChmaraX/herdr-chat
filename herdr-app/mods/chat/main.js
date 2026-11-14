@@ -431,7 +431,7 @@ export default class HerdrChat extends View {
     this.healing = { at: Date.now(), from, terminal: term.address, oldPid: this.conn.welcome?.host?.pid ?? null };
     this.conn.restart();
     const kill = () => run("terminal.kill", { terminal: term.address });
-    if (this.conn.status === "connected") this.req("shutdown", { restart: true }, cx, { timeout: 5000 }).catch(kill);
+    if (this.conn.status === "connected") this.req("shutdown", {}, cx, { timeout: 5000 }).catch(kill);
     else kill();
   }
 
