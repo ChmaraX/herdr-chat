@@ -1,7 +1,7 @@
 // The composer's images (protocol.md "Attachments"): a pasted or dropped image
 // is a file of the chat's own, so the chat can show it before it's sent (the
 // app shows only files under its home). They live with the chat, not one host.
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { clipboardImage, readImage } from "./clipboard.ts";
@@ -18,6 +18,7 @@ function shortened(name: string): string {
 
 export class Attachments {
   readonly dir: string;
+  private closed = new Set<string>();
 
   constructor(dir: string) {
     this.dir = resolve(dir);
@@ -48,5 +49,25 @@ export class Attachments {
 
   clear(): void {
     rmSync(this.dir, { recursive: true, force: true });
+  }
+
+  /**
+   * Removes other chats' folders once their chat is closed: no pane (not in `open`, from the app's
+   * layout) and no live host, in two sweeps in a row (a layout read mid-change may miss a pane).
+   * Covers the chats whose host was down when their pane closed. The chats it removed.
+   */
+  sweepClosed(open: Set<string>, live: (chat: string) => boolean): string[] {
+    const root = dirname(this.dir);
+    let names: string[] = [];
+    try {
+      names = readdirSync(root);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+    }
+    const closed = names.filter((c) => c !== basename(this.dir) && !open.has(c) && !live(c));
+    const removed = closed.filter((c) => this.closed.has(c));
+    for (const c of removed) rmSync(join(root, c), { recursive: true, force: true });
+    this.closed = new Set(closed.filter((c) => !removed.includes(c)));
+    return removed;
   }
 }

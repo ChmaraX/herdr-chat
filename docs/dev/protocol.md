@@ -217,6 +217,8 @@ type ToolDetail =
   - They live with the chat, not one host. The chip's ✕ removes one (`detach_image`). Sending keeps it: a queued message taken back (`queue_edit`) and an agent without image input (`[Image available at: …]`) read it later.
   - `detach_image` keeps a file a held follow-up or a queued steer lists. The bundled composer never holds such a path (`send` clears it, `queue_edit` takes the message out of its lane first), so this guards other clients, and only as far as the host remembers queued messages (`unconfirmed` forgets its oldest past 100).
   - The folder goes only when the chat closes, which is when its pane is gone. The host's pane watch removes it before the host exits. Every other end of a host keeps it, because the chat's composer may still hold its files: `shutdown` (a restart, a take-over), a signal (a restart that falls back to a kill), a crash.
+  - A chat whose pane closed while its host was down (crashed, killed, between a restart's two hosts) has no host left to see it go. Every open chat's view asks its host to sweep (`sweep_attachments`, with the mod's orphan sweep, every 30 s): a folder whose chat has no pane in the layout and no live host (its registry pid) goes once two sweeps in a row agree. So the attachments on disk are bounded by the open chats' composers and sent messages, plus at most a minute for a closed one.
+  - Not bounded within an open chat: every image sent stays, as the original bytes (up to 64 MiB each), until the chat closes. Downscaling the copies is a later change.
 - **Skills:** a message that runs a skill carries `skill`, and `text` is only
   what the person wrote after it. The mod draws the skill as a pill (a click
   shows `body`, what the agent got). `command` is what the person types to run
@@ -251,6 +253,7 @@ type ToolDetail =
 | `clipboard_image` | | `{path: string \| null}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»); null when the clipboard holds none |
 | `attach_image` | `path` | `{path}` | a copy of an image file (a drop) as an attachment, `<ms>-<hex>-<name>` (a name over 200 bytes is shortened, its extension kept). It checks the file as `send` does and fails with the same messages (type, unreadable or over 64 MiB, not a valid PNG/JPEG/GIF/WebP) |
 | `detach_image` | `path` | `{}` | the chip's ✕: removes an attachment, unless a held or queued message lists it. Any path outside the chat's attachments is left alone |
+| `sweep_attachments` | `open: string[]` | `{removed: string[]}` | `open`: the chats with a pane in the app's layout. Removes the attachments of other chats that have no pane and no live host, once two calls in a row agree (see "Attachments") |
 | `history` | `before` (item id), `limit?` | `{items, hasOlder}` | older items |
 | `tool_output` | `item` | `{text}` | full output, up to 1 MiB |
 | `handoff` | | `{sessionFile}` | stops Pi (aborts first if working), releases the lock, phase → `handoff` |

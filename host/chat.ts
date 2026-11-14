@@ -1434,6 +1434,19 @@ export class Chat {
     return {};
   }
 
+  /** sweep_attachments: `open`, the chats with a pane in the app's layout (the mod's orphan sweep). */
+  sweepAttachments(open: unknown): { removed: string[] } {
+    if (!Array.isArray(open)) throw new Error("sweep_attachments needs open: the chats with a pane");
+    const stateDir = this.opts.stateDir;
+    const live = (chat: string) => {
+      const r = stateDir ? readRegistry(stateDir, chat) : null;
+      return Boolean(r?.pid && pidAlive(r.pid));
+    };
+    const removed = this.opts.attachments.sweepClosed(new Set(open.map(String)), live);
+    if (removed.length) this.opts.log(`removed the attachments of closed chats: ${removed.join(", ")}`);
+    return { removed };
+  }
+
   history(before: string, limit?: number): { items: Item[]; hasOlder: boolean } {
     const r = this.timeline.older(String(before ?? ""), typeof limit === "number" && limit > 0 ? Math.min(limit, 500) : 100);
     for (const it of r.items) this.render.prepare(it);
@@ -1701,6 +1714,8 @@ export class Chat {
         return { path: this.opts.attachments.fromFile(String(a.path ?? "")) };
       case "detach_image":
         return this.detachImage(String(a.path ?? ""));
+      case "sweep_attachments":
+        return this.sweepAttachments(a.open);
       case "history":
         return this.history(a.before, a.limit);
       case "tool_output":

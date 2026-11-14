@@ -76,7 +76,7 @@ the test that has to catch it; "not covered" rows are known gaps
 | ✕ deleting the person's own file | `detach_image` on the dropped file leaves it; E2E `thumb` checks the dropped file after ✕ |
 | ✕ deleting a file a held follow-up or a queued steer still sends | both keep their images through `detach_image`; after `queue_edit` takes the follow-up back, ✕ removes it |
 | A host that ends while the chat stays open deleting the composer's images (a take-over's `shutdown`, a restart that falls back to a kill) | `take_over` from another chat, then SIGTERM: the files stay, and the next host has them; E2E `thumb`: `hc kill` on the host, Restart, the chip's image is sent |
-| Attachments left behind when the chat closes | E2E `thumb`: closing the pane of a chat with a live host removes its folder at once; a chat whose host was killed, then its pane closed: another chat's sweep removes the folder |
+| Attachments left behind when the chat closes | E2E `thumb`: closing the pane of a chat with a live host removes its folder at once; a chat whose host was killed, then its pane closed: another chat's host removes the folder (`sweep_attachments`, from that chat's orphan sweep), and keeps its own |
 
 ## Crashes and lifecycle
 
