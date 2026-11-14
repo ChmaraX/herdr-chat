@@ -37,7 +37,7 @@ import { Connection, hostTerminal, readConfig, runsHost } from "./connection.js"
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
 import { lineOf, row } from "./cards.js";
-import { buildRows } from "./rows.js";
+import { buildRows, cardLive, defaultOpen, groupCards } from "./rows.js";
 import { space } from "./space.js";
 import { branchChip, emptyState, footerControls, queueChips, queueLabels, widgetTray } from "./chrome.js";
 import { openFile } from "./files.js";
@@ -1868,6 +1868,12 @@ export default class HerdrChat extends View {
     const host = hostTerminal(this.chat);
     const me = this.myPane();
     const m = this.composer.menu;
+    // Built here too, not taken from the last render: a window that isn't drawn (locked screen) doesn't render.
+    const rows = buildRows(this.store.items, s);
+    const group = (r) => {
+      const open = this.groups.get(r.id) ?? defaultOpen(r);
+      return { items: r.items.map((x) => x.id), open, cards: groupCards(r, open).map((x) => x.id) };
+    };
     return {
       chat: this.chat, cwd: this.cwd, props: props(), renders: this.renders ?? 0,
       sub: this.sub, peekMode: this.peekMode, subStatus: this.sub ? this.subStatus() : null, subState: this.subTerm()?.state ?? null, openedTab: this.openedTab ?? null,
@@ -1882,6 +1888,7 @@ export default class HerdrChat extends View {
       statuses: s.statuses.map((x) => ({ key: x.key, text: x.spans.map((y) => y.text).join("") })),
       widgets: s.widgets.map((w) => w.key), commands: s.commands.length, commandNames: s.commands.map((c) => c.name),
       items: this.store.items.map((it) => ({ id: it.id, kind: it.kind, ...(it.parent ? { parent: it.parent } : {}), ...(it.status ? { status: it.status } : {}), ...(it.streaming ? { streaming: true } : {}),
+        ...(it.detail?.type === "agent" ? { live: cardLive(it, rows.children).map((x) => x.id) } : {}),
         ...(it.kind === "user" ? { text: it.text.slice(0, 200), source: it.source, from: it.from ?? null, skill: it.skill?.name ?? null } : {}),
         ...(it.kind === "tool" ? { name: it.name, title: it.title, images: it.images ?? [] } : {}),
         ...(it.kind === "assistant" ? { len: it.text.length, stopReason: it.stopReason ?? null } : {}),
@@ -1913,8 +1920,7 @@ export default class HerdrChat extends View {
       log: this.logLines.slice(-30),
       // v2 view state
       width: this.width, colW: this.colW(), empty: this.isEmpty(),
-      // Built here too, not taken from the last render: a window that isn't drawn (locked screen) doesn't render.
-      rows: space(buildRows(this.store.items, s)).map((r) => ({ id: r.id, kind: r.kind, gap: r.gap, slot: r.slot, ...(r.kind === "group" ? { items: r.items.map((x) => x.id), open: this.groups.get(r.id) ?? defaultOpen(r) } : {}),
+      rows: space(rows).map((r) => ({ id: r.id, kind: r.kind, gap: r.gap, slot: r.slot, ...(r.kind === "group" ? group(r) : {}),
         ...(r.footer ? { footer: r.footer } : {}), ...(r.kind === "item" ? { item: r.item.kind } : {}) })),
       activity: this.activity(), lastCopy: this.lastCopy ?? null,
       codeBlocks: [...this.codeSel].map(([key, v]) => ({ key, linesW: Math.round(v.linesW), viewW: Math.round(v.viewW), sel: v.sel, focused: Boolean(v.focus?.is_focused?.()) })), lastOpen: this.lastOpen ?? null, editorTerm: this.editorTerm ?? null,
@@ -2190,12 +2196,6 @@ function withProgram(argv, prog) {
     while (i < argv.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[i])) i++;
   }
   return [...argv.slice(0, i), ...prog, ...argv.slice(i + 1)];
-}
-
-// A work group's open state when the person hasn't chosen: open while it
-// failed or was declined (the cards say what), else closed (cards.js shows a running one's live card).
-function defaultOpen(r) {
-  return r.items.some((x) => x.status === "error" || x.status === "declined");
 }
 
 // Per-key choices that outlive the chat: statuses hidden from the footer,

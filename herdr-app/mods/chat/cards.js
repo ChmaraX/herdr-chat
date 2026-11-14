@@ -13,7 +13,7 @@ import { appHome } from "herdr";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { absTime, alpha, count, duration, homeRel, icon, money, plural, relTime, shortPath, spinner, typedText, unwrapHc } from "./util.js";
 import { blocks, copyButton, diffView, outputBox, prose, textDiff } from "./rich.js";
-import { groupSummary } from "./rows.js";
+import { cardLive, defaultOpen, groupCards, groupSummary } from "./rows.js";
 import { SPACE } from "./space.js";
 
 const MAX_LINES = 400;
@@ -323,10 +323,8 @@ function toolBody(it, d, c) {
 function group(r, c) {
   const t = c.t;
   const s = groupSummary(r.items);
-  const want = c.groupOpen(r.id);
-  const open = want ?? (s.failed || s.declined);
-  const live = !open && s.running ? r.items.filter((x) => x.status === "running" || x.status === "pending" || x.streaming) : [];
-  const members = open ? r.items : live;
+  const open = c.groupOpen(r.id) ?? defaultOpen(r);
+  const members = groupCards(r, open);
   const head = h_flex().id(`grp-${r.id}`).h(30).px(6).gap(7).items_center().rounded(8).cursor_pointer()
     .text_size(12.5).text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground))
     .on_click((_e, cx) => c.toggle(r.id, cx))
@@ -391,8 +389,7 @@ function agentCard(it, d, c) {
   const t = c.t;
   const kids = (c.children?.get(it.id) ?? []).filter((k) => k.kind !== "assistant" || k.text?.trim());
   const open = c.expanded.has(`kids:${it.id}`);
-  const running = it.status === "running" || it.status === "pending";
-  const live = !open && running ? kids.filter((k) => k.kind === "tool").slice(-1)[0] : null;
+  const live = open ? null : cardLive(it, c.children)[0];
   const head = h_flex().id(`agent-${it.id}`).h(34).px(10).gap(8).items_center().cursor_pointer()
     .hover((s) => s.bg(t.hover)).on_click((_e, cx) => c.toggle(`kids:${it.id}`, cx))
     .child(icon("bot", 13).text_color(t.dim))

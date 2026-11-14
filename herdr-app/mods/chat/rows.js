@@ -28,6 +28,23 @@ export function childrenOf(items) {
   return kids;
 }
 
+// A work group's open state when the person hasn't chosen: open while it
+// failed or was declined (the cards say what), else closed.
+export function defaultOpen(r) {
+  return r.items.some((x) => x.status === "error" || x.status === "declined");
+}
+
+// The cards a work group shows: all of them while open; closed, the ones at work.
+export function groupCards(r, open) {
+  return open ? r.items : r.items.filter((x) => x.status === "running" || x.status === "pending" || x.streaming);
+}
+
+// What a folded agent card shows under its head: while it runs, its newest tool.
+export function cardLive(card, children) {
+  if (card.status !== "running" && card.status !== "pending") return [];
+  return (children.get(card.id) ?? []).filter((k) => k.kind === "tool").slice(-1);
+}
+
 // state: ChatState. Returns rows: {id, kind: "item"|"group"|"footer"|"activity", ...},
 // with `rows.children` (childrenOf) for the agent cards.
 export function buildRows(items, state) {
