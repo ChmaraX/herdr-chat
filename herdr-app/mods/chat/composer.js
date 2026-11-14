@@ -10,7 +10,7 @@
 //   HerdrChatComposer text typed: Enter sends (steers while working), Alt+Enter
 //                  queues a follow-up, Shift+Enter is a newline
 //   HerdrChatAsk      a permission or questions card is open and nothing is
-//                  typed: 1–9 choose, ↑ ↓ move, Enter answers, Esc denies
+//                  typed: 1–9 choose, ↑ ↓ move, Space ticks, Enter answers, Esc denies
 // Esc is ours in all three.
 
 import { div } from "gpui-kit";
@@ -21,7 +21,7 @@ import { keyHint } from "./shortcuts.js";
 
 const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk"];
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
-export const ACTIONS = ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape", ...DIGITS.map((d) => `herdrchat_digit_${d}`)];
+export const ACTIONS = ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape", "herdrchat_space", ...DIGITS.map((d) => `herdrchat_digit_${d}`)];
 
 // The composer's bindings in the app's keymap (keymap.js says when).
 export function bindComposerKeys(cx) {
@@ -35,6 +35,7 @@ export function bindComposerKeys(cx) {
     b.push({ keystroke: "escape", action: "herdrchat_escape", context: `${ctx} > Input` });
   }
   for (const d of DIGITS) b.push({ keystroke: d, action: `herdrchat_digit_${d}`, context: "HerdrChatAsk > Input" });
+  b.push({ keystroke: "space", action: "herdrchat_space", context: "HerdrChatAsk > Input" });
   for (const ctx of ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatAsk"]) {
     b.push({ keystroke: "up", action: "herdrchat_up", context: `${ctx} > Input` });
     b.push({ keystroke: "down", action: "herdrchat_down", context: `${ctx} > Input` });

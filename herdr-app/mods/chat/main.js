@@ -83,7 +83,7 @@ export default class HerdrChat extends View {
     this.timeline = new Timeline("herdr-chat-timeline");
     this.expanded = new Set();
     this.full = new Map();
-    this.dialog = new DialogCard(() => this.debug?.mark());
+    this.dialog = new DialogCard(() => this.debug?.mark(), () => this.composer.focus());
     this.picker = null;
     this.handoff = null;
     this.transcript = false;
@@ -1222,7 +1222,7 @@ export default class HerdrChat extends View {
     const pk = this.picker;
     const m = this.composer.menu?.items?.length ? this.composer.menu : null;
     const dlg = this.store.state.dialog;
-    // A permission or questions card, the composer empty: 1–9, ↑↓, Enter, Esc answer it.
+    // A permission or questions card, the composer empty: 1–9, ↑↓, Space, Enter, Esc answer it.
     if (!pk && !m && dlg && this.composer.askKeys && !this.composer.value.trim() && this.askAction(a, dlg, cx)) {
       this.debug.mark();
       cx.notify();
@@ -1272,13 +1272,10 @@ export default class HerdrChat extends View {
       return false;
     }
     if (d.method === "questions") {
-      if (digit) { this.dialog.pick(d, this.dialog.q, Number(digit[1]) - 1); return true; }
-      if (a === "herdrchat_up" || a === "herdrchat_down") {
-        const n = (d.questions ?? []).length;
-        if (n) this.dialog.q = (this.dialog.q + (a === "herdrchat_up" ? -1 : 1) + n) % n;
-        return true;
-      }
-      if (a === "herdrchat_enter") { const ans = this.dialog.answers(d); if (ans) this.answer("answers", ans, cx); return true; }
+      if (digit) { this.dialog.pick(d, this.dialog.cur.q, Number(digit[1]) - 1); return true; }
+      if (a === "herdrchat_up" || a === "herdrchat_down") { this.dialog.move(d, a === "herdrchat_up" ? -1 : 1); return true; }
+      if (a === "herdrchat_space") { this.dialog.tick(d); return true; }
+      if (a === "herdrchat_enter") { const ans = this.dialog.enter(d); if (ans) this.answer("answers", ans, cx); return true; }
       if (a === "herdrchat_escape") { this.answer("cancel", null, cx); return true; }
     }
     return false;
@@ -1878,7 +1875,8 @@ export default class HerdrChat extends View {
       phase: s.phase, error: s.error, model: s.model ? `${s.model.provider}/${s.model.id}` : null, thinking: s.thinking,
       sessionFile: s.sessionFile, sessionName: s.sessionName, usage: s.usage, queue: s.queue,
       dialog: s.dialog ? { id: s.dialog.id, method: s.dialog.method, title: s.dialog.title, value: this.dialog.field ? this.dialog.value() : null,
-        ...(s.dialog.method === "questions" ? { picked: Object.fromEntries([...this.dialog.picked].map(([k, v]) => [k, [...v]])), q: this.dialog.q } : {}) } : null,
+        ...(s.dialog.method === "questions" ? { picked: Object.fromEntries([...this.dialog.picked].map(([k, v]) => [k, [...v]])),
+          others: Object.fromEntries([...this.dialog.others].map(([k, f]) => [k, f.value()])), cursor: this.dialog.cur } : {}) } : null,
       statuses: s.statuses.map((x) => ({ key: x.key, text: x.spans.map((y) => y.text).join("") })),
       widgets: s.widgets.map((w) => w.key), commands: s.commands.length, commandNames: s.commands.map((c) => c.name),
       items: this.store.items.map((it) => ({ id: it.id, kind: it.kind, ...(it.parent ? { parent: it.parent } : {}), ...(it.status ? { status: it.status } : {}), ...(it.streaming ? { streaming: true } : {}),

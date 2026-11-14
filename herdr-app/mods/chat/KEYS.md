@@ -27,6 +27,20 @@ on an approval card with nothing typed it answers. Shift+Enter is always a new
 line. If you unbind `steer` (or move it to another chord), Enter in the composer
 types a new line.
 
+## Cards
+
+With nothing typed in the composer, a card the agent waits on takes the keys:
+
+- An approval card: 1–9 pick a choice, Enter the allow choice, Esc denies.
+- A question card: one option is highlighted, at first the one the agent
+  recommends (else the first). ↑↓ move the highlight through every question's
+  options and its Other field. Enter answers the question with the highlighted
+  option and moves on to the next unanswered question; when none is left, it
+  sends the answers. Space ticks options of a multi-select question (Enter
+  takes the highlighted one only when none is ticked). 1–9 pick an option of
+  the highlighted question. On an Other field, Enter puts the keyboard in it,
+  and Enter there answers with what you typed. Esc cancels the card.
+
 ## The queue
 
 The lanes above the composer hold what you sent while the agent works, oldest
