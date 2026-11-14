@@ -3,6 +3,8 @@
 //
 // The cursor `cur = {q, i}` is question q, row i: its options, then its Other
 // field. It is only a highlight: `picked` and the Other fields hold the answers.
+// On a single-select question a pick and Other text exclude each other, so the
+// card always shows what it will send.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
@@ -20,7 +22,7 @@ export class QuestionsForm {
       this.picked.set(q.id, new Set());
       if (q.allowOther) {
         const f = InputState.new({ placeholder: "Other…" });
-        f.on("change", () => this.onChange?.());
+        f.on("change", () => this.otherChanged(q));
         this.others.set(q.id, f);
       }
     }
@@ -51,7 +53,14 @@ export class QuestionsForm {
   // Question qi's Other text, as typing it does (the command dialog:other).
   setOther(qi, text) {
     const q = this.questions[qi];
-    if (q) this.others.get(q.id)?.set_value(text);
+    if (!q || !this.others.has(q.id)) return;
+    this.others.get(q.id).set_value(text);
+    this.otherChanged(q);
+  }
+
+  otherChanged(q) {
+    if (!q.multiSelect && this.otherText(q)) this.picked.get(q.id).clear();
+    this.onChange?.();
   }
 
   debugState() {
@@ -111,7 +120,10 @@ export class QuestionsForm {
   setOrToggle(q, n) {
     const label = q.options[n].label;
     const set = this.picked.get(q.id);
-    if (!q.multiSelect) set.clear();
+    if (!q.multiSelect) {
+      set.clear();
+      if (this.otherText(q)) this.others.get(q.id).set_value("");
+    }
     if (set.has(label)) set.delete(label); else set.add(label);
   }
 
@@ -168,7 +180,7 @@ export class QuestionsForm {
       if (!this.answered(q)) return null;
       const other = this.otherText(q);
       const set = [...this.picked.get(q.id), ...(other ? [other] : [])];
-      out[q.id] = q.multiSelect ? set : other || set[0];
+      out[q.id] = q.multiSelect ? set : set[0];
     }
     return out;
   }
