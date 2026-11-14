@@ -120,6 +120,39 @@
    ]
   },
   {
+   "match": "drink",
+   "once": false,
+   "steps": [
+    {
+     "question": {
+      "questions": [
+       {
+        "question": "What would you like to drink?",
+        "header": "Drink",
+        "options": [
+         {
+          "label": "Coffee",
+          "description": "Hot, strong"
+         },
+         {
+          "label": "Tea (Recommended)",
+          "description": "Green or black"
+         },
+         {
+          "label": "Water"
+         }
+        ],
+        "multiSelect": false
+       }
+      ]
+     }
+    },
+    {
+     "text": "Noted."
+    }
+   ]
+  },
+  {
    "match": "plan",
    "once": false,
    "steps": [

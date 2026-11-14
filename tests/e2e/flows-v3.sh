@@ -15,6 +15,12 @@ ask_key() {
   keys_or "$1" "$2" "key:$a" "$3"
 }
 agent_log() { cat "$BASE/fake-$1.log" 2>/dev/null; }
+# The answers in Claude's last control_response (fake-claude's log), one per line.
+claude_answers() { agent_log claude | grep control_response | tail -1 | python3 -c 'import json,sys
+r=json.loads(sys.stdin.read())["response"].get("response") or {}
+for v in ((r.get("updatedInput") or {}).get("answers") or {}).values(): print(v)'; }
+qcursor() { d "'%s:%s' % (d['dialog']['cursor']['q'], d['dialog']['cursor']['i'])"; }
+nothing_picked() { [ "$(d "not any(d['dialog']['picked'].values())")" = true ]; }
 # The newest chat (by dump) of provider $1.
 chat_of() { python3 -c 'import glob,json,os,sys; L=[]
 for f in glob.glob(sys.argv[1] + "/c-*.json"):
@@ -141,6 +147,39 @@ if want v3 || want claude; then
   expect 'agent_log claude | grep "control_response" | tail -1 | grep -q "Postgres"' "the answers reached Claude" 5
   expect '[ "$(phase)" = idle ]' "done" 15
 
+  step "claude: a questions card by keys alone: the recommended option starts highlighted, ↑↓ move, Enter answers"
+  send_text "a drink, please"
+  open_dialog questions "a one-question card"
+  [ "$(qcursor)" = 0:1 ] && ok "the highlight starts on Tea (Recommended), not the first option" || fail "cursor $(qcursor)"
+  nothing_picked && ok "a highlight is not an answer: nothing is picked yet" || fail "picked on open"
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter answers the card"
+  expect '[ "$(claude_answers)" = "Tea (Recommended)" ]' "Claude got the highlighted option, its label as Claude wrote it" 5
+  expect '[ "$(phase)" = idle ]' "done" 15
+  send_text "a drink, please"
+  open_dialog questions "the card again"
+  ask_key down '[ "$(qcursor)" = 0:2 ]' "↓ moves the highlight to Water"
+  nothing_picked && ok "moving the highlight picks nothing" || fail "↓ picked"
+  ask_key down '[ "$(qcursor)" = 0:3 ]' "↓ moves on to the Other field"
+  ask_key up '[ "$(qcursor)" = 0:2 ]' "↑ comes back to Water"
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter answers the card"
+  expect '[ "$(claude_answers)" = Water ]' "Claude got Water" 5
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "claude: two questions by keys alone: Enter answers one and moves on, Space ticks a multi-select"
+  send_text "ask me"
+  open_dialog questions "a questions card"
+  ask_key down '[ "$(qcursor)" = 0:1 ]' "↓ highlights SQLite"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks it and moves on to the checks"
+  [ "$(d "list(d['dialog']['picked'].values())[0]")" = '["SQLite"]' ] && ok "SQLite is picked" || fail "picked $(d "d['dialog']['picked']")"
+  ask_key space '[ "$(d "list(d[\"dialog\"][\"picked\"].values())[1]")" = "[\"Unit tests\"]" ]' "Space ticks Unit tests"
+  ask_key down '[ "$(qcursor)" = 1:1 ]' "↓ highlights Type check"
+  ask_key down '[ "$(qcursor)" = 1:2 ]' "↓ highlights Lint"
+  ask_key space '[ "$(d "\"Lint\" in list(d[\"dialog\"][\"picked\"].values())[1]")" = true ]' "Space ticks Lint too"
+  shot v3-3-claude-questions-keys 0.4
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter submits: nothing is left unanswered"
+  expect '[ "$(claude_answers | tr "\n" "|")" = "SQLite|Unit tests, Lint|" ]' "Claude got SQLite and the two checks" 5
+  expect '[ "$(phase)" = idle ]' "done" 15
+
   step "claude: plan approval (ExitPlanMode): the plan as markdown, Approve, accept edits"
   send_text "make a plan"
   open_dialog permission "the plan is ready"
@@ -264,6 +303,20 @@ if want v3 || want codex; then
   shot v3-3-codex-questions 0.4
   ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter submits the answers"
   expect '[ "$(phase)" = idle ] && host | grep -q "Using Postgres"' "answered: Codex used Postgres" 15
+
+  step "codex: the same card by keys alone, a free-text question included"
+  send_text "ask me"
+  open_dialog questions "a questions card"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks Postgres and moves on to the free-text question"
+  ask_key enter '[ "$(d "d[\"composer\"][\"focused\"]")" = false ]' "Enter on its empty field takes the keyboard there"
+  [ "$(d 'd["dialog"] is not None')" = true ] && ok "an empty field doesn't answer" || fail "the card closed"
+  keys "text:billing"
+  until_ '[ "$(d "list(d[\"dialog\"][\"others\"].values())[1]")" = billing ]' 3 || { by_command "the field didn't get the text"; cmd "click:dialog:other:1:billing"; }
+  expect '[ "$(d "list(d[\"dialog\"][\"others\"].values())[1]")" = billing ]' "typed into the field" 3
+  keys enter
+  until_ '[ "$(d "d[\"dialog\"]")" = null ]' 3 || { by_command "Enter in the field didn't land"; cmd focus; sleep 0.3; cmd key:enter; }
+  expect '[ "$(d "d[\"dialog\"]")" = null ]' "Enter in the field submits: nothing is left unanswered" 5
+  expect '[ "$(phase)" = idle ] && agent_log codex | grep -q "\"billing\""' "Codex got Postgres and billing" 15
 
   step "codex: a todo list (plan card) and a plan; a subagent nested in its card"
   send_text "make a plan"
