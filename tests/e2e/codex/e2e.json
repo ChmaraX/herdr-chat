@@ -161,6 +161,36 @@
    ]
   },
   {
+   "match": "check the server",
+   "once": false,
+   "steps": [
+    {
+     "elicitation": {
+      "serverName": "figma",
+      "mode": "form",
+      "_meta": null,
+      "message": "Go on?",
+      "requestedSchema": {
+       "type": "object",
+       "properties": {}
+      }
+     },
+     "then": {
+      "accept": [
+       {
+        "text": "Figma went on."
+       }
+      ],
+      "*": [
+       {
+        "text": "Figma stopped."
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
    "match": "make a plan",
    "once": false,
    "steps": [
