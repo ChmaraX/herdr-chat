@@ -125,7 +125,7 @@ export default class HerdrChat extends View {
       placeholder: `Message ${PROVIDER_NAMES[this.provider ?? DEFAULT_PROVIDER] ?? "the agent"}…`,
       onChange: (cx) => { this.updateMenu(cx); this.debug.mark(); cx.notify(); },
       onPasteOther: (cx) => this.pasteImage(cx),
-      // An older host has no detach_image: its images aren't the chat's copies, nothing to remove.
+      // req logs a failure. An older host has no detach_image: its chips aren't the chat's copies.
       onRemoveChip: (ch) => this.req("detach_image", { path: ch.path }).catch(() => {}),
       skills: () => this.commandList().filter((c) => c.source === "skill").map((c) => ({ command: c.name, name: c.name.replace(/^skill:/, "") })),
     });
@@ -891,7 +891,7 @@ export default class HerdrChat extends View {
 
   pasteImage(cx) {
     this.fire("clipboard_image", {}, cx, (d, cx) => {
-      if (d?.path) this.composer.chips.push({ path: d.path, label: d.path.split("/").pop() });
+      if (d?.path) this.composer.addChip(d.path);
       else this.flash("The clipboard has no image", cx);
       this.debug.mark();
     });
@@ -900,32 +900,39 @@ export default class HerdrChat extends View {
   drop(paths, cx) {
     let text = this.composer.value;
     for (const p of paths) {
-      if (IMAGE.test(p)) continue;
+      if (IMAGE.test(p)) {
+        this.attachImage(this.composer.addChip(p, { pending: true }), cx);
+        continue;
+      }
       const rel = this.cwd && p.startsWith(this.cwd + "/") ? p.slice(this.cwd.length + 1) : p;
       text += (text && !/\s$/.test(text) ? " " : "") + `@${rel} `;
     }
     if (text !== this.composer.value) this.composer.set(text);
-    this.attachImages(paths.filter((p) => IMAGE.test(p)), cx);
     this.composer.focus();
     this.debug.mark();
     cx.notify();
   }
 
-  // Dropped images become the chat's own copies (attach_image), which the chips can show and the
-  // host removes with the chat. A file the host refuses (or an older host) stays a named chip of
-  // the file itself, as before: sending says what's wrong with it.
-  attachImages(paths, cx) {
-    if (!paths.length) return;
+  // A dropped image's chip holds the dropped file until the host has made the chat's copy
+  // (attach_image), which the chip can show: a send in between carries the file itself, and a copy
+  // the chip no longer holds goes again. A file the host refuses leaves with its reason. An older
+  // host has no attach_image: the chip keeps the file.
+  attachImage(chip, cx) {
     cx.spawn(async (cx) => {
-      for (const p of paths) {
-        let path = p;
-        try {
-          path = (await this.req("attach_image", { path: p }, cx)).path;
-        } catch {}
-        this.composer.chips.push({ path, label: p.split("/").pop() });
-        this.debug.mark();
-        cx.notify();
+      try {
+        const { path } = await this.req("attach_image", { path: chip.path }, cx);
+        if (this.composer.chips.includes(chip)) chip.path = path;
+        else this.req("detach_image", { path }).catch(() => {});
+      } catch (e) {
+        const i = this.composer.chips.indexOf(chip);
+        if (i >= 0 && !/^Unknown op/.test(message(e))) {
+          this.composer.removeChip(i);
+          this.flash(message(e), cx);
+        }
       }
+      chip.pending = false;
+      this.debug.mark();
+      cx.notify();
     });
   }
 
@@ -1115,7 +1122,7 @@ export default class HerdrChat extends View {
       return this.fire("queue_edit", { message: id }, cx, (d, cx) => {
         const now = this.composer.value.replace(/\s+$/, "");
         this.composer.set(now.trim() ? `${now}\n\n${d?.text ?? ""}` : d?.text ?? "");
-        for (const p of d?.images ?? []) this.composer.chips.push({ path: p, label: p.split("/").pop() });
+        for (const p of d?.images ?? []) this.composer.addChip(p);
         this.editingQueued = { lane };
         this.composer.focus();
         const hint = keyHint("steer");
@@ -1918,7 +1925,7 @@ export default class HerdrChat extends View {
       hasOlder: this.store.hasOlder,
       expanded: [...this.expanded], full: [...this.full.keys()],
       sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, shown: this.timeline.shown,
-      composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
+      composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
       menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
       picker: this.picker ? { kind: this.picker.kind, sel: this.picker.sel, top: this.picker.top ?? 0, wheeled: this.picker.wheeled ?? 0,

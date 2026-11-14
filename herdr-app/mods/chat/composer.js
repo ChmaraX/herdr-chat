@@ -15,7 +15,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { alpha, icon, thumbnail } from "./util.js";
+import { alpha, fileChip, icon, thumbnail } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
 
@@ -78,7 +78,7 @@ export class Composer {
     this.onRemoveChip = onRemoveChip;
     this.value = "";
     this.cursor = 0; // where the last edit ended: the state has no getter for it
-    this.chips = []; // {path, label}
+    this.chips = []; // {path, label, pending}
     this.menu = null; // {kind: "slash"|"files", query, items, sel, start}
     this.history = null; // {list, i, text}
     this.focused = false;
@@ -171,6 +171,13 @@ export class Composer {
     this.menu = null;
   }
 
+  // `pending`: a dropped file the host is still copying (main.js attachImage); it gets the thumbnail's box.
+  addChip(path, { pending = false } = {}) {
+    const chip = { path, label: path.split("/").pop(), pending };
+    this.chips.push(chip);
+    return chip;
+  }
+
   removeChip(i) {
     const [ch] = this.chips.splice(i, 1);
     if (ch) this.onRemoveChip?.(ch);
@@ -252,14 +259,15 @@ export class Composer {
     const chips = this.chips.map((ch, i) => {
       const x = div().id(`chip-x-${i}`).cursor_pointer().rounded(4).hover((s) => s.text_color(t.foreground).bg(t.hover))
         .on_click((_e, cx) => { cx.stop_propagation(); this.removeChip(i); cx.notify(); }).child(icon("x", 11));
-      const thumb = thumbnail(`chip-${i}`, ch.path, THUMB.w, THUMB.h, c);
+      const thumb = ch.pending
+        ? h_flex().id(`chip-${i}`).flex_none().rounded(10).border_1().border_color(t.border)
+          .child(h_flex().w(THUMB.w).h(THUMB.h).items_center().justify_center().text_color(t.muted).child(icon("image", 16)))
+        : thumbnail(`chip-${i}`, ch.path, THUMB.w, THUMB.h, c);
       if (thumb) {
         return div().relative().flex_none().child(thumb.tooltip(ch.label))
           .child(x.absolute().top(4).right(4).p(1).bg(t.raised).border_1().border_color(t.border).text_color(t.muted));
       }
-      return h_flex().id(`chip-${i}`).h(26).pl(8).pr(6).gap(6).items_center().rounded(6).bg(t.raised)
-        .border_1().border_color(t.border).text_size(11.5).text_color(t.muted)
-        .child(icon("image", 12)).child(div().max_w(220).truncate().child(ch.label)).child(x);
+      return fileChip(`chip-${i}`, ch.label, t).pr(6).bg(t.raised).child(x);
     });
     let wrap = div().id("composer-box").w_full().min_w(0).key_context(this.context());
     for (const a of ACTIONS) wrap = wrap.on_action(a, (_e, cx) => c.action(a, cx));

@@ -168,6 +168,12 @@ export function thumbnail(id, path, w, h, c) {
     .child(image(rel).w(w).h(h));
 }
 
+// An image file image() can't show: its icon and name.
+export function fileChip(id, label, t) {
+  return h_flex().id(id).flex_none().h(26).px(8).gap(6).items_center().rounded(6).border_1().border_color(t.border)
+    .text_size(11.5).text_color(t.muted).child(icon("image", 12)).child(div().max_w(220).truncate().child(label));
+}
+
 export function shortPath(p, cwd) {
   if (!p) return "";
   if (cwd && p.startsWith(cwd + "/")) return p.slice(cwd.length + 1);

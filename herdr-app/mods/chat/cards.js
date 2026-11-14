@@ -10,7 +10,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { absTime, alpha, count, duration, icon, money, plural, relTime, shortPath, spinner, thumbnail, typedText, unwrapHc } from "./util.js";
+import { absTime, alpha, count, duration, fileChip, icon, money, plural, relTime, shortPath, spinner, thumbnail, typedText, unwrapHc } from "./util.js";
 import { blocks, copyButton, diffView, outputBox, prose, textDiff } from "./rich.js";
 import { groupSummary } from "./rows.js";
 import { SPACE } from "./space.js";
@@ -56,14 +56,12 @@ export function item(it, c, footer, slot = true) {
 // image() can't show (outside the app home) is a named chip.
 function images(paths, owner, c) {
   if (!paths?.length) return null;
-  const t = c.t;
   return h_flex().gap(8).flex_wrap().children(paths.map((p, i) => {
     const sz = c.svgSize(p);
     const w = Math.min(320, c.colW * 0.6, sz?.w ?? 320);
     const h = sz ? Math.round((w * sz.h) / sz.w) : 200;
     return thumbnail(`img-${owner}-${i}`, p, w, Math.min(h, 320), c)
-      ?? h_flex().id(`img-${owner}-${i}`).h(26).px(8).gap(6).items_center().rounded(10).border_1().border_color(t.border).cursor_pointer()
-        .text_size(11.5).text_color(t.muted).on_click((_e, cx) => c.enlarge(p, sz, cx)).child(icon("image", 12)).child(p.split("/").pop());
+      ?? fileChip(`img-${owner}-${i}`, p.split("/").pop(), c.t).cursor_pointer().on_click((_e, cx) => c.enlarge(p, sz, cx));
   }));
 }
 
