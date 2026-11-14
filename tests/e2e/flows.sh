@@ -305,7 +305,7 @@ EOF
   until_ '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ]' 3 && ok "the chip is there at once, before the host has copied the file" \
     || { kill -CONT "$HPID"; fail "no chip while the host copies the file"; }
   H1=null
-  [ "$H0" = null ] || { until_ '[ "$(d "d[\"bottomH\"]")" != "$H0" ]' 3; H1=$(d 'd["bottomH"]'); }
+  if [ "$H0" != null ] && until_ '[ "$(d "d[\"bottomH\"]")" != "$H0" ]' 3; then H1=$(d 'd["bottomH"]'); fi
   shot thumb-0-copying 0.4
   kill -CONT "$HPID"
   expect '[ "$(pending)" = 0 ] && [ "$(d "d[\"composer\"][\"chipImages\"][0]")" != null ]' "the chat's copy replaced the dropped file in the chip" 5
