@@ -15,7 +15,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { alpha, icon } from "./util.js";
+import { alpha, icon, thumbnail } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
 
@@ -65,12 +65,17 @@ export function rank(name, q) {
 // (`/skill:diagnose`), so the value reads as typed; the pill shows its name.
 export const skillToken = (s) => ({ id: `skill:${s.command}`, text: `/${s.command}`, label: s.name });
 
+// An image chip's thumbnail: a fixed box, so the composer keeps its height while the image loads.
+const THUMB = { w: 64, h: 48 };
+
 export class Composer {
   // `skills()`: the chat's skill commands, [{command, name}] (main.js).
-  constructor(cx, { onChange, onPasteOther, placeholder, skills }) {
+  // `onRemoveChip(chip)`: an image chip's ✕.
+  constructor(cx, { onChange, onPasteOther, onRemoveChip, placeholder, skills }) {
     this.ta = TextareaState.new({ placeholder: placeholder ?? "Message…" });
     this.ta.set_auto_grow(1, 10);
     this.skills = skills ?? (() => []);
+    this.onRemoveChip = onRemoveChip;
     this.value = "";
     this.cursor = 0; // where the last edit ended: the state has no getter for it
     this.chips = []; // {path, label}
@@ -166,6 +171,11 @@ export class Composer {
     this.menu = null;
   }
 
+  removeChip(i) {
+    const [ch] = this.chips.splice(i, 1);
+    if (ch) this.onRemoveChip?.(ch);
+  }
+
   clear() {
     this.set("");
     this.chips = [];
@@ -237,13 +247,20 @@ export class Composer {
 
   // The composer card (visual-v2.md §1): the text, image chips, then the
   // footer row `c.footer` (model, thinking, context; statuses, ⋯) and the
-  // send / stop button.
+  // send / stop button. `c` is the view's render context (cards.js).
   view(t, c) {
-    const chips = this.chips.map((ch, i) => h_flex().id(`chip-${i}`).h(26).pl(8).pr(6).gap(6).items_center().rounded(6).bg(t.raised)
-      .border_1().border_color(t.border).text_size(11.5).text_color(t.muted)
-      .child(icon("image", 12)).child(div().max_w(220).truncate().child(ch.label))
-      .child(div().id(`chip-x-${i}`).cursor_pointer().rounded(4).hover((s) => s.text_color(t.foreground).bg(t.hover))
-        .on_click((_e, cx) => { this.chips.splice(i, 1); cx.notify(); }).child(icon("x", 11))));
+    const chips = this.chips.map((ch, i) => {
+      const x = div().id(`chip-x-${i}`).cursor_pointer().rounded(4).hover((s) => s.text_color(t.foreground).bg(t.hover))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.removeChip(i); cx.notify(); }).child(icon("x", 11));
+      const thumb = thumbnail(`chip-${i}`, ch.path, THUMB.w, THUMB.h, c);
+      if (thumb) {
+        return div().relative().flex_none().child(thumb.tooltip(ch.label))
+          .child(x.absolute().top(4).right(4).p(1).bg(t.raised).border_1().border_color(t.border).text_color(t.muted));
+      }
+      return h_flex().id(`chip-${i}`).h(26).pl(8).pr(6).gap(6).items_center().rounded(6).bg(t.raised)
+        .border_1().border_color(t.border).text_size(11.5).text_color(t.muted)
+        .child(icon("image", 12)).child(div().max_w(220).truncate().child(ch.label)).child(x);
+    });
     let wrap = div().id("composer-box").w_full().min_w(0).key_context(this.context());
     for (const a of ACTIONS) wrap = wrap.on_action(a, (_e, cx) => c.action(a, cx));
     wrap = wrap.child(Textarea.new(this.ta).w_full().px(14).pt(12).pb(4).text_size(14).text_color(t.foreground).bg(alpha(t.background, 0))

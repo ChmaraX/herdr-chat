@@ -258,7 +258,7 @@ if want misc; then
   ready
   python3 -c 'import base64,sys; open(sys.argv[1],"wb").write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="))' "$PROJ/shot.png"
   cmd "drop:$PROJ/shot.png"
-  expect '[ "$(d "d[\"composer\"][\"chips\"]")" = "[\"$PROJ/shot.png\"]" ]' "the drop made an image chip" 5
+  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ] && cmp -s "$(d "d[\"composer\"][\"chips\"][0]")" "$PROJ/shot.png"' "the drop made an image chip (the chat's copy of the file)" 5
   send_text "what is in this picture"
   expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "answered" 15
   host >"$ART/misc-host.json"

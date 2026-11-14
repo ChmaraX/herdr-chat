@@ -2,7 +2,7 @@
 
 import { div, image, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { settings } from "herdr";
+import { appHome, settings } from "herdr";
 
 export const MOD = "chat"; // the folder: mods/chat (also the pane title)
 export const icon = (name, size = 14) => svg(`mods/${MOD}/icons/${name}.svg`).size(size).flex_none();
@@ -156,6 +156,16 @@ export const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many
 export function homeRel(p, appHomeDir) {
   const home = appHomeDir.replace(/\/$/, "") + "/";
   return p?.startsWith(home) ? p.slice(home.length) : null;
+}
+
+// An image file as a w×h thumbnail that enlarges on click (`c`: the render context), or null when
+// image() can't show it: it takes only app-home-relative paths.
+export function thumbnail(id, path, w, h, c) {
+  const rel = homeRel(path, appHome());
+  if (!rel) return null;
+  return h_flex().id(id).flex_none().cursor_pointer().rounded(10).overflow_hidden().border_1().border_color(c.t.border)
+    .on_click((_e, cx) => c.enlarge(path, c.svgSize(path), cx))
+    .child(image(rel).w(w).h(h));
 }
 
 export function shortPath(p, cwd) {

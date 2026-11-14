@@ -99,6 +99,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     chat: chatId, cwd, session, adapter, terminal: terminalId, log,
     afterPid: handOver ? afterPid : null,
     imageDir: join(stateDir, "images", chatId),
+    attachDir: join(stateDir, "attachments", chatId),
     stateDir,
     hcCommand: process.env.HERDR_CHAT_HC || "hc",
     ...(Number(process.env.HERDR_CHAT_HANDOFF_POLL_MS) > 0 ? { handoffPollMs: Number(process.env.HERDR_CHAT_HANDOFF_POLL_MS) } : {}),
@@ -107,7 +108,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
       if (f && f !== entry.sessionFile) save({ sessionFile: f });
     },
     onVersion: (v) => save({ agentVersion: v }),
-    onShutdown: () => void exit(0),
+    onShutdown: (restart) => void exit(0, restart),
   });
   const server = new ChatServer(chat, token, log);
   chat.onTerminalState = (s, m) => term.status(s, m);
@@ -134,15 +135,17 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     ? new PaneWatch({ chat: chatId, terminal: terminalId, appHome: resolve(a.flags.get("app-home")?.[0] ?? appHomeOf(process.env, homedir())),
         hc: process.env.HERDR_CHAT_HC || "hc", log, onGone: () => void exit(0) })
     : null;
-  const exit = async (code: number) => {
+  // `restart`: a new host follows (the shutdown op from the chat's restart); otherwise the chat is closing.
+  const exit = async (code: number, restart = false) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log("shutting down");
+    log(restart ? "shutting down for a restart" : "shutting down");
     watch?.stop();
     try {
       await chat.stopAgent();
     } catch {}
     chat.releaseLock();
+    if (!restart) chat.attachments.clear();
     save({ pid: null, port: null, wsPort: null });
     term.status("idle");
     term.close();
