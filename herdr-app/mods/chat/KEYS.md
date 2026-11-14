@@ -37,9 +37,12 @@ With nothing typed in the composer, a card the agent waits on takes the keys:
   options and its Other field. Enter answers the question with the highlighted
   option and moves on to the next unanswered question; when none is left, it
   sends the answers. Space ticks options of a multi-select question (Enter
-  takes the highlighted one only when none is ticked). 1–9 pick an option of
-  the highlighted question. On an Other field, Enter puts the keyboard in it,
-  and Enter there answers with what you typed. Esc cancels the card.
+  takes the highlighted one only when none is ticked); on a single-select
+  question it does nothing. 1–9 pick an option of the highlighted question.
+  On an Other field, Enter puts the keyboard in it. There, Enter answers with
+  what you typed, and Esc hands the keyboard back to the composer. On a
+  single-select question an option and Other text exclude each other: the
+  card shows what it sends. Esc in the composer cancels the card.
 
 ## The queue
 
