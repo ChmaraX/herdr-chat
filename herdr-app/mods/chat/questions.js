@@ -207,7 +207,7 @@ export class QuestionsForm {
 
   hint() {
     const q = this.questions[this.cur.q];
-    if (!q) return "Esc cancels";
+    if (!q) return "Enter submits · Esc cancels";
     const typing = this.otherFocus != null;
     const plan = this.enterPlan(typing);
     const enter = { type: "Enter types an answer", back: "Enter goes back", submit: "Enter submits" }[plan.then] ?? (plan.choose == null ? "Enter next" : "Enter picks");
