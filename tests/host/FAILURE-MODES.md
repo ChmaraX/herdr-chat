@@ -126,8 +126,16 @@ releases a mod's `net` socket once its build reloads or its view closes.
 |---|---|
 | Resumed timeline differs from the live one | `resume.test.ts`: the same item kinds, texts, tool titles, statuses and details |
 | `hasOlder` paging loses or repeats items | `ops.test.ts` "history paging" |
-| Claude Code's task list (TaskCreate/TaskUpdate) shows no plan card, a card per call, or a step for a task that isn't there | `claude-session.test.ts` "TaskCreate/TaskUpdate build one plan card": one card, live and resumed, with a subagent's update, an unknown task, a deletion and a rename |
-| After a resume, the task card stops updating or loses the tasks from before it | the same test: an update and a new task after the resume land on the same card |
+| Claude Code's task list (TaskCreate/TaskUpdate/TaskList) shows no plan card, a card per call, or a step for a task that isn't there | `claude-session.test.ts` "the task list … is one plan card": one card, live and resumed, with a subagent's update, an unknown task, a deletion and a rename |
+| An empty TaskList (the agent checks before it plans) makes an empty "0 of 0" card | the same test: the "Any tasks?" turn shows no card |
+| A subagent's task change is lost live: its live result has only the text, no `tool_use_result` (`tests/fixtures/claude/extra.jsonl:271`) | the same test, and "a background agent's task changes": fake-claude sends nested results the same way |
+| TaskList's list doesn't replace the card, or later updates don't build on it | the same test: the "Check the list" snapshot drops a task, renames one and changes statuses, then an update to a task only the snapshot had |
+| After a resume, the task card stops updating or loses the tasks from before it | the same test: a new task and an update after the resume land on the same card |
+| History puts a background agent's steps at its Agent card, before the main-thread tasks they change, so the resumed card drops the change | "a background agent's task changes": live and resumed, the agent's update to a task the main thread created after launching it |
+| Steps follow result order, not the CLI's task-id order (a TaskCreated hook holds one result back) | the same test: task 3's result lands before task 2's |
+| A fork mixes the original's tasks with its own: Claude Code keys the list by session id, so the fork's starts empty and gives out id 1 again | the same test: the fork's first task replaces the card, live and after a reload of the fork (its transcript holds the original's tasks) |
+| A subagent's TaskList: live it has only text, which the card doesn't read; on resume its transcript resets the card | not covered (the two differ only when the card had drifted from the CLI's list) |
+| A transcript over 32 MiB: `readTranscript` reads only its first 32 MiB for the whole resumed timeline, so later tasks are missing from the card and updates to them are dropped | not covered (pre-existing cap, `sessions.ts`) |
 
 ## Terminal
 
