@@ -1,12 +1,13 @@
 // The composer's images (protocol.md "Attachments"): a pasted or dropped image
 // becomes a file of the chat's own under the state dir, so the chat can show it
 // before it's sent. Its life: ✕ removes it unless a held or queued message
-// lists it, sending keeps it, a restart keeps it, closing the chat removes all.
+// lists it, sending keeps it, and every end of a host keeps it (a take-over, a
+// restart's kill): only the chat's pane closing removes it (E2E `thumb`).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { Host, idle, startHost } from "./harness.ts";
+import { Host, idle, sleep, startHost } from "./harness.ts";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 
@@ -27,12 +28,14 @@ const SCENARIO = {
 const running = (x: any) => x.items.some((i: any) => i.kind === "tool" && i.status === "running");
 const answered = (text: string) => (x: any) => idle(x) && x.items.some((i: any) => i.kind === "assistant" && i.text === text && !i.streaming);
 
-test("composer images: copied under the state dir, kept while a message needs them, removed with the chat", async () => {
+test("composer images: copied under the state dir, kept while a message or the chat's composer needs them", async () => {
   const h = await startHost({ name: "attachments", scenario: SCENARIO, speed: 1 });
   const dir = join(h.stateDir, "attachments", h.chat);
   const own = join(h.dir, "shot.png");
   writeFileSync(own, PNG);
   let sent: string;
+  let composed: string;
+  let b: Host | null = null;
   try {
     const c = h.client;
     await c.waitFor(idle, 10_000);
@@ -46,8 +49,10 @@ test("composer images: copied under the state dir, kept while a message needs th
     writeFileSync(join(h.dir, "fake.png"), "not a png");
     await assert.rejects(c.req("attach_image", { path: join(h.dir, "fake.png") }), /Not a valid PNG file/);
     await assert.rejects(c.req("attach_image", { path: join(h.dir, "missing.png") }), /Could not read image/);
-    const clip = await c.req("clipboard_image");
-    assert.ok(clip.path === null || dirname(clip.path) === dir, `a pasted image is an attachment too: ${clip.path}`);
+    const long = join(h.dir, `${"a".repeat(250)}.png`);
+    writeFileSync(long, PNG);
+    const { path: longCopy } = await c.req("attach_image", { path: long });
+    assert.ok(basename(longCopy).length <= 255 && longCopy.endsWith("a.png"), `a name too long for the copy is shortened, its extension kept: ${basename(longCopy)}`);
 
     await c.req("detach_image", { path: dropped });
     assert.ok(!existsSync(dropped), "✕ on its chip removes the copy");
@@ -78,21 +83,29 @@ test("composer images: copied under the state dir, kept while a message needs th
     await c.req("send", { text: "what is this", images: [sent] });
     await c.waitFor(answered("ok: what is this"), 10_000, "answered");
     assert.ok(existsSync(sent), "a sent image stays: a queued edit and an agent without image input read it later");
+    ({ path: composed } = await c.req("attach_image", { path: own }));
+    h.artifact("attachments");
 
-    await c.req("shutdown", { restart: true });
-    await h.exited;
-    assert.ok(existsSync(sent), "a restart keeps the attachments: the composer outlives its host");
+    b = await new Host({ name: "attachments-b", dir: h.dir, chat: "c-b", session: c.state.sessionFile!, scenario: SCENARIO, speed: 1 }).start();
+    await b.client.waitFor((x) => x.state.phase === "conflict", 10_000, "conflict");
+    await b.client.req("take_over");
+    assert.equal(await Promise.race([h.exited, sleep(5000).then(() => "timeout")]), 0, "the take-over shut chat A's host down");
+    assert.ok(existsSync(composed), "a take-over keeps chat A's attachments: its pane and composer are still open");
+    assert.ok(existsSync(sent));
+    b.artifact("attachments-take-over");
   } finally {
+    await b?.stop();
     await h.stop();
   }
 
   const again = await new Host({ name: "attachments-again", scenario: SCENARIO, speed: 1, dir: h.dir }).start();
   try {
     await again.client.waitFor(idle, 10_000);
-    assert.ok(existsSync(sent!), "the next host keeps them");
-    again.artifact("attachments");
+    assert.ok(existsSync(composed!) && existsSync(sent!), "chat A's next host has them");
+    again.artifact("attachments-again");
   } finally {
     await again.stop();
   }
-  assert.ok(!existsSync(dir), "closing the chat removes its attachments");
+  assert.equal(again.exitCode, 0, "SIGTERM ends the host as a restart's kill does");
+  assert.ok(existsSync(composed!), "a killed host keeps the attachments: a restart that falls back to a kill starts a new host for the composer");
 });
