@@ -1,5 +1,5 @@
 {
- "description": "E2E (mod): approvals (command allow / for the session / decline with a reason, file change), a permissions grant, requestUserInput questions, a plan and a todo list, a subagent, a steer, an interrupt.",
+ "description": "E2E (mod): approvals (command allow / for the session / decline with a reason, file change), a permissions grant, requestUserInput questions, a plan and a todo list, a subagent, slow thinking (top level and a subagent's), a steer, an interrupt.",
  "model": "gpt-5.6-luna",
  "effort": "low",
  "approvalPolicy": "untrusted",
@@ -217,6 +217,40 @@
     },
     {
      "text": "The subagent found it: tests/a.test.ts sleeps."
+    }
+   ]
+  },
+  {
+   "match": "think it over",
+   "once": false,
+   "steps": [
+    {
+     "reasoning": [
+      "Weighing the options before I answer: the cache, the queue, the retry. Weighing the options before I answer: the cache, the queue, the retry. Weighing the options before I answer: the cache, the queue, the retry. Weighing the options before I answer: the cache, the queue, the retry."
+     ],
+     "chunk": 4,
+     "every": 100
+    },
+    {
+     "subagent": {
+      "prompt": "Check the call sites.",
+      "steps": [
+       {
+        "reasoning": [
+         "Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up."
+        ],
+        "chunk": 4,
+        "every": 100
+       },
+       {
+        "text": "Two call sites retry."
+       }
+      ],
+      "answer": "Two call sites retry."
+     }
+    },
+    {
+     "text": "Thought it over: retry in one place."
     }
    ]
   },

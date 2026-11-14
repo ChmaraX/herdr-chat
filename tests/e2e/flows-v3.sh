@@ -281,6 +281,20 @@ if want v3 || want codex; then
   [ -z "$G" ] || cmd "toggle:$G"
   sleep 0.4; shot v3-5-codex-agent 0.4
 
+  step "codex: thinking shows once: no 'Thinking · Ns' under a thinking row on screen, kept for a folded subagent's"
+  # While a thinking streams (a subagent's: $1 = True): "<activity text> <has a timer> <parent or ->", else none.
+  thinking_activity() { d "next((str((d['activity'] or {}).get('text')) + ' ' + str((d['activity'] or {}).get('since') is not None) + ' ' + (i.get('parent') or '-') for i in d['items'] if i['kind']=='thinking' and i.get('streaming') and bool(i.get('parent')) == $1), 'none')"; }
+  send_text "think it over"
+  until_ 'A=$(thinking_activity False); [ -n "$A" ] && [ "$A" != none ]' 10 || fail "no thinking streamed"
+  [ "$A" = "Working False -" ] && ok "its row counts the seconds; the activity line says Working, no timer" || fail "the activity line under a thinking row: $A"
+  until_ 'A=$(thinking_activity True); [ -n "$A" ] && [ "$A" != none ]' 15 || fail "no subagent thinking streamed"
+  P=${A##* }
+  [ "$A" = "Thinking True $P" ] && ok "a subagent's thinking in its folded card: the activity line says Thinking · Ns" || fail "the activity line for a folded subagent's thinking: $A"
+  cmd "toggle:kids:$P"
+  expect '[ "$(thinking_activity True)" = "Working False $P" ]' "its card opened (the row on screen): Working, no timer" 5
+  cmd "toggle:kids:$P"
+  expect '[ "$(phase)" = idle ]' "the run settles" 20
+
   step "codex: a steer mid-run, an interrupt"
   send_text "run the long job"
   expect '[ "$(phase)" = working ]' "working" 5
