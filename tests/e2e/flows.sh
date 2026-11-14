@@ -369,6 +369,18 @@ EOF
     && ok "the restarted chat sends the chip's image" || fail "no image on the message after the restart"
   [ -e "$ATT" ] && ok "its copy stays after sending (a queued edit takes it back)" || fail "the copy is gone after sending"
 
+  step "thumb: a chat closed while its host was down: another chat's sweep removes its attachments"
+  B=$(open_chat thumb-b tools)
+  until_ '[ "$(dbg "$B" "d[\"connection\"][\"status\"]")" = connected ]' 25 || fail "chat B connected"
+  cmd "drop:$PROJ/thumb.png"
+  until_ '[ "$(dbg "$B" "len(d[\"composer\"][\"chips\"])")" = 1 ] && [ "$(dbg "$B" "d[\"composer\"][\"pending\"]")" = 0 ]' 5 || fail "chat B: an image in its composer"
+  hc kill "$(dbg "$B" 'd["host"]["address"]')" >>"$LOG" 2>&1
+  until_ '[ "$(dbg "$B" "d[\"connection\"][\"status\"]")" = stopped ]' 15 || fail "chat B's host stopped"
+  do_ pane.close --pane "$(dbg "$B" 'd["place"]["pane"]')"
+  [ -d "$STATE/attachments/$B" ] && ok "chat B's pane closed with no host to remove its attachments" || fail "chat B's attachments are already gone"
+  expect '[ ! -e "$STATE/attachments/$B" ]' "chat A's sweep removed them (two sweeps 30 s apart agree)" 75
+  [ -e "$ATT" ] && ok "and kept chat A's, whose pane is open" || fail "the sweep removed chat A's attachment $ATT"
+
   step "thumb: closing the chat removes its attachments"
   ME=$(d 'd["place"]["pane"]'); H=$(d 'd["host"]["address"]')
   do_ pane.close --pane "$ME"
