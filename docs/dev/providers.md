@@ -80,6 +80,7 @@ What else differs, from each agent's own mechanism, not from the chat:
 | Another process on the session | the lock extension | its `~/.claude/sessions` registry (`sessionHolder`) | its "active writer" error |
 | The chat follows a session switch made in `/tui` | yes (the lock extension's hand-off file) | no | no |
 | Continue as chat: the TUI's session (`tui.ts`) | the lock extension's label | its `~/.claude/sessions/<pid>.json` | the rollout it has open, else the newest in its folder |
+| The plan card (`plan` items) | none | TodoWrite: one card per agent, from the call. TaskCreate/TaskUpdate/TaskList: one card per session, subagents included, from the results (`plans.ts`); a resume carries the transcript's list on | `turn/plan/updated`, one card per turn |
 
 ## Process (one host process per chat)
 

@@ -6,7 +6,8 @@
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { readTranscript, promptText } from "./sessions.ts";
-import { imagesOf, textOf, toolEnded, usageOf, planFor } from "./mapper.ts";
+import { imagesOf, textOf, toolEnded, usageOf } from "./mapper.ts";
+import type { ClaudePlans } from "./plans.ts";
 import type { NormalizedEvent, AssistantBlock, StopReason } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -44,7 +45,7 @@ function localStdout(text: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
-type Ctx = { names: Map<string, string>; out: NormalizedEvent[]; sessionDir: string };
+type Ctx = { names: Map<string, string>; plans: ClaudePlans; out: NormalizedEvent[]; sessionDir: string };
 
 function emitAssistant(group: Rec[], ctx: Ctx, parent?: string): void {
   const first = group[0]!;
@@ -72,7 +73,7 @@ function emitAssistant(group: Rec[], ctx: Ctx, parent?: string): void {
         if (b.type !== "tool_use") continue;
         ctx.names.set(String(b.id), String(b.name ?? "tool"));
         ctx.out.push({ type: "tool_call", callId: String(b.id), name: String(b.name ?? "tool"), args: b.input, ...p, ...(ts ? { ts } : {}) });
-        const plan = planFor(String(b.name), b.input, parent);
+        const plan = ctx.plans.call(String(b.id), String(b.name ?? "tool"), b.input, parent);
         if (plan) ctx.out.push({ ...plan, ...(ts ? { ts } : {}) });
       }
     }
@@ -88,7 +89,7 @@ function emitAssistant(group: Rec[], ctx: Ctx, parent?: string): void {
   });
   for (const b of blocks) {
     if (b.type !== "tool_use") continue;
-    const plan = planFor(String(b.name), b.input);
+    const plan = ctx.plans.call(String(b.id), String(b.name ?? "tool"), b.input);
     if (plan) ctx.out.push({ ...plan, ...(ts ? { ts } : {}) });
   }
 }
@@ -133,7 +134,8 @@ function emitRecords(records: Rec[], ctx: Ctx, parent?: string): void {
         if (b?.type !== "tool_result") continue;
         const declined = r.permissionDecision?.decision === "reject" || r.toolDenialKind === "permission-rule";
         const name = ctx.names.get(String(b.tool_use_id)) ?? "tool";
-        ctx.out.push({ ...toolEnded(b, name, r.toolUseResult, declined, parent), ...t });
+        const ended = toolEnded(b, name, r.toolUseResult, declined, parent);
+        ctx.out.push({ ...ended, ...t });
         // A subagent's own steps live in their own file, nested under its card.
         const agentId = r.toolUseResult?.agentId;
         if ((name === "Agent" || name === "Task") && typeof agentId === "string") {
@@ -149,6 +151,8 @@ function emitRecords(records: Rec[], ctx: Ctx, parent?: string): void {
             ctx.out.splice(at, 0, ...nested.out);
           }
         }
+        const plan = ctx.plans.ended(ended);
+        if (plan) ctx.out.push({ ...plan, ...t });
       }
       continue;
     }
@@ -162,11 +166,14 @@ function emitRecords(records: Rec[], ctx: Ctx, parent?: string): void {
   flush();
 }
 
-/** `upTo`: the record the branch ends at (a fork's `--resume-session-at`), else the last one. */
-export function historyEvents(path: string, upTo?: string): NormalizedEvent[] {
+/**
+ * `plans` takes in the transcript's todo lists, for the live session to carry on.
+ * `upTo`: the record the branch ends at (a fork's `--resume-session-at`), else the last one.
+ */
+export function historyEvents(path: string, plans: ClaudePlans, upTo?: string): NormalizedEvent[] {
   const records = readTranscript(path);
   if (!records.length) return [];
-  const ctx: Ctx = { names: new Map(), out: [], sessionDir: join(dirname(path), path.replace(/^.*\//, "").replace(/\.jsonl$/, "")) };
+  const ctx: Ctx = { names: new Map(), plans, out: [], sessionDir: join(dirname(path), path.replace(/^.*\//, "").replace(/\.jsonl$/, "")) };
   emitRecords(activeBranch(records, upTo), ctx);
   return ctx.out;
 }

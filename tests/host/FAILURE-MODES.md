@@ -126,6 +126,8 @@ releases a mod's `net` socket once its build reloads or its view closes.
 |---|---|
 | Resumed timeline differs from the live one | `resume.test.ts`: the same item kinds, texts, tool titles, statuses and details |
 | `hasOlder` paging loses or repeats items | `ops.test.ts` "history paging" |
+| Claude Code's task list (TaskCreate/TaskUpdate) shows no plan card, a card per call, or a step for a task that isn't there | `claude-session.test.ts` "TaskCreate/TaskUpdate build one plan card": one card, live and resumed, with a subagent's update, an unknown task, a deletion and a rename |
+| After a resume, the task card stops updating or loses the tasks from before it | the same test: an update and a new task after the resume land on the same card |
 
 ## Terminal
 

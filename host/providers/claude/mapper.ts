@@ -1,7 +1,8 @@
 // Claude Code stream-json records → normalized events. No I/O: the adapter
 // feeds it records (and tells it what it sent) and forwards what comes out.
 // Control requests and responses are the adapter's.
-import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, StopReason, Usage, PlanStep } from "../types.ts";
+import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, StopReason, Usage } from "../types.ts";
+import { ClaudePlans } from "./plans.ts";
 
 type Rec = Record<string, any>;
 
@@ -37,22 +38,6 @@ export function textOf(content: unknown): string {
   return content.filter((b: Rec) => b?.type === "text" && typeof b.text === "string").map((b: Rec) => b.text).join("\n");
 }
 
-/** TodoWrite input → plan steps. */
-export function todoSteps(input: unknown): PlanStep[] | null {
-  const todos = (input as Rec)?.todos;
-  if (!Array.isArray(todos)) return null;
-  return todos
-    .filter((t: Rec) => t && typeof t.content === "string")
-    .map((t: Rec) => ({ text: t.content, status: t.status === "completed" ? "completed" : t.status === "in_progress" ? "in_progress" : "pending" }));
-}
-
-/** The plan event a tool call carries (TodoWrite), if any. */
-export function planFor(name: string, input: unknown, parent?: string): NormalizedEvent | null {
-  if (name !== "TodoWrite") return null;
-  const steps = todoSteps(input);
-  return steps ? { type: "plan", key: parent ? `todos:${parent}` : "todos", steps, ...(parent ? { parent } : {}) } : null;
-}
-
 /**
  * One `tool_result` block → `tool_ended`. `tur` is the record's structured
  * tool output (`tool_use_result` live, `toolUseResult` on disk); `declined`
@@ -76,6 +61,8 @@ export class ClaudeMapper {
   /** What we sent, by uuid (echo matching, the queue). */
   sent = new Map<string, Sent>();
   toolNames = new Map<string, string>();
+  /** The session's todo lists; the adapter hands it to the history, so a resume carries on. */
+  readonly plans = new ClaudePlans();
   sessionId: string | null = null;
   /** The init `model` (an id such as claude-haiku-5-5). */
   initModel: string | null = null;
@@ -295,7 +282,7 @@ export class ClaudeMapper {
       { type: "tool_call", ...(index !== undefined ? { index } : {}), callId, name, args: b.input, ...p },
       { type: "tool_started", callId, name, args: b.input, ...p },
     ];
-    const plan = planFor(name, b.input, parent);
+    const plan = this.plans.call(callId, name, b.input, parent);
     if (plan) out.push(plan);
     return out;
   }
@@ -391,7 +378,10 @@ export class ClaudeMapper {
       const m = meta.find((x) => x?.id === b.tool_use_id);
       const declined = m?.permission_decision?.decision === "reject" || m?.non_execution_kind === "permission-rule";
       const name = this.toolNames.get(String(b.tool_use_id)) ?? "tool";
-      out.push(toolEnded(b, name, rec.tool_use_result, declined, parent));
+      const ended = toolEnded(b, name, rec.tool_use_result, declined, parent);
+      out.push(ended);
+      const plan = this.plans.ended(ended);
+      if (plan) out.push(plan);
     }
     return out;
   }
