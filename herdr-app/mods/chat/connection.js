@@ -1,11 +1,5 @@
-// The chat's link to its herdr-chat-host: find it in the registry (or start it in
-// a herdr-core terminal), connect over TCP, say hello, read JSONL records and
-// correlate requests. Reconnects with backoff; a host counts as alive only
-// after a successful hello/welcome (protocol.md "Chat registry").
-
-import net from "net";
-import { Buffer } from "buffer";
 import { appHome, hc, readTextFile, terminals } from "herdr";
+import { openLink } from "./transport.js";
 import { DEFAULT_PROVIDER, MOD, message } from "./util.js";
 
 export const stateDir = () => `${appHome()}/data/herdr-chat`;
@@ -84,7 +78,7 @@ export class Connection {
     this.o = opts;
     this.status = "connecting"; // connecting | starting | connected | reconnecting | stopped | failed
     this.error = null;
-    this.sock = null;
+    this.link = null;
     this.pending = new Map();
     this.nextId = 1;
     this.closed = false;
@@ -144,50 +138,26 @@ export class Connection {
       await this.ensureHost(cx, entry);
       return;
     }
-    let sock;
+    let link;
     try {
-      sock = await net.connect("127.0.0.1", entry.port);
+      link = await openLink(entry);
     } catch (e) {
       await this.ensureHost(cx, entry);
       return;
     }
-    this.sock = sock;
+    this.link = link;
     try {
-      await sock.write(JSON.stringify({ t: "hello", v: 1, token: entry.token, client: "mod" }) + "\n");
-      let buf = new Uint8Array(0);
+      await link.send({ t: "hello", v: 1, token: entry.token, client: "mod" });
       let welcomed = false;
-      for (;;) {
-        let chunk;
-        try {
-          chunk = await sock.read(1 << 20);
-        } catch (e) {
-          // The runtime's read gives up after ~30 s without data (EAGAIN,
-          // os error 35) though the socket is fine: keep reading.
-          if (/temporarily unavailable|os error 35|WouldBlock|timed out/i.test(message(e)) && !this.closed) {
-            this.idleReads = (this.idleReads ?? 0) + 1;
-            continue;
-          }
-          throw e;
-        }
-        if (chunk === null) break;
-        const merged = new Uint8Array(buf.length + chunk.length);
-        merged.set(buf);
-        merged.set(chunk, buf.length);
-        buf = merged;
-        let start = 0;
+      for (let texts; (texts = await link.next()) !== null; ) {
         const recs = [];
-        for (let i = 0; i < buf.length; i++) {
-          if (buf[i] !== 10) continue;
-          const line = Buffer.from(buf.subarray(start, i)).toString("utf8");
-          start = i + 1;
-          if (!line.trim()) continue;
+        for (const text of texts) {
           try {
-            recs.push(JSON.parse(line));
+            recs.push(JSON.parse(text));
           } catch {
-            this.o.log?.(`bad record: ${line.slice(0, 200)}`);
+            this.o.log?.(`bad record: ${text.slice(0, 200)}`);
           }
         }
-        buf = buf.slice(start);
         for (const rec of recs) {
           if (rec.t === "welcome") {
             welcomed = true;
@@ -213,10 +183,8 @@ export class Connection {
         this.o.log?.("closed before welcome");
       }
     } finally {
-      this.sock = null;
-      try {
-        sock.close();
-      } catch {}
+      this.link = null;
+      link.close();
       if (!this.closed) this.set("reconnecting", null, cx);
     }
   }
@@ -292,12 +260,12 @@ export class Connection {
   }
 
   req(op, args = {}, { timeout = 30000 } = {}) {
-    const sock = this.sock;
-    if (!sock || this.status !== "connected") return Promise.reject(new Error("not connected to the host"));
+    const link = this.link;
+    if (!link || this.status !== "connected") return Promise.reject(new Error("not connected to the host"));
     const id = `m${this.nextId++}`;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, op, deadline: Date.now() + timeout });
-      sock.write(JSON.stringify({ t: "req", id, op, ...args }) + "\n").catch((e) => {
+      link.send({ t: "req", id, op, ...args }).catch((e) => {
         this.pending.delete(id);
         reject(e);
       });
@@ -309,11 +277,8 @@ export class Connection {
     this.pending.clear();
   }
 
-  // Drop the socket: the loop reconnects and gets a fresh snapshot.
   resync() {
-    try {
-      this.sock?.close();
-    } catch {}
+    this.link?.close();
   }
 
   close() {

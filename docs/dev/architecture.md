@@ -7,7 +7,7 @@ do back to the host.
 ```
 Herdr tab
  ├─ mod pane "chat"   mods/chat   (GPUI, JS: timeline, composer, dialogs, pickers)
- │      │  TCP 127.0.0.1, a token, JSONL (protocol.md)
+ │      │  WebSocket on 127.0.0.1, a token, one JSON record per message (protocol.md "Transport")
  └─ hidden pane: a herdr-core terminal (outlives the window)
         └─ herdr-chat-host  (a release: built JS, Node 20+; a checkout: the TypeScript, Node 24+)
                │  one adapter per agent (providers.md)

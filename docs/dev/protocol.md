@@ -6,20 +6,49 @@ Both sides change only together. Bump `v` on breaking changes.
 
 ## Transport
 
-- TCP on `127.0.0.1`. The host listens on an OS-assigned port (`listen(0)`).
-- JSONL framing: one JSON object per record, UTF-8, terminated by `\n`.
-  Split on `\n` only. Never treat U+2028/U+2029 as separators.
+The host listens on `127.0.0.1`, on two OS-assigned ports that carry the same
+records:
+
+- **`port`: JSONL over TCP**, for Node clients (`inspect`, the tests, another
+  host taking a session over). One JSON object per record, UTF-8, terminated by
+  `\n`. Split on `\n` only. Never treat U+2028/U+2029 as separators.
+- **`wsPort`: WebSocket**, for the mod. A handshake with an `Origin` header (a
+  web page) is refused before the token.
+  - Host → mod: a text message carries one or more records, separated by
+    `\n` (as in JSONL, with no trailing `\n`). A message is at most 8 MiB.
+  - Mod → host: one record per text message, plus `{"t":"ack"}`, which the mod
+    sends for each message as soon as it reads it, before applying it. An ACK
+    is transport only: it isn't a request and gets no reply.
+  - The host keeps at most 4 messages unacknowledged per client. Records it
+    can't send yet wait in order; when an ACK frees a slot, everything waiting
+    goes out in one message (split at 8 MiB). Herdr's runtime closes a
+    WebSocket when 8 messages wait unread, which happens whenever any mod keeps
+    the app's JS thread busy while the agent streams. A link that missed an ACK
+    never gets that slot back, so the mod reconnects when an ACK fails to send.
+
+The mod uses the WebSocket because of how Herdr frees a mod's sockets. A mod
+reload (an install) leaves the old build's objects to QuickJS's cycle collector,
+which can take hours. A socket of Herdr's `net` module (3 descriptors) is freed
+only with its object; after about 80 the app can't open a file or connect.
+A WebSocket is freed as soon as it's closed, so each new build of the mod closes
+the links older builds left open (`transport.js`), and a closed chat closes its
+own. A host from before 0.4 has no `wsPort`, and the mod reaches it over TCP.
+
+On either transport:
+
 - The first client record must be `hello` within 5 s, else the host closes the
-  socket. A wrong token closes the socket without a reply. Compare tokens in
+  connection. A wrong token closes it without a reply. Compare tokens in
   constant time.
 - Several clients may be connected at once. They all get the same records.
+- A client whose unsent records pass 64 MiB (it stopped reading, or stopped
+  ACKing) is cut off.
 
 ## Chat registry (discovery)
 
 The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
 
 ```json
-{ "v": 1, "chat": "c-1a2b3c4d", "pid": 4242, "port": 51234, "token": "<64 hex>",
+{ "v": 1, "chat": "c-1a2b3c4d", "pid": 4242, "port": 51234, "wsPort": 51235, "token": "<64 hex>",
   "cwd": "/abs/dir", "sessionFile": "/abs/x.jsonl" | null, "terminal": "t7" | null,
   "startedAt": 1793700000000, "agentVersion": "1.5.0" | null }
 ```
@@ -28,7 +57,7 @@ The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
   `appHome() + "/data/herdr-chat"`.
 - **Atomic write:** write a temp file, then rename it over the old one.
 - `terminal` is `$HC_TERMINAL_ID` of the host's terminal.
-- On clean exit the host rewrites the file with `pid: null, port: null` and
+- On clean exit the host rewrites the file with `pid: null, port: null, wsPort: null` and
   keeps `sessionFile`, so a client can restart the chat on the same session.
 - A client treats the host as alive only after a successful `hello`/`welcome`.
   A `pid` alone doesn't prove it.
@@ -38,6 +67,7 @@ The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
 ```jsonc
 {"t":"hello","v":1,"token":"…","client":"mod"|"cli"|"test"}
 {"t":"req","id":"r1","op":"<op>", ...args}          // see Ops
+{"t":"ack"}                                        // WebSocket only: one per message read (see Transport)
 ```
 
 ## Records: host → client
@@ -49,7 +79,7 @@ The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
 {"t":"res","id":"r1","ok":true,"data":…}            // or {"ok":false,"error":"text"}
 {"t":"toast","level":"info"|"warning"|"error","text":"…"}
 {"t":"bye","reason":"…"}
-{"t":"ping"}                                      // every 15 s; clients ignore it (keeps idle sockets readable)
+{"t":"ping"}                                      // TCP only, every 15 s; clients ignore it (keeps a mod's idle TCP socket readable)
 ```
 
 - `snapshot` is sent right after `welcome`, and again whenever the host
