@@ -59,7 +59,9 @@ Text can use these placeholders: `{prompt}`, `{steers}` (the steers folded in so
   - `"task": { "lines": [...], "everyMs" }`: a long Bash.
     - It emits `task_started`, then answers `get_task_output` with the output so far, then `task_notification`.
   - `"durationMs"`: the tool takes this long.
-- `{ "subagent": { "description", "type", "prompt", "steps": [{ "tool" … } | { "text" }], "report" } }`: an `Agent` call with nested records (`parent_tool_use_id`), a subagent transcript, and a report.
+- `{ "subagent": { "description", "type", "prompt", "steps": [{ "tool" … } | { "text" } | { "sleep": ms }], "report", "background" } }`: an `Agent` call with nested records (`parent_tool_use_id`), a subagent transcript, and a report.
+  - Live, a nested tool result carries no `tool_use_result`, as the real CLI's don't. The transcript has `toolUseResult`.
+  - `"background": true`: the call answers `async_launched` at once and the turn goes on. The nested steps run alongside it, and the turn's `result` waits for them.
 - `{ "todos": [{ "content", "status", "activeForm" }] }`: a `TodoWrite` call.
 
 **Asks**

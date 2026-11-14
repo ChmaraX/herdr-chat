@@ -82,7 +82,7 @@ test("claude: resume from the transcript shows the same timeline as live (tools,
   }
 });
 
-// Claude Code 2.1.x's task tools, with the results its own code writes (2.1.319's TaskCreate/TaskUpdate).
+// Claude Code 2.1.x's task tools, with the results its own code writes (2.1.319's TaskCreate, TaskUpdate and TaskList).
 const taskCreate = (id: string, subject: string) => ({
   tool: "TaskCreate", ask: false, input: { subject, description: `Do: ${subject}`, activeForm: subject },
   result: { content: `Task #${id} created successfully: ${subject}`, tool_use_result: { task: { id, subject, description: `Do: ${subject}` } } },
@@ -95,8 +95,21 @@ const taskUpdate = (taskId: string, change: Record<string, string>, from = "pend
     result: { content: `Updated task #${taskId} ${fields.join(", ")}`, tool_use_result: { success: true, taskId, updatedFields: fields, ...statusChange } },
   };
 };
+const taskList = (tasks: { id: string; subject: string; status: string }[]) => ({
+  tool: "TaskList", ask: false, input: {},
+  result: {
+    content: tasks.length ? tasks.map((t) => `#${t.id} [${t.status}] ${t.subject}`).join("\n") : "No tasks found",
+    tool_use_result: { tasks: tasks.map((t) => ({ ...t, blockedBy: [] })) },
+  },
+});
+const plans = (items: any[]) => items.filter((i) => i.kind === "plan").map((p) => p.steps.map((s: any) => [s.text, s.status]));
+const TASK_TOOLS = ["TaskCreate", "TaskUpdate", "TaskList"];
+const taskRows = (items: any[]) => items.filter((i) => i.kind === "tool" && !i.parent && TASK_TOOLS.includes(i.name)).length;
+const taskSteps = (turns: { steps: any[] }[]) => turns.flatMap((t) => t.steps).filter((s) => TASK_TOOLS.includes(s.tool)).length;
+
 const TASKS = {
   turns: [
+    { match: "Any tasks", steps: [taskList([]), { text: "None yet." }] },
     {
       match: "Plan the work",
       steps: [
@@ -112,22 +125,38 @@ const TASKS = {
         { text: "Under way." },
       ],
     },
-    { match: "Finish", steps: [taskUpdate("2", { status: "completed" }, "in_progress"), taskCreate("4", "Check the transcript"), { text: "Finished." }] },
+    {
+      match: "Check the list",
+      steps: [
+        taskList([{ id: "2", subject: "Wire the composer to the host", status: "completed" }, { id: "4", subject: "Check the transcript", status: "in_progress" }]),
+        taskUpdate("4", { status: "completed" }, "in_progress"),
+        { text: "Checked." },
+      ],
+    },
+    { match: "Finish", steps: [taskCreate("5", "Write the docs"), taskUpdate("5", { status: "in_progress" }), { text: "Finished." }] },
   ],
 };
 
-test("claude: TaskCreate/TaskUpdate build one plan card, live, on resume, and after a resume", async () => {
-  const plans = (items: any[]) => items.filter((i) => i.kind === "plan").map((p) => p.steps.map((s: any) => [s.text, s.status]));
+test("claude: the task list (TaskCreate/TaskUpdate/TaskList) is one plan card, live, on resume, and after a resume", async () => {
   const live = await startClaude({ name: "claude-tasks-live", speed: 4, scenario: TASKS });
   let liveItems: any[];
   try {
     const c = live.client;
     await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "Any tasks?" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "None yet."), 10_000);
+    assert.deepEqual(plans(c.items), [], "an empty task list makes no card");
+
     await c.req("send", { text: "Plan the work" });
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Under way."), 10_000);
     assert.deepEqual(plans(c.items), [[["Map the input paths", "completed"], ["Wire the composer to hc send", "in_progress"]]],
       "one card: the subagent's update counts, the unknown task and the deleted one don't show, the rename does");
-    assert.equal(c.items.filter((i) => i.kind === "tool" && !i.parent && /^Task(Create|Update)/.test(i.title)).length, 7, "the task calls keep their rows");
+
+    await c.req("send", { text: "Check the list" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Checked."), 10_000);
+    assert.deepEqual(plans(c.items), [[["Wire the composer to the host", "completed"], ["Check the transcript", "completed"]]],
+      "TaskList's list replaces the card, and an update to a task only TaskList showed lands on it");
+    assert.equal(taskRows(c.items), taskSteps(TASKS.turns.slice(0, 3)), "every top-level task call keeps its row");
     liveItems = structuredClone(c.items);
     live.artifact("claude-tasks-live");
   } finally {
@@ -141,11 +170,78 @@ test("claude: TaskCreate/TaskUpdate build one plan card, live, on resume, and af
     assert.deepEqual(seen(c.items), seen(liveItems), "the transcript rebuilds the same card");
     await c.req("send", { text: "Finish" });
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Finished."), 10_000);
-    assert.deepEqual(plans(c.items), [[["Map the input paths", "completed"], ["Wire the composer to hc send", "completed"], ["Check the transcript", "pending"]]],
-      "after the resume the same card keeps updating, with the tasks from before it");
+    assert.deepEqual(plans(c.items), [[["Wire the composer to the host", "completed"], ["Check the transcript", "completed"], ["Write the docs", "in_progress"]]],
+      "after the resume the same card keeps updating, from the list TaskList gave");
     again.artifact("claude-tasks-resumed");
   } finally {
     await again.stop();
+  }
+});
+
+// A background agent works alongside the main thread on the session's one list. A
+// TaskCreated hook holds task 2's result back, so task 3's lands first.
+const SHARED = {
+  turns: [
+    {
+      match: "Fix the flaky tests",
+      steps: [
+        taskCreate("1", "Find the flaky tests"),
+        {
+          subagent: {
+            description: "Fix flakes", type: "general-purpose", background: true, report: "Fixed.",
+            steps: [{ sleep: 600 }, taskCreate("3", "Note the cause"), { sleep: 1400 }, taskUpdate("2", { status: "completed" })],
+          },
+        },
+        { ...taskCreate("2", "Fix the flaky tests"), durationMs: 1600 },
+        { text: "The agent is on it." },
+      ],
+    },
+    { match: "Thanks", steps: [{ text: "You're welcome." }] },
+    { match: "Start over", steps: [taskCreate("1", "Reproduce the flake first"), { text: "Starting over." }] },
+  ],
+};
+const SHARED_CARD = [["Find the flaky tests", "pending"], ["Fix the flaky tests", "completed"], ["Note the cause", "pending"]];
+
+test("claude: a background agent's task changes land on the session's card in task order, live and resumed; a fork's new list replaces it", async () => {
+  const live = await startClaude({ name: "claude-tasks-shared", speed: 4, scenario: SHARED });
+  try {
+    const c = live.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "Fix the flaky tests" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "The agent is on it."), 10_000);
+    assert.deepEqual(plans(c.items), [SHARED_CARD], "the agent's update follows the main thread's create, and the steps are in task order");
+    await c.req("send", { text: "Thanks" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "You're welcome."), 10_000);
+    live.artifact("claude-tasks-shared-live");
+  } finally {
+    await live.stop();
+  }
+
+  const again = await startClaude({ name: "claude-tasks-shared-resumed", speed: 4, scenario: SHARED, dir: live.dir });
+  try {
+    const c = again.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "plan"), 10_000, "history loaded");
+    assert.deepEqual(plans(c.items), [SHARED_CARD], "the transcript replays the agent's steps in time, not where its card is");
+
+    const { points } = await c.req("fork_points", {});
+    await c.req("fork", { point: points.find((p: any) => p.text === "Thanks").id });
+    await c.waitFor((x) => idle(x) && plans(x.items).length === 1, 10_000, "the fork's history loaded");
+    await c.req("send", { text: "Start over" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Starting over."), 10_000);
+    assert.deepEqual(plans(c.items), [[["Reproduce the flake first", "pending"]]], "the fork's CLI list starts empty, so its first task replaces the card");
+    again.artifact("claude-tasks-fork-live");
+  } finally {
+    await again.stop();
+  }
+
+  const fork = await startClaude({ name: "claude-tasks-fork-resumed", speed: 4, scenario: SHARED, dir: live.dir });
+  try {
+    const c = fork.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Starting over."), 10_000, "the fork's history loaded");
+    assert.deepEqual(plans(c.items), [[["Reproduce the flake first", "pending"]]], "the fork's transcript, which holds the original's tasks, rebuilds the same card");
+    fork.artifact("claude-tasks-fork-resumed");
+  } finally {
+    await fork.stop();
   }
 });
 
