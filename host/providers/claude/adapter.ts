@@ -13,7 +13,7 @@ import { historyEvents, hasMessages, forkPoints } from "./history.ts";
 import { sessionPath, sessionIdOf, listSessions, liveHolder, readUserSettings } from "./sessions.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, ModelInfo,
-  AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, ForkPoint,
+  AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, ForkPoint, Question,
 } from "../types.ts";
 import { CLAUDE_TOOLS } from "./tools.ts";
 
@@ -406,7 +406,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     if (name === "AskUserQuestion" && Array.isArray(input.questions)) {
       const questions = input.questions.map((q: Rec, i: number) => ({
         id: `q${i}`, ...(typeof q.header === "string" ? { header: q.header } : {}), question: String(q.question ?? ""),
-        options: Array.isArray(q.options) ? q.options.map((o: Rec) => ({ label: String(o.label ?? ""), ...(typeof o.description === "string" && o.description !== o.label ? { description: o.description } : {}) })) : [],
+        options: Array.isArray(q.options) ? q.options.map((o: Rec) => questionOption(String(o.label ?? ""), o.description)) : [],
         multiSelect: q.multiSelect === true, allowOther: true,
       }));
       this.asks.set(id, { requestId: id, kind: "questions", request: r });
@@ -676,6 +676,15 @@ export class ClaudeAdapter implements ProviderAdapter {
     await this.restart(p.at ? this.forked!.file : null);
     return { text: p.text };
   }
+}
+
+// Claude marks the option it suggests with a "(Recommended)" suffix. The label keeps it: the answer must echo the label.
+function questionOption(label: string, description: unknown): Question["options"][number] {
+  return {
+    label,
+    ...(typeof description === "string" && description !== label ? { description } : {}),
+    ...(/\(recommended\)\s*$/i.test(label) ? { recommended: true } : {}),
+  };
 }
 
 function describeRule(s: Rec): string {

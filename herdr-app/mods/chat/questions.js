@@ -133,12 +133,11 @@ export class QuestionsForm {
     }
   }
 
-  // Where the cursor lands in question q: its pick, else the option Claude
-  // marks "(Recommended)", else the first row.
+  // Where the cursor lands in question q: its pick, else the recommended option, else the first row.
   home(q) {
     const opts = q.options ?? [];
     const picked = opts.findIndex((o) => this.picked.get(q.id).has(o.label));
-    return picked >= 0 ? picked : Math.max(0, opts.findIndex((o) => o.label.endsWith("(Recommended)")));
+    return picked >= 0 ? picked : Math.max(0, opts.findIndex((o) => o.recommended));
   }
 
   optionCount(q) {

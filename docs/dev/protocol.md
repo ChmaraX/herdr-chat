@@ -351,8 +351,11 @@ built-ins with the agent's commands:
 // method "questions": the agent asks the user (Claude AskUserQuestion, Codex requestUserInput).
 { id; method: "questions"; title: string;
   questions: { id: string; header?: string; question: string;
-               options: { label: string; description?: string }[]; multiSelect: boolean; allowOther: boolean }[] }
+               options: { label: string; description?: string; recommended?: boolean }[]; multiSelect: boolean; allowOther: boolean }[] }
 ```
+
+An option's `recommended` marks the one the agent suggests: the card's highlight starts there. Claude
+marks it with a "(Recommended)" suffix, which stays in the label because the answer must echo the label.
 
 `dialog_answer` takes, as well as `value` / `confirmed` / `cancelled`:
 - for `permission`: `choice` (a choice id), plus an optional `message` (the reason for a deny, or feedback for the agent);

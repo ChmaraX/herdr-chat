@@ -62,7 +62,8 @@ export type Question = {
   id: string;
   header?: string;
   question: string;
-  options: { label: string; description?: string }[];
+  /** `recommended`: the agent suggests this option (the card starts on it). */
+  options: { label: string; description?: string; recommended?: boolean }[];
   multiSelect: boolean;
   allowOther: boolean;
 };
