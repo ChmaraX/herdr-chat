@@ -87,6 +87,25 @@ the test that has to catch it; "not covered" rows are known gaps
 | A client reconnecting mid-stream misses items or gets duplicates | `terminal.test.ts` "reconnect mid-stream": second client's final copy equals the first's |
 | Two clients see different timelines | `terminal.test.ts` "reconnect mid-stream": the same items and state |
 
+## The mod's WebSocket (`transport.test.ts`; E2E `sockets`, `stall`)
+
+The mod talks to its host over a WebSocket (`wsPort`), because Herdr never
+releases a mod's `net` socket once its build reloads or its view closes.
+
+| Failure | Test |
+|---|---|
+| A record reaches JSONL clients but not the WebSocket client, or arrives changed | `transport.test.ts` "same records": over a turn with tools, the WebSocket client's records equal the JSONL client's, one record per message |
+| A request over the WebSocket gets no reply, or the reply goes to another client | "same records": the WebSocket client's `send` and `get_state` are answered on it, and only on it |
+| A wrong token or no hello over the WebSocket is let in | "refused": no welcome, closed |
+| A web page opens a WebSocket to the host's port | "refused": a handshake with an `Origin` gets no upgrade |
+| The registry keeps a dead `wsPort` after a clean exit | "same records": `wsPort` set while it runs, null after |
+| Herdr keeps a socket per mod reload or closed chat (the app runs out of descriptors) | E2E `sockets`: after reloads and a closed tab, Herdr holds one socket per open chat |
+| A chat open across the upgrade (its host predates `wsPort`) can't connect | E2E `sockets`: a v0.3.0 host, reached over TCP |
+| The app's JS thread is busy while the agent streams, 8 messages wait unread, and Herdr's runtime closes the link (a reconnect, a full snapshot, requests fail "disconnected") | `transport.test.ts` "a stalled reader": a client that ACKs nothing through a whole turn gets at most 4 messages and keeps its connection; E2E `stall`: 0.4–3.2 s stalls while streaming, `connects N->N` and `snapshots N->N` on the WebSocket and on TCP |
+| Records held back for a stalled client arrive out of order, twice or not at all | "a stalled reader": once it ACKs again, its records equal the JSONL client's, with no `seq` gap, and its requests are answered |
+| A client that stops reading or ACKing for good makes the host buffer without bound | not covered (the 64 MiB cut-off has no test, on either transport) |
+| An ACK the runtime fails to send leaves the host a slot short for good (4 lost and the chat hangs) | not covered (the mod reconnects when an ACK's write fails; Herdr's command queue can't be filled from a test) |
+
 ## History
 
 | Failure | Test |

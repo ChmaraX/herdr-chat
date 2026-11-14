@@ -1871,7 +1871,7 @@ export default class HerdrChat extends View {
     return {
       chat: this.chat, cwd: this.cwd, props: props(), renders: this.renders ?? 0,
       sub: this.sub, peekMode: this.peekMode, subStatus: this.sub ? this.subStatus() : null, subState: this.subTerm()?.state ?? null, openedTab: this.openedTab ?? null,
-      connection: { status: this.conn.status, error: this.conn.error, connects: this.conn.connects, autoStart: this.conn.autoStart },
+      connection: { status: this.conn.status, error: this.conn.error, connects: this.conn.connects, autoStart: this.conn.autoStart, link: this.conn.link?.kind ?? null },
       seq: this.store.seq, snapshots: this.store.snapshots,
       provider: s.provider ?? this.conn.provider ?? this.provider ?? null, providerName: this.providerName(),
       capabilities: s.capabilities ?? null, permissionMode: s.permissionMode ?? null,

@@ -25,7 +25,7 @@ release is built (below).
 ## Tests
 
 ```sh
-npm test                    # the host end to end: the real host, a real TCP client, fake Pi/Claude/Codex
+npm test                    # the host end to end: the real host, real TCP and WebSocket clients, fake Pi/Claude/Codex
 npx tsc --noEmit -p .       # typecheck the host (npm run typecheck)
 tests/e2e/run.sh            # the mods in a private Herdr app
 ```

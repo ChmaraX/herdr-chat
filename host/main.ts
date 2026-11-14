@@ -78,7 +78,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   rmSync(join(stateDir, "images", chatId), { recursive: true, force: true });
   const startedAt = Date.now();
   let entry: RegistryEntry = {
-    v: 1, chat: chatId, pid: process.pid, port: null, token, cwd,
+    v: 1, chat: chatId, pid: process.pid, port: null, wsPort: null, token, cwd,
     provider,
     // A session of another provider can't be resumed by this one.
     sessionFile: session ?? (previous?.provider === provider ? previous?.sessionFile ?? null : null),
@@ -143,7 +143,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
       await chat.stopAgent();
     } catch {}
     chat.releaseLock();
-    save({ pid: null, port: null });
+    save({ pid: null, port: null, wsPort: null });
     term.status("idle");
     term.close();
     await server.close().catch(() => {});
@@ -158,8 +158,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     log(`unhandled rejection: ${(e as Error)?.stack ?? e}`);
   });
 
-  const port = await server.listen();
-  save({ port });
+  save(await server.listen());
   term.line(`herdr-chat-host · chat ${chatId} · ${cwd}`);
   if (extra.hint) term.line(extra.hint);
   if (extra.warning) term.line(`! ${extra.warning}`);

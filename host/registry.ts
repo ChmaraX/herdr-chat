@@ -9,7 +9,10 @@ export type RegistryEntry = {
   /** The provider (pi, claude, codex); reopening the chat uses the same one. Absent in entries written before v3 (= pi). */
   provider?: string;
   pid: number | null;
+  /** JSONL over TCP (the CLI, tests, other hosts). */
   port: number | null;
+  /** WebSocket, for the Herdr mod (protocol.md "Transport"). Absent before 0.4: such a host speaks only JSONL. */
+  wsPort?: number | null;
   token: string;
   cwd: string;
   sessionFile: string | null;
