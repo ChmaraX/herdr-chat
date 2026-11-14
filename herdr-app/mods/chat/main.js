@@ -1889,7 +1889,7 @@ export default class HerdrChat extends View {
       hasOlder: this.store.hasOlder,
       expanded: [...this.expanded], full: [...this.full.keys()],
       sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, shown: this.timeline.shown,
-      composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
+      composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
       menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
       picker: this.picker ? { kind: this.picker.kind, sel: this.picker.sel, top: this.picker.top ?? 0, wheeled: this.picker.wheeled ?? 0,

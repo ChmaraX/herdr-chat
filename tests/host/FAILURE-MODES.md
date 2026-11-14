@@ -64,6 +64,17 @@ the test that has to catch it; "not covered" rows are known gaps
 | Abort while a dialog is open hangs Pi | `steer-abort.test.ts` "Esc while a dialog is open" |
 | A steer shows up twice (queue strip and timeline) or never | `steer-abort.test.ts` "steer during a tool": queue strip while queued, then one `queued` user item |
 
+## Composer images (`attachments.test.ts`; E2E `thumb`)
+
+| Failure | Test |
+|---|---|
+| A pasted or dropped image the chat can't show before it's sent (the app shows only files under its home) | `attach_image` and `clipboard_image` answer a path under `<stateDir>/attachments/<chat>`, a copy of the file; E2E `thumb`: the chip draws it, a click enlarges it |
+| A dropped file that isn't an image (or can't be read) staged anyway | `attach_image` rejects a `.txt`, a `.png` that isn't one, a missing file, with `send`'s messages |
+| ✕ deleting the person's own file | `detach_image` on the dropped file leaves it; E2E `thumb` checks the dropped file after ✕ |
+| ✕ deleting a file a held follow-up or a queued steer still sends | both keep their images through `detach_image`; after `queue_edit` takes the follow-up back, ✕ removes it |
+| A restart losing the images in the composer | `shutdown {restart: true}`, then a new host: the attachment is still there |
+| Attachments left behind when the chat closes | after the host's normal exit the folder is gone; E2E `thumb` closes the chat's pane |
+
 ## Crashes and lifecycle
 
 | Failure | Test |

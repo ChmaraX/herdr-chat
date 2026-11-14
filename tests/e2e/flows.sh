@@ -282,6 +282,61 @@ if want misc; then
   expect '[ "$(phase)" = idle ]' "Restart Pi: idle again" 15
 fi
 
+# --- flow: an image in the composer shows as a thumbnail before it's sent ----------------------
+if want thumb; then
+  step "thumb: a dropped image (outside the app home, as a pasted one is) shows as a thumbnail in its chip"
+  CHAT=$(open_chat thumb tools)
+  ready
+  python3 - "$PROJ/thumb.png" <<'EOF'
+# 400x240: magenta, a black bar, lime. No theme has these colours, so they show in a shot only from this picture.
+import struct, sys, zlib
+row = b"\0" + b"".join(bytes((255, 0, 255) if x < 190 else (0, 0, 0) if x < 210 else (0, 255, 0)) for x in range(400))
+chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 400, 240, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(row * 240)) + chunk(b"IEND", b""))
+EOF
+  visible
+  cmd "drop:$PROJ/thumb.png"
+  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ]' "the drop made one image chip" 5
+  ATT=$(d 'd["composer"]["chips"][0]')
+  REL=$(d 'd["composer"].get("chipImages", [None])[0]')
+  [ "$REL" != null ] && cmp -s "$HERDR_APP_HOME/$REL" "$PROJ/thumb.png" && ok "its thumbnail draws a copy of the file under the app home ($REL)" \
+    || fail "the chip draws no image: chipImages $(d 'd["composer"].get("chipImages")')"
+  sleep 0.6; H1=$(d 'd["bottomH"]')
+  shot thumb-1-chip 1.2
+  H2=$(d 'd["bottomH"]')
+  if [ "$H1" = null ]; then skip "the composer's height (no frames)"
+  else [ "$H1" = "$H2" ] && ok "the composer keeps its height while the image loads ($H1 px)" || fail "the composer's height moved: $H1 → $H2 px"; fi
+
+  step "thumb: a click on the thumbnail enlarges it, and the chip stays"
+  cmd "click:enlarge:chip:0"
+  expect '[ "$(d "d[\"enlarged\"]")" = "$ATT" ] && overlay_open chat' "the viewer shows the chip's image" 5
+  shot thumb-2-enlarged 0.8
+  do_ overlay.close
+  [ "$(d 'd["composer"]["chips"]')" = "[\"$ATT\"]" ] && ok "the chip is still in the composer" || fail "chips after the click: $(d 'd["composer"]["chips"]')"
+  hidden
+
+  step "thumb: ✕ removes the chip and its copy, never the dropped file"
+  cmd "click:chip-x:0"
+  expect '[ "$(d "d[\"composer\"][\"chips\"]")" = "[]" ]' "✕ removed the chip" 5
+  expect '[ ! -e "$ATT" ]' "and its copy" 5
+  [ -e "$PROJ/thumb.png" ] && ok "the dropped file is untouched" || fail "the dropped file is gone"
+
+  step "thumb: sent, the image is on the message, and its copy stays until the chat closes"
+  cmd "drop:$PROJ/thumb.png"
+  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ]' "dropped again" 5
+  ATT=$(d 'd["composer"]["chips"][0]')
+  send_text "what is in this picture"
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "answered" 15
+  host >"$ART/thumb-host.json"
+  python3 -c 'import json,sys; u=[i for i in json.load(open(sys.argv[1]))["items"] if i["kind"]=="user"][-1]; sys.exit(0 if u.get("images")==1 else 1)' "$ART/thumb-host.json" \
+    && ok "the message carries the image" || fail "no image on the message"
+  [ -e "$ATT" ] && ok "its copy stays after sending (a queued edit takes it back)" || fail "the copy is gone after sending"
+  ME=$(d 'd["place"]["pane"]'); H=$(d 'd["host"]["address"]')
+  do_ pane.close --pane "$ME"
+  expect '! hc ls --json | grep -q "\"address\": *\"$H\""' "closing the chat ends its host" 15
+  expect '[ ! -e "$STATE/attachments/$CHAT" ]' "and removes its attachments" 5
+fi
+
 # --- flow: a chat whose folder is gone (a space on a deleted worktree) ------------------------
 if want folder; then
   step "folder: a chat in a folder that doesn't exist says so, and starts on Retry once it does"
