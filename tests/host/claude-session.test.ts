@@ -82,6 +82,73 @@ test("claude: resume from the transcript shows the same timeline as live (tools,
   }
 });
 
+// Claude Code 2.1.x's task tools, with the results its own code writes (2.1.319's TaskCreate/TaskUpdate).
+const taskCreate = (id: string, subject: string) => ({
+  tool: "TaskCreate", ask: false, input: { subject, description: `Do: ${subject}`, activeForm: subject },
+  result: { content: `Task #${id} created successfully: ${subject}`, tool_use_result: { task: { id, subject, description: `Do: ${subject}` } } },
+});
+const taskUpdate = (taskId: string, change: Record<string, string>, from = "pending") => {
+  const fields = Object.keys(change).map((k) => (k === "status" && change[k] === "deleted" ? "deleted" : k));
+  const statusChange = change.status ? { statusChange: { from, to: change.status } } : {};
+  return {
+    tool: "TaskUpdate", ask: false, input: { taskId, ...change },
+    result: { content: `Updated task #${taskId} ${fields.join(", ")}`, tool_use_result: { success: true, taskId, updatedFields: fields, ...statusChange } },
+  };
+};
+const TASKS = {
+  turns: [
+    {
+      match: "Plan the work",
+      steps: [
+        { text: "A task list first." },
+        taskCreate("1", "Map the input paths"),
+        taskCreate("2", "Wire the composer"),
+        taskCreate("3", "Write a throwaway note"),
+        taskUpdate("1", { status: "in_progress" }),
+        { subagent: { description: "Map inputs", type: "general-purpose", steps: [taskUpdate("1", { status: "completed" }, "in_progress")], report: "Mapped." } },
+        { tool: "TaskUpdate", ask: false, input: { taskId: "9", status: "completed" }, result: { content: "Task not found", tool_use_result: { success: false, taskId: "9", updatedFields: [], error: "Task not found" } } },
+        taskUpdate("3", { status: "deleted" }),
+        taskUpdate("2", { subject: "Wire the composer to hc send", status: "in_progress" }),
+        { text: "Under way." },
+      ],
+    },
+    { match: "Finish", steps: [taskUpdate("2", { status: "completed" }, "in_progress"), taskCreate("4", "Check the transcript"), { text: "Finished." }] },
+  ],
+};
+
+test("claude: TaskCreate/TaskUpdate build one plan card, live, on resume, and after a resume", async () => {
+  const plans = (items: any[]) => items.filter((i) => i.kind === "plan").map((p) => p.steps.map((s: any) => [s.text, s.status]));
+  const live = await startClaude({ name: "claude-tasks-live", speed: 4, scenario: TASKS });
+  let liveItems: any[];
+  try {
+    const c = live.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "Plan the work" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Under way."), 10_000);
+    assert.deepEqual(plans(c.items), [[["Map the input paths", "completed"], ["Wire the composer to hc send", "in_progress"]]],
+      "one card: the subagent's update counts, the unknown task and the deleted one don't show, the rename does");
+    assert.equal(c.items.filter((i) => i.kind === "tool" && !i.parent && /^Task(Create|Update)/.test(i.title)).length, 7, "the task calls keep their rows");
+    liveItems = structuredClone(c.items);
+    live.artifact("claude-tasks-live");
+  } finally {
+    await live.stop();
+  }
+
+  const again = await startClaude({ name: "claude-tasks-resumed", speed: 4, scenario: TASKS, dir: live.dir });
+  try {
+    const c = again.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "plan"), 10_000, "history loaded");
+    assert.deepEqual(seen(c.items), seen(liveItems), "the transcript rebuilds the same card");
+    await c.req("send", { text: "Finish" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Finished."), 10_000);
+    assert.deepEqual(plans(c.items), [[["Map the input paths", "completed"], ["Wire the composer to hc send", "completed"], ["Check the transcript", "pending"]]],
+      "after the resume the same card keeps updating, with the tasks from before it");
+    again.artifact("claude-tasks-resumed");
+  } finally {
+    await again.stop();
+  }
+});
+
 test("claude: /compact, an image prompt, sessions + switch + new, and the TUI hand-off argv", async () => {
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC", "base64");
   const h = await startClaude({ name: "claude-session-ops", speed: 4, scenario: { turns: [{ match: "colour", steps: [{ text: "Red." }] }], default: [{ text: "ok: {prompt}" }] } });
