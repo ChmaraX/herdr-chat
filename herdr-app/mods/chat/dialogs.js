@@ -1,8 +1,7 @@
 // The open extension dialog (state.dialog), drawn as a card above the
 // composer: select → option buttons, confirm → Yes / No, input / editor →
-// a field and Submit. Esc cancels (main.js). Fields are made when the dialog
+// a field and Submit, questions → a QuestionsForm (questions.js). Esc cancels (main.js). Fields are made when the dialog
 // first arrives (not in render): `DialogCard.sync` from the record handler.
-// A questions card is its own model, `form` (questions.js).
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
@@ -19,16 +18,14 @@ export class DialogCard {
     this.id = null;
     this.field = null;
     this.form = null;
-    this.typed = false; // an input or editor dialog: its field has the keyboard
+    this.textDialog = false;
     this.sel = 0;
   }
 
   // Called with the current dialog whenever state changes (task/event context).
-  // A text dialog takes the keyboard. A card that had it, gone or replaced,
-  // gives it back to the composer.
   sync(dialog) {
     if ((dialog?.id ?? null) === this.id) return false;
-    const hadKeyboard = this.typed || this.form?.otherFocus != null;
+    const hadKeyboard = this.textDialog || this.form?.otherFocus != null;
     this.field?.release?.();
     this.field = null;
     this.form?.release();
@@ -47,8 +44,8 @@ export class DialogCard {
       this.field.set_auto_grow(3, 12);
     }
     this.field?.on?.("change", (_e, cx) => this.onChange?.(cx));
-    this.typed = dialog?.method === "input" || dialog?.method === "editor";
-    if (this.typed) this.field.focus();
+    this.textDialog = dialog?.method === "input" || dialog?.method === "editor";
+    if (this.textDialog) this.field.focus();
     else if (hadKeyboard) this.focusComposer();
     return true;
   }

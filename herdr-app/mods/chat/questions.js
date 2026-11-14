@@ -35,7 +35,7 @@ export class QuestionsForm {
       });
       this.others.set(q.id, f);
     });
-    this.cur = { q: 0, i: questions.length ? this.home(questions[0]) : 0 };
+    this.cur = { q: 0, i: questions.length ? this.startRow(questions[0]) : 0 };
   }
 
   release() {
@@ -54,12 +54,10 @@ export class QuestionsForm {
     return null;
   }
 
-  // A number key: option n (1-based) of the highlighted question.
   digit(n) {
     this.pick(this.cur.q, n - 1);
   }
 
-  // Question qi's Other text, as typing it does (the command dialog:other).
   setOther(qi, text) {
     const q = this.questions[qi];
     if (!q || !this.others.has(q.id)) return;
@@ -108,7 +106,6 @@ export class QuestionsForm {
     return null;
   }
 
-  // Space ticks options of a multi-select question (on its Other field, the field takes the keyboard).
   space() {
     const q = this.questions[this.cur.q];
     if (!q?.multiSelect) return;
@@ -126,7 +123,6 @@ export class QuestionsForm {
     this.focusComposer();
   }
 
-  // Option n of question qi, as a click or a number key does. A single-select answer moves on.
   pick(qi, n) {
     const q = this.questions[qi];
     if (!q?.options?.[n]) return;
@@ -136,7 +132,6 @@ export class QuestionsForm {
     this.onChange?.();
   }
 
-  // Single-select: option n becomes the answer. Multi-select: n is ticked or unticked.
   setOrToggle(q, n) {
     const label = q.options[n].label;
     const set = this.picked.get(q.id);
@@ -147,7 +142,6 @@ export class QuestionsForm {
     if (set.has(label)) set.delete(label); else set.add(label);
   }
 
-  // ↑ (-1) or ↓ (1), through every row of the card.
   move(step) {
     const rows = this.questions.flatMap((q, qi) => Array.from({ length: this.rowCount(q) }, (_, i) => ({ q: qi, i })));
     if (!rows.length) return;
@@ -160,14 +154,13 @@ export class QuestionsForm {
     for (let k = 1; k < qs.length; k++) {
       const qi = (this.cur.q + k) % qs.length;
       if (!this.answered(qs[qi])) {
-        this.cur = { q: qi, i: this.home(qs[qi]) };
+        this.cur = { q: qi, i: this.startRow(qs[qi]) };
         return;
       }
     }
   }
 
-  // Where the cursor lands in question q: its pick, else the recommended option, else the first row.
-  home(q) {
+  startRow(q) {
     const opts = q.options ?? [];
     const picked = opts.findIndex((o) => this.picked.get(q.id).has(o.label));
     return picked >= 0 ? picked : Math.max(0, opts.findIndex((o) => o.recommended));
@@ -216,8 +209,6 @@ export class QuestionsForm {
     return ["↑↓ move", q.multiSelect && "Space ticks", enter, n > 1 ? `1–${n} choose` : n === 1 && "1 chooses", "Esc cancels"].filter(Boolean).join(" · ");
   }
 
-  // Each question with its options (toggles when multi-select), an "Other"
-  // field when allowed, then Submit. answer(kind, value, cx) as DialogCard's.
   view(t, answer) {
     const qs = this.questions;
     const ready = this.answers() != null;
