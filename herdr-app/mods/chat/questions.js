@@ -89,9 +89,10 @@ export class QuestionsForm {
     return null;
   }
 
+  // Space ticks options of a multi-select question (on its Other field, the field takes the keyboard).
   space() {
     const q = this.questions[this.cur.q];
-    if (!q) return;
+    if (!q?.multiSelect) return;
     if (this.isOther(q, this.cur.i)) this.others.get(q.id).focus();
     else this.pick(this.cur.q, this.cur.i);
   }

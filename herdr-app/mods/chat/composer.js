@@ -9,9 +9,10 @@
 //   HerdrChatEmpty    nothing typed (or a recalled prompt): ↑ ↓ walk history
 //   HerdrChatComposer text typed: Enter sends (steers while working), Alt+Enter
 //                  queues a follow-up, Shift+Enter is a newline
-//   HerdrChatAsk      a permission or questions card is open and nothing is
-//                  typed: 1–9 choose, ↑ ↓ move, Space ticks, Enter answers, Esc denies
-// Esc is ours in all three.
+//   HerdrChatAsk      a permission card is open and nothing is typed: 1–9
+//                  choose, ↑ ↓ move, Enter answers, Esc denies
+//   HerdrChatQuestions the same for a questions card, and Space ticks
+// Esc is ours in all of them.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
@@ -19,7 +20,8 @@ import { alpha, icon } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
 
-const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk"];
+const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatQuestions"];
+const CARDS = ["HerdrChatAsk", "HerdrChatQuestions"];
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 export const ACTIONS = ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape", "herdrchat_space", ...DIGITS.map((d) => `herdrchat_digit_${d}`)];
 
@@ -29,14 +31,14 @@ export function bindComposerKeys(cx) {
   for (const ctx of CONTEXTS) {
     // Sending (Enter steers, Alt+Enter queues a follow-up) is the `steer` and `followUp` shortcuts
     // (shortcuts.js), so the person can rebind them; in a menu and on an approval card Enter stays ours.
-    if (ctx === "HerdrChatMenu" || ctx === "HerdrChatAsk") b.push({ keystroke: "enter", action: "herdrchat_enter", context: `${ctx} > Input` });
+    if (ctx === "HerdrChatMenu" || CARDS.includes(ctx)) b.push({ keystroke: "enter", action: "herdrchat_enter", context: `${ctx} > Input` });
     b.push({ keystroke: "escape", action: "herdrchat_escape", context: ctx });
     // An Input's own Esc (a picker's filter field) would win over the context around it.
     b.push({ keystroke: "escape", action: "herdrchat_escape", context: `${ctx} > Input` });
   }
-  for (const d of DIGITS) b.push({ keystroke: d, action: `herdrchat_digit_${d}`, context: "HerdrChatAsk > Input" });
-  b.push({ keystroke: "space", action: "herdrchat_space", context: "HerdrChatAsk > Input" });
-  for (const ctx of ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatAsk"]) {
+  for (const ctx of CARDS) for (const d of DIGITS) b.push({ keystroke: d, action: `herdrchat_digit_${d}`, context: `${ctx} > Input` });
+  b.push({ keystroke: "space", action: "herdrchat_space", context: "HerdrChatQuestions > Input" });
+  for (const ctx of ["HerdrChatMenu", "HerdrChatEmpty", ...CARDS]) {
     b.push({ keystroke: "up", action: "herdrchat_up", context: `${ctx} > Input` });
     b.push({ keystroke: "down", action: "herdrchat_down", context: `${ctx} > Input` });
   }
@@ -177,7 +179,7 @@ export class Composer {
   context() {
     // A menu, or a select/confirm dialog while nothing is typed: ↑ ↓ Enter choose.
     if (this.menu?.items?.length || (this.dialogKeys && !this.value.trim())) return "HerdrChatMenu";
-    if (this.askKeys && !this.value.trim()) return "HerdrChatAsk";
+    if (this.askCard && !this.value.trim()) return this.askCard === "questions" ? "HerdrChatQuestions" : "HerdrChatAsk";
     if (!this.value.trim() || (this.history && this.value === this.history.text)) return "HerdrChatEmpty";
     return "HerdrChatComposer";
   }

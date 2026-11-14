@@ -762,7 +762,7 @@ export default class HerdrChat extends View {
     if (this.dialog.sync(s.dialog) && this.dialog.field && typed) this.dialog.field.focus();
     if (!s.dialog && this.dialogFocusBack) this.composer.focus();
     this.composer.dialogKeys = s.dialog?.method === "select" || s.dialog?.method === "confirm";
-    this.composer.askKeys = s.dialog?.method === "permission" || s.dialog?.method === "questions";
+    this.composer.askCard = s.dialog?.method === "permission" || s.dialog?.method === "questions" ? s.dialog.method : null;
     this.dialogFocusBack = Boolean(this.dialog.field) && typed;
     if (s.editorText != null && s.editorText !== this.editorAcked) {
       this.editorAcked = s.editorText;
@@ -1223,7 +1223,7 @@ export default class HerdrChat extends View {
     const m = this.composer.menu?.items?.length ? this.composer.menu : null;
     const dlg = this.store.state.dialog;
     // A permission or questions card, the composer empty: 1–9, ↑↓, Space, Enter, Esc answer it.
-    if (!pk && !m && dlg && this.composer.askKeys && !this.composer.value.trim() && this.askAction(a, dlg, cx)) {
+    if (!pk && !m && dlg && this.composer.askCard && !this.composer.value.trim() && this.askAction(a, dlg, cx)) {
       this.debug.mark();
       cx.notify();
       return;

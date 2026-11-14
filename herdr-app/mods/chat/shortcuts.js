@@ -30,9 +30,9 @@ export const actionName = (a) => `herdrchat_k_${a}`;
 
 // The inputs inside the chat (composer.js, menus.js, dialogs.js): a chord
 // must be bound "<ctx> > Input" too, or the input's own keys win.
-const INPUTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatDialog", "HerdrChatEditor"];
+const INPUTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatQuestions", "HerdrChatDialog", "HerdrChatEditor"];
 // The cycles (Shift+Tab) work only in the composer, and not while a menu is open.
-const COMPOSER = ["HerdrChatEmpty > Input", "HerdrChatComposer > Input", "HerdrChatAsk > Input"];
+const COMPOSER = ["HerdrChatEmpty > Input", "HerdrChatComposer > Input", "HerdrChatAsk > Input", "HerdrChatQuestions > Input"];
 // Sending is the composer's with text in it (or images): in a menu Enter picks,
 // on an empty composer with an approval card it answers (composer.js).
 const SENDING = ["HerdrChatEmpty > Input", "HerdrChatComposer > Input"];
