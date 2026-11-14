@@ -83,7 +83,7 @@ export default class HerdrChat extends View {
     this.timeline = new Timeline("herdr-chat-timeline");
     this.expanded = new Set();
     this.full = new Map();
-    this.dialog = new DialogCard(() => this.debug?.mark(), () => this.composer.focus());
+    this.dialog = new DialogCard((cx) => { this.debug?.mark(); cx?.notify(); }, () => this.composer.focus());
     this.picker = null;
     this.handoff = null;
     this.transcript = false;
@@ -756,14 +756,11 @@ export default class HerdrChat extends View {
 
   afterState(cx) {
     const s = this.store.state;
-    // A text dialog takes the keyboard; a permission or questions card leaves
-    // it in the composer (number keys, Enter and Esc answer while it's empty).
-    const typed = s.dialog?.method === "input" || s.dialog?.method === "editor";
-    if (this.dialog.sync(s.dialog) && this.dialog.field && typed) this.dialog.field.focus();
-    if (!s.dialog && this.dialogFocusBack) this.composer.focus();
+    // A permission or questions card leaves the keyboard in the composer
+    // (number keys, Enter and Esc answer while it's empty).
+    this.dialog.sync(s.dialog);
     this.composer.dialogKeys = s.dialog?.method === "select" || s.dialog?.method === "confirm";
     this.composer.askCard = s.dialog?.method === "permission" || s.dialog?.method === "questions" ? s.dialog.method : null;
-    this.dialogFocusBack = Boolean(this.dialog.field) && typed;
     if (s.editorText != null && s.editorText !== this.editorAcked) {
       this.editorAcked = s.editorText;
       this.composer.set(s.editorText);

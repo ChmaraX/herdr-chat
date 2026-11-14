@@ -19,12 +19,16 @@ export class DialogCard {
     this.id = null;
     this.field = null;
     this.form = null;
+    this.typed = false; // an input or editor dialog: its field has the keyboard
     this.sel = 0;
   }
 
   // Called with the current dialog whenever state changes (task/event context).
+  // A text dialog takes the keyboard. A card that had it, gone or replaced,
+  // gives it back to the composer.
   sync(dialog) {
     if ((dialog?.id ?? null) === this.id) return false;
+    const hadKeyboard = this.typed || this.form?.otherFocus != null;
     this.field?.release?.();
     this.field = null;
     this.form?.release();
@@ -42,7 +46,10 @@ export class DialogCard {
       this.field = TextareaState.new({ placeholder: dialog.placeholder ?? "", value: dialog.prefill ?? "" });
       this.field.set_auto_grow(3, 12);
     }
-    this.field?.on?.("change", () => this.onChange?.());
+    this.field?.on?.("change", (_e, cx) => this.onChange?.(cx));
+    this.typed = dialog?.method === "input" || dialog?.method === "editor";
+    if (this.typed) this.field.focus();
+    else if (hadKeyboard) this.focusComposer();
     return true;
   }
 

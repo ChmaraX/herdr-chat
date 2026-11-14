@@ -18,14 +18,23 @@ export class QuestionsForm {
     this.focusComposer = focusComposer;
     this.picked = new Map(); // question id → Set of option labels
     this.others = new Map(); // question id → InputState ("Other")
-    for (const q of questions) {
+    this.otherFocus = null; // the question id whose Other field has the keyboard
+    questions.forEach((q, qi) => {
       this.picked.set(q.id, new Set());
-      if (q.allowOther) {
-        const f = InputState.new({ placeholder: "Other…" });
-        f.on("change", () => this.otherChanged(q));
-        this.others.set(q.id, f);
-      }
-    }
+      if (!q.allowOther) return;
+      const f = InputState.new({ placeholder: "Other…" });
+      f.on("change", (_e, cx) => this.otherChanged(q, cx));
+      f.on("focus", (_e, cx) => {
+        this.otherFocus = q.id;
+        this.cur = { q: qi, i: this.optionCount(q) };
+        this.onChange?.(cx);
+      });
+      f.on("blur", (_e, cx) => {
+        if (this.otherFocus === q.id) this.otherFocus = null;
+        this.onChange?.(cx);
+      });
+      this.others.set(q.id, f);
+    });
     this.cur = { q: 0, i: questions.length ? this.home(questions[0]) : 0 };
   }
 
@@ -40,7 +49,7 @@ export class QuestionsForm {
     if (inOther != null) this.cur = { q: inOther, i: this.optionCount(this.questions[inOther]) };
     if (action === "up" || action === "down") this.move(action === "up" ? -1 : 1);
     else if (action === "space") this.space();
-    else if (action === "escape") this.focusComposer();
+    else if (action === "escape") this.toComposer();
     else if (action === "enter") return this.enter(inOther != null);
     return null;
   }
@@ -58,9 +67,9 @@ export class QuestionsForm {
     this.otherChanged(q);
   }
 
-  otherChanged(q) {
+  otherChanged(q, cx) {
     if (!q.multiSelect && this.otherText(q)) this.picked.get(q.id).clear();
-    this.onChange?.();
+    this.onChange?.(cx);
   }
 
   debugState() {
@@ -68,6 +77,7 @@ export class QuestionsForm {
       picked: Object.fromEntries([...this.picked].map(([k, v]) => [k, [...v]])),
       others: Object.fromEntries([...this.others].map(([k, f]) => [k, f.value()])),
       cursor: this.cur,
+      otherFocus: this.otherFocus,
     };
   }
 
@@ -88,10 +98,10 @@ export class QuestionsForm {
   enter(inField) {
     const plan = this.enterPlan(inField);
     const q = this.questions[this.cur.q];
-    if (plan.then === "type") return this.others.get(q.id).focus(), null;
-    if (plan.then === "back") return this.focusComposer(), null;
+    if (plan.then === "type") return this.focusOther(q), null;
+    if (plan.then === "back") return this.toComposer(), null;
     if (plan.choose != null) this.setOrToggle(q, plan.choose);
-    if (inField) this.focusComposer();
+    if (inField) this.toComposer();
     this.onChange?.();
     if (plan.then === "submit") return this.answers();
     this.advance();
@@ -102,8 +112,18 @@ export class QuestionsForm {
   space() {
     const q = this.questions[this.cur.q];
     if (!q?.multiSelect) return;
-    if (this.isOther(q, this.cur.i)) this.others.get(q.id).focus();
+    if (this.isOther(q, this.cur.i)) this.focusOther(q);
     else this.pick(this.cur.q, this.cur.i);
+  }
+
+  focusOther(q) {
+    this.otherFocus = q.id;
+    this.others.get(q.id).focus();
+  }
+
+  toComposer() {
+    this.otherFocus = null;
+    this.focusComposer();
   }
 
   // Option n of question qi, as a click or a number key does. A single-select answer moves on.
@@ -188,8 +208,10 @@ export class QuestionsForm {
   hint() {
     const q = this.questions[this.cur.q];
     if (!q) return "Esc cancels";
-    const plan = this.enterPlan(false);
-    const enter = plan.then === "type" ? "Enter types an answer" : plan.then === "submit" ? "Enter submits" : plan.choose == null ? "Enter next" : "Enter picks";
+    const typing = this.otherFocus != null;
+    const plan = this.enterPlan(typing);
+    const enter = { type: "Enter types an answer", back: "Enter goes back", submit: "Enter submits" }[plan.then] ?? (plan.choose == null ? "Enter next" : "Enter picks");
+    if (typing) return `${enter} · Esc goes back`;
     const n = Math.min(this.optionCount(q), 9);
     return ["↑↓ move", q.multiSelect && "Space ticks", enter, n > 1 ? `1–${n} choose` : n === 1 && "1 chooses", "Esc cancels"].filter(Boolean).join(" · ");
   }
@@ -231,7 +253,7 @@ export class QuestionsForm {
             if (out) answer("answers", out, cx);
             cx.notify();
           })
-          .on_action("herdrchat_dialog_escape", (_e, cx) => answer("cancel", null, cx))
+          .on_action("herdrchat_dialog_escape", (_e, cx) => { this.key("escape", { inOther: qi }); cx.notify(); })
           .child(Input.new(this.others.get(q.id)).h(30).px(10).rounded(8).border_1().border_color(lit(this.optionCount(q)) ? t.accent : t.input)
             .bg(t.background).text_size(12.5))));
     });
