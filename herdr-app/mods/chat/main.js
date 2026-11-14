@@ -1272,11 +1272,12 @@ export default class HerdrChat extends View {
       return false;
     }
     if (d.method === "questions") {
-      if (digit) { this.dialog.pick(d, this.dialog.cur.q, Number(digit[1]) - 1); return true; }
-      if (a === "herdrchat_up" || a === "herdrchat_down") { this.dialog.move(d, a === "herdrchat_up" ? -1 : 1); return true; }
-      if (a === "herdrchat_space") { this.dialog.tick(d); return true; }
-      if (a === "herdrchat_enter") { const ans = this.dialog.enter(d); if (ans) this.answer("answers", ans, cx); return true; }
-      if (a === "herdrchat_escape") { this.answer("cancel", null, cx); return true; }
+      const key = /^herdrchat_(up|down|space|enter)$/.exec(a)?.[1];
+      if (a === "herdrchat_escape") this.answer("cancel", null, cx);
+      else if (digit) this.dialog.form.digit(Number(digit[1]));
+      else if (key) { const ans = this.dialog.form.key(key); if (ans) this.answer("answers", ans, cx); }
+      else return false;
+      return true;
     }
     return false;
   }
@@ -1513,8 +1514,7 @@ export default class HerdrChat extends View {
         if (what.startsWith("dialog:reason:")) { this.dialog.field?.set_value?.(what.slice(14)); break; }
         if (what.startsWith("dialog:other:")) { // dialog:other:<question index>:<text>
           const [qi, ...rest] = what.slice(13).split(":");
-          const q = d?.questions?.[Number(qi)];
-          if (q) this.dialog.others.get(q.id)?.set_value?.(rest.join(":"));
+          this.dialog.form?.setOther(Number(qi), rest.join(":"));
           break;
         }
         if (what.startsWith("picker:")) return this.picker?.choose(Number(what.slice(7)), cx);
@@ -1875,8 +1875,7 @@ export default class HerdrChat extends View {
       phase: s.phase, error: s.error, model: s.model ? `${s.model.provider}/${s.model.id}` : null, thinking: s.thinking,
       sessionFile: s.sessionFile, sessionName: s.sessionName, usage: s.usage, queue: s.queue,
       dialog: s.dialog ? { id: s.dialog.id, method: s.dialog.method, title: s.dialog.title, value: this.dialog.field ? this.dialog.value() : null,
-        ...(s.dialog.method === "questions" ? { picked: Object.fromEntries([...this.dialog.picked].map(([k, v]) => [k, [...v]])),
-          others: Object.fromEntries([...this.dialog.others].map(([k, f]) => [k, f.value()])), cursor: this.dialog.cur } : {}) } : null,
+        ...this.dialog.form?.debugState() } : null,
       statuses: s.statuses.map((x) => ({ key: x.key, text: x.spans.map((y) => y.text).join("") })),
       widgets: s.widgets.map((w) => w.key), commands: s.commands.length, commandNames: s.commands.map((c) => c.name),
       items: this.store.items.map((it) => ({ id: it.id, kind: it.kind, ...(it.parent ? { parent: it.parent } : {}), ...(it.status ? { status: it.status } : {}), ...(it.streaming ? { streaming: true } : {}),

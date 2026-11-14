@@ -2,10 +2,7 @@
 // composer: select → option buttons, confirm → Yes / No, input / editor →
 // a field and Submit. Esc cancels (main.js). Fields are made when the dialog
 // first arrives (not in render): `DialogCard.sync` from the record handler.
-//
-// A questions card's cursor, `cur = {q, i}`, is question q, row i (its
-// options, then its "Other" field). It is only a highlight: `picked` and the
-// Other fields hold the answers.
+// A questions card is its own model, `form` (questions.js).
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
@@ -13,13 +10,15 @@ import { alpha, icon } from "./util.js";
 import { SPACE } from "./space.js";
 import { toolIcon, toolTitle } from "./cards.js";
 import { diffView } from "./rich.js";
+import { QuestionsForm } from "./questions.js";
 
 export class DialogCard {
-  constructor(onChange, onLeave) {
+  constructor(onChange, focusComposer) {
     this.onChange = onChange; // the field's text changed (the debug dump shows it)
-    this.onLeave = onLeave; // an "Other" field hands the keyboard back to the composer
+    this.focusComposer = focusComposer;
     this.id = null;
     this.field = null;
+    this.form = null;
     this.sel = 0;
   }
 
@@ -28,24 +27,15 @@ export class DialogCard {
     if ((dialog?.id ?? null) === this.id) return false;
     this.field?.release?.();
     this.field = null;
+    this.form?.release();
+    this.form = null;
     this.id = dialog?.id ?? null;
     this.sel = 0;
-    this.picked = new Map(); // questions: question id → Set of option labels
-    this.others = new Map(); // questions: question id → InputState ("Other")
-    this.cur = { q: 0, i: 0 }; // questions: the highlighted row; the number keys answer question q
     if (dialog?.method === "permission" && dialog.choices?.some((x) => x.kind === "deny")) {
       this.field = InputState.new({ placeholder: "Why not? (optional, sent with Deny)" });
     }
     if (dialog?.method === "questions") {
-      for (const q of dialog.questions ?? []) {
-        this.picked.set(q.id, new Set());
-        if (q.allowOther) {
-          const f = InputState.new({ placeholder: "Other…" });
-          f.on("change", () => this.onChange?.());
-          this.others.set(q.id, f);
-        }
-      }
-      if (dialog.questions?.length) this.cur.i = this.home(dialog.questions[0]);
+      this.form = new QuestionsForm(dialog.questions ?? [], { onChange: this.onChange, focusComposer: this.focusComposer });
     }
     if (dialog?.method === "input") this.field = InputState.new({ placeholder: dialog.placeholder ?? "", value: dialog.prefill ?? "" });
     if (dialog?.method === "editor") {
@@ -77,105 +67,6 @@ export class DialogCard {
     return { choice: ch.id, ...(reason ? { message: reason } : {}) };
   }
 
-  // questions: pick (or toggle, multi-select) option n of question qi, as a
-  // click, a number key or Space does. A single-select answer moves on.
-  pick(d, qi, n) {
-    const q = d.questions?.[qi];
-    if (!q?.options?.[n]) return false;
-    this.choose(q, n);
-    this.cur = { q: qi, i: n };
-    if (!q.multiSelect) this.advance(d);
-    this.onChange?.();
-    return true;
-  }
-
-  choose(q, n) {
-    const label = q.options[n].label;
-    const set = this.picked.get(q.id);
-    if (!q.multiSelect) set.clear();
-    if (set.has(label)) set.delete(label); else set.add(label);
-  }
-
-  // questions: ↑ (-1) or ↓ (1), through every row of the card.
-  move(d, step) {
-    const rows = (d.questions ?? []).flatMap((q, qi) => Array.from({ length: this.rowCount(q) }, (_, i) => ({ q: qi, i })));
-    const at = rows.findIndex((r) => r.q === this.cur.q && r.i === this.cur.i);
-    this.cur = rows[(at + step + rows.length) % rows.length] ?? this.cur;
-  }
-
-  // questions: Space. Picks or ticks the highlighted option, or opens the Other field.
-  tick(d) {
-    const q = d.questions[this.cur.q];
-    if (this.isOther(q, this.cur.i)) this.others.get(q.id).focus();
-    else this.pick(d, this.cur.q, this.cur.i);
-  }
-
-  // questions: Enter. Answers question q with row i (multi-select: only while
-  // nothing is ticked) and moves on to the next unanswered one. Returns the
-  // answers once none is missing. An empty Other field takes the keyboard.
-  enter(d) {
-    const q = d.questions[this.cur.q];
-    if (this.isOther(q, this.cur.i)) {
-      const field = this.others.get(q.id);
-      if (!field.value().trim()) {
-        field.focus();
-        return null;
-      }
-      this.onLeave?.();
-    } else if (!q.multiSelect || !this.answered(q)) this.choose(q, this.cur.i);
-    const out = this.answers(d);
-    if (!out) this.advance(d);
-    this.onChange?.();
-    return out;
-  }
-
-  advance(d) {
-    const qs = d.questions;
-    for (let k = 1; k < qs.length; k++) {
-      const qi = (this.cur.q + k) % qs.length;
-      if (!this.answered(qs[qi])) {
-        this.cur = { q: qi, i: this.home(qs[qi]) };
-        return;
-      }
-    }
-  }
-
-  // Where the cursor lands in question q: its pick, else the option Claude
-  // marks "(Recommended)", else the first row.
-  home(q) {
-    const opts = q.options ?? [];
-    const picked = opts.findIndex((o) => this.picked.get(q.id).has(o.label));
-    return picked >= 0 ? picked : Math.max(0, opts.findIndex((o) => o.label.endsWith("(Recommended)")));
-  }
-
-  rowCount(q) {
-    return (q.options?.length ?? 0) + (this.others.has(q.id) ? 1 : 0);
-  }
-
-  isOther(q, i) {
-    return i === (q.options?.length ?? 0);
-  }
-
-  otherText(q) {
-    return this.others.get(q.id)?.value().trim() ?? "";
-  }
-
-  answered(q) {
-    return this.picked.get(q.id).size > 0 || Boolean(this.otherText(q));
-  }
-
-  // questions: {questionId: label | [labels]}, or null while one is unanswered.
-  answers(d) {
-    const out = {};
-    for (const q of d.questions ?? []) {
-      if (!this.answered(q)) return null;
-      const other = this.otherText(q);
-      const set = [...this.picked.get(q.id), ...(other ? [other] : [])];
-      out[q.id] = q.multiSelect ? set : other || set[0];
-    }
-    return out;
-  }
-
   // answer(kind, value, cx): kind "value" | "confirm" | "cancel" | "submit"
   view(d, pending, t, answer, c) {
     const btn = (id, label, primary, fn) => h_flex().id(id).h(28).px(12).items_center().rounded(7).cursor_pointer()
@@ -184,7 +75,7 @@ export class DialogCard {
       .hover((s) => s.opacity(0.88)).on_click(fn).child(label);
     let body;
     if (d.method === "permission") return this.permissionView(d, pending, t, answer, c, btn);
-    if (d.method === "questions") return this.questionsView(d, pending, t, answer, c, btn);
+    if (d.method === "questions") return this.frame(d, pending, t, answer, "help", "cancel").children(this.form.view(t, answer));
     if (d.method === "select") {
       body = v_flex().gap(4).children((d.options ?? []).map((o, i) => h_flex().id(`dlg-opt-${i}`).min_h(30).px(10).py(5).gap(8).items_center()
         .rounded(7).border_1().border_color(i === this.sel ? t.accent : t.border).bg(t.background).cursor_pointer()
@@ -274,69 +165,5 @@ export class DialogCard {
       .child(h_flex().gap(8).flex_wrap().children(choices.map(button)))
       .children(wrap ? [wrap] : [])
       .child(div().text_size(11).text_color(t.dim).child(`1–${choices.length} choose · Enter ${choices.find((x) => x.kind === "allow")?.label ?? "the first"}${hasDeny ? " · Esc deny" : ""} (with the composer empty)`));
-  }
-
-  // The agent asks the person: each question with its options (toggles when
-  // multi-select), an "Other" field when allowed, then Submit.
-  questionsView(d, pending, t, answer, c, btn) {
-    const qs = d.questions ?? [];
-    const ready = this.answers(d) != null;
-    const blocks = qs.map((q, qi) => {
-      const set = this.picked.get(q.id) ?? new Set();
-      const current = qi === this.cur.q && qs.length > 1;
-      const lit = (i) => qi === this.cur.q && i === this.cur.i;
-      const otherRow = q.options?.length ?? 0;
-      return v_flex().gap(6)
-        .child(h_flex().gap(8).items_center()
-          .when(Boolean(q.header), (e) => e.child(div().flex_none().h(18).px(6).rounded(6).flex().items_center().text_size(10.5)
-            .text_color(current ? t.accent : t.dim).bg(alpha(current ? t.accent : t.muted, 0.14)).child(q.header)))
-          .child(div().flex_1().min_w(0).text_size(13).text_color(t.foreground).child(q.question))
-          .when(q.multiSelect, (e) => e.child(div().text_size(11).text_color(t.dim).child("choose any"))))
-        .child(v_flex().gap(4).children((q.options ?? []).map((o, i) => {
-          const on = set.has(o.label);
-          const mark = q.multiSelect
-            ? div().flex_none().w(14).h(14).rounded(4).border_1().border_color(on ? t.accent : t.input).bg(on ? t.accent : alpha(t.background, 0))
-              .flex().items_center().justify_center().child(on ? icon("check", 10).text_color(t.accent_foreground ?? t.background) : div())
-            : div().flex_none().w(14).h(14).rounded_full().border_1().border_color(on ? t.accent : t.input)
-              .flex().items_center().justify_center().child(on ? div().w(6).h(6).rounded_full().bg(t.accent) : div());
-          return h_flex().id(`dlg-q-${q.id}-${i}`).min_h(32).px(10).py(5).gap(10).items_center().rounded(10)
-            .border_1().border_color(lit(i) ? t.accent : on ? alpha(t.accent, 0.4) : t.border).bg(on ? alpha(t.accent, 0.08) : lit(i) ? t.hover : t.background).cursor_pointer()
-            .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.pick(d, qi, i); cx.notify(); })
-            .child(mark)
-            .child(v_flex().flex_1().min_w(0)
-              .child(div().text_size(12.5).text_color(t.foreground).child(o.label))
-              .when(Boolean(o.description), (e) => e.child(div().text_size(11.5).text_color(t.dim).child(o.description))))
-            .when(qi === this.cur.q, (e) => e.child(div().flex_none().text_size(10.5).text_color(t.dim).child(i < 9 ? String(i + 1) : "")));
-        })))
-        .when(this.others.has(q.id), (e) => e.child(div().id(`dlg-other-${q.id}`).key_context("HerdrChatDialog")
-          .on_action("herdrchat_dialog_enter", (_e, cx) => {
-            this.cur = { q: qi, i: otherRow };
-            if (!this.otherText(q)) this.onLeave?.();
-            else { const out = this.enter(d); if (out) answer("answers", out, cx); }
-            cx.notify();
-          })
-          .on_action("herdrchat_dialog_escape", (_e, cx) => answer("cancel", null, cx))
-          .child(Input.new(this.others.get(q.id)).h(30).px(10).rounded(8).border_1().border_color(lit(otherRow) ? t.accent : t.input)
-            .bg(t.background).text_size(12.5))));
-    });
-    return this.frame(d, pending, t, answer, "help", "cancel")
-      .child(v_flex().gap(SPACE.block).children(blocks))
-      .child(h_flex().gap(10).items_center()
-        .child(h_flex().id("dlg-submit").h(30).px(14).items_center().rounded(10).cursor_pointer()
-          .bg(ready ? t.solid : t.raised).text_color(ready ? t.solid_foreground : t.dim).text_size(12.5).font_medium()
-          .hover((s) => s.opacity(0.88)).on_click((_e, cx) => { const a = this.answers(d); if (a) answer("answers", a, cx); })
-          .child("Submit"))
-        .child(div().text_size(11).text_color(t.dim).child(this.questionsHint(d))));
-  }
-
-  questionsHint(d) {
-    const qs = d.questions ?? [];
-    const q = qs[this.cur.q];
-    if (!q) return "Esc cancels";
-    const n = Math.min(q.options?.length ?? 0, 9);
-    const enter = this.isOther(q, this.cur.i) && !this.otherText(q) ? "Enter types an answer"
-      : qs.every((x, j) => j === this.cur.q || this.answered(x)) ? "Enter submits"
-      : q.multiSelect && this.answered(q) ? "Enter next" : "Enter picks";
-    return ["↑↓ move", q.multiSelect && "Space ticks", enter, n > 1 ? `1–${n} choose` : n === 1 && "1 chooses", "Esc cancels"].filter(Boolean).join(" · ");
   }
 }
