@@ -1,5 +1,5 @@
 {
- "description": "E2E (mod): approvals (command allow / for the session / decline with a reason, file change), a permissions grant, requestUserInput questions, a plan and a todo list, a subagent, slow thinking (top level and a subagent's), a steer, an interrupt.",
+ "description": "E2E (mod): approvals (command allow / for the session / decline with a reason, file change), a permissions grant, requestUserInput questions, a plan and a todo list, a subagent, slow thinking (top level, a subagent's and a nested subagent's), a steer, an interrupt.",
  "model": "gpt-5.6-luna",
  "effort": "low",
  "approvalPolicy": "untrusted",
@@ -222,6 +222,7 @@
   },
   {
    "match": "think it over",
+   "note": "Each reasoning streams 4 chars every 100 ms on purpose: the top-level one for ~7 s, the subagent's for ~16 s, the nested one's for ~10 s. flows-v3's 'thinking shows once' step folds and opens cards while they stream, so shorter text fails it.",
    "once": false,
    "steps": [
     {
@@ -237,10 +238,28 @@
       "steps": [
        {
         "reasoning": [
-         "Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up."
+         "Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up. Reading the call sites one by one to see who retries and who gives up."
         ],
         "chunk": 4,
         "every": 100
+       },
+       {
+        "subagent": {
+         "prompt": "Read the retry helper.",
+         "steps": [
+          {
+           "reasoning": [
+            "The helper backs off twice, then gives up and reports the error. The helper backs off twice, then gives up and reports the error. The helper backs off twice, then gives up and reports the error. The helper backs off twice, then gives up and reports the error. The helper backs off twice, then gives up and reports the error. The helper backs off twice, then gives up and reports the error."
+           ],
+           "chunk": 4,
+           "every": 100
+          },
+          {
+           "text": "It backs off twice."
+          }
+         ],
+         "answer": "It backs off twice."
+        }
        },
        {
         "text": "Two call sites retry."
