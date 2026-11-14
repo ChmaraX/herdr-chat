@@ -1985,7 +1985,10 @@ export default class HerdrChat extends View {
     for (let i = items.length - 1; i >= 0 && i >= items.length - 40; i--) {
       const it = items[i];
       if (it.kind === "tool" && (it.status === "running" || it.status === "pending")) return { text: `Running ${it.name}`, since: it.ts };
-      if (it.kind === "thinking" && it.streaming) return { text: "Thinking", since: it.ts };
+      // A thinking row counts its own seconds; only a folded agent card hides it.
+      if (it.kind === "thinking" && it.streaming) {
+        return it.parent && !this.expanded.has(`kids:${it.parent}`) ? { text: "Thinking", since: it.ts } : { text: "Working", since: null };
+      }
       if (it.kind === "assistant" && it.streaming) return { text: it.text ? "Writing" : "Working", since: null };
       if (it.kind === "user") break;
     }
