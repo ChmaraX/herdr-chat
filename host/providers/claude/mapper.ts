@@ -61,8 +61,6 @@ export class ClaudeMapper {
   /** What we sent, by uuid (echo matching, the queue). */
   sent = new Map<string, Sent>();
   toolNames = new Map<string, string>();
-  /** The session's todo lists; the adapter hands it to the history, so a resume carries on. */
-  readonly plans = new ClaudePlans();
   sessionId: string | null = null;
   /** The init `model` (an id such as claude-haiku-5-5). */
   initModel: string | null = null;
@@ -86,6 +84,7 @@ export class ClaudeMapper {
 
   /** Records that ended a turn (`result`), for the adapter's settle fallback. */
   lastResultAt = 0;
+  private plans = new ClaudePlans();
 
   queueEvent(): EventOf<"queue_changed"> {
     const live = [...this.sent.values()].filter((s) => s.queued && !s.echoed && !s.cancelled);
@@ -146,7 +145,21 @@ export class ClaudeMapper {
     return [{ type: "run_settled", aborted }];
   }
 
+  /** A record's events, each followed by the plan event it makes. */
   map(rec: Rec): NormalizedEvent[] {
+    return this.events(rec).flatMap((ev) => {
+      const plan = this.plans.observe(ev);
+      return plan ? [ev, plan] : [ev];
+    });
+  }
+
+  /** The history's events with their plan events. The live session's todo lists carry on from them. */
+  resume(history: NormalizedEvent[]): NormalizedEvent[] {
+    this.plans = new ClaudePlans();
+    return this.plans.replay(history);
+  }
+
+  private events(rec: Rec): NormalizedEvent[] {
     switch (rec.type) {
       case "stream_event":
         return rec.parent_tool_use_id ? [] : this.stream(rec.event ?? {});
@@ -278,13 +291,10 @@ export class ClaudeMapper {
     const name = String(b.name ?? "tool");
     this.toolNames.set(callId, name);
     const p = parent ? { parent } : {};
-    const out: NormalizedEvent[] = [
+    return [
       { type: "tool_call", ...(index !== undefined ? { index } : {}), callId, name, args: b.input, ...p },
       { type: "tool_started", callId, name, args: b.input, ...p },
     ];
-    const plan = this.plans.call(callId, name, b.input, parent);
-    if (plan) out.push(plan);
-    return out;
   }
 
   private assistant(rec: Rec): NormalizedEvent[] {
@@ -378,10 +388,7 @@ export class ClaudeMapper {
       const m = meta.find((x) => x?.id === b.tool_use_id);
       const declined = m?.permission_decision?.decision === "reject" || m?.non_execution_kind === "permission-rule";
       const name = this.toolNames.get(String(b.tool_use_id)) ?? "tool";
-      const ended = toolEnded(b, name, rec.tool_use_result, declined, parent);
-      out.push(ended);
-      const plan = this.plans.ended(ended);
-      if (plan) out.push(plan);
+      out.push(toolEnded(b, name, rec.tool_use_result, declined, parent));
     }
     return out;
   }
