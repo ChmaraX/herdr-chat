@@ -284,7 +284,7 @@ fi
 
 # --- flow: an image in the composer shows as a thumbnail before it's sent ----------------------
 if want thumb; then
-  step "thumb: a dropped image (outside the app home, as a pasted one is) shows as a thumbnail in its chip"
+  step "thumb: a dropped image (outside the app home, as a pasted one is) shows its chip at once, while the host copies it"
   CHAT=$(open_chat thumb tools)
   ready
   python3 - "$PROJ/thumb.png" <<'EOF'
@@ -294,18 +294,29 @@ row = b"\0" + b"".join(bytes((255, 0, 255) if x < 190 else (0, 0, 0) if x < 210 
 chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
 open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 400, 240, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(row * 240)) + chunk(b"IEND", b""))
 EOF
+  attachments() { ls "$STATE/attachments/$CHAT" 2>/dev/null | wc -l | tr -d ' '; }
+  pending() { d 'd["composer"].get("pending", 0)'; }
+  HPID=$(reg "$CHAT" pid)
   visible
+  H0=$(d 'd["bottomH"]')
+  # SIGSTOP: a host busy copying a large file, for as long as the checks need.
+  kill -STOP "$HPID"
   cmd "drop:$PROJ/thumb.png"
-  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ]' "the drop made one image chip" 5
+  until_ '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ]' 3 && ok "the chip is there at once, before the host has copied the file" \
+    || { kill -CONT "$HPID"; fail "no chip while the host copies the file"; }
+  H1=null
+  [ "$H0" = null ] || { until_ '[ "$(d "d[\"bottomH\"]")" != "$H0" ]' 3; H1=$(d 'd["bottomH"]'); }
+  shot thumb-0-copying 0.4
+  kill -CONT "$HPID"
+  expect '[ "$(pending)" = 0 ] && [ "$(d "d[\"composer\"][\"chipImages\"][0]")" != null ]' "the chat's copy replaced the dropped file in the chip" 5
   ATT=$(d 'd["composer"]["chips"][0]')
-  REL=$(d 'd["composer"].get("chipImages", [None])[0]')
-  [ "$REL" != null ] && cmp -s "$HERDR_APP_HOME/$REL" "$PROJ/thumb.png" && ok "its thumbnail draws a copy of the file under the app home ($REL)" \
+  REL=$(d 'd["composer"]["chipImages"][0]')
+  cmp -s "$HERDR_APP_HOME/$REL" "$PROJ/thumb.png" && ok "its thumbnail draws a copy of the file under the app home ($REL)" \
     || fail "the chip draws no image: chipImages $(d 'd["composer"].get("chipImages")')"
-  sleep 0.6; H1=$(d 'd["bottomH"]')
   shot thumb-1-chip 1.2
   H2=$(d 'd["bottomH"]')
   if [ "$H1" = null ]; then skip "the composer's height (no frames)"
-  else [ "$H1" = "$H2" ] && ok "the composer keeps its height while the image loads ($H1 px)" || fail "the composer's height moved: $H1 → $H2 px"; fi
+  else [ "$H1" = "$H2" ] && ok "the composer keeps its height from the drop until the image is drawn ($H1 px)" || fail "the composer's height moved: $H1 → $H2 px"; fi
 
   step "thumb: a click on the thumbnail enlarges it, and the chip stays"
   cmd "click:enlarge:chip:0"
@@ -321,16 +332,44 @@ EOF
   expect '[ ! -e "$ATT" ]' "and its copy" 5
   [ -e "$PROJ/thumb.png" ] && ok "the dropped file is untouched" || fail "the dropped file is gone"
 
-  step "thumb: sent, the image is on the message, and its copy stays until the chat closes"
+  step "thumb: a file the host refuses says why when it's dropped, and makes no chip"
+  printf 'not a png' >"$PROJ/fake.png"
+  cmd "drop:$PROJ/fake.png"
+  expect '[[ "$(d "d[\"flash\"]")" == *"Not a valid PNG"* ]] && [ "$(d "d[\"composer\"][\"chips\"]")" = "[]" ]' "the drop flashes the host's reason, no chip" 5
+
+  step "thumb: drop, then Enter before the copy is made: the message carries the image"
+  N0=$(attachments)
+  kill -STOP "$HPID"
+  cmd "type:what is in this picture"
   cmd "drop:$PROJ/thumb.png"
-  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ]' "dropped again" 5
-  ATT=$(d 'd["composer"]["chips"][0]')
-  send_text "what is in this picture"
+  cmd click:send
+  kill -CONT "$HPID"
   expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "answered" 15
+  host >"$ART/thumb-quick-host.json"
+  python3 -c 'import json,sys; u=[i for i in json.load(open(sys.argv[1]))["items"] if i["kind"]=="user"][-1]; sys.exit(0 if u.get("images")==1 else 1)' "$ART/thumb-quick-host.json" \
+    && ok "the message carries the image" || fail "the message went without the image"
+  expect '[ "$(d "d[\"composer\"][\"chips\"]")" = "[]" ] && [ "$(pending)" = 0 ]' "the composer stays empty once the copy is made" 5
+  expect '[ "$(attachments)" = "$N0" ]' "and the copy the message didn't need is removed" 5
+
+  step "thumb: a host killed with an image in the composer (a restart's fallback) keeps it; Restart sends it"
+  cmd "drop:$PROJ/thumb.png"
+  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ] && [ "$(pending)" = 0 ]' "dropped again" 5
+  ATT=$(d 'd["composer"]["chips"][0]')
+  hc kill "$(d 'd["host"]["address"]')" >>"$LOG" 2>&1
+  expect '[ "$(d "d[\"connection\"][\"status\"]")" = stopped ]' "the host stopped" 15
+  [ -e "$ATT" ] && ok "the killed host left the chip's image" || fail "the killed host removed the chip's image $ATT"
+  cmd click:restart
+  expect connected "Restart: a new host, connected" 25
+  expect '[ "$(phase)" = idle ]' "idle again" 15
+  BEFORE=$(count_kind assistant)
+  cmd focus; sleep 0.3; send_text "and this one"
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -gt "$BEFORE" ]' "answered" 15
   host >"$ART/thumb-host.json"
   python3 -c 'import json,sys; u=[i for i in json.load(open(sys.argv[1]))["items"] if i["kind"]=="user"][-1]; sys.exit(0 if u.get("images")==1 else 1)' "$ART/thumb-host.json" \
-    && ok "the message carries the image" || fail "no image on the message"
+    && ok "the restarted chat sends the chip's image" || fail "no image on the message after the restart"
   [ -e "$ATT" ] && ok "its copy stays after sending (a queued edit takes it back)" || fail "the copy is gone after sending"
+
+  step "thumb: closing the chat removes its attachments"
   ME=$(d 'd["place"]["pane"]'); H=$(d 'd["host"]["address"]')
   do_ pane.close --pane "$ME"
   expect '! hc ls --json | grep -q "\"address\": *\"$H\""' "closing the chat ends its host" 15
