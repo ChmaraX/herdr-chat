@@ -667,8 +667,8 @@ export default class HerdrChat extends View {
         run("terminal.kill", { terminal: t.address });
       }
       this.orphans = missing;
-      // Chats closed while their host was down keep their attachments: the host removes them
-      // (protocol.md "Attachments"). An older host has no sweep_attachments; req logs it.
+      // The host removes the attachments of chats closed while their host was down (protocol.md
+      // "Attachments"). An older host has no sweep_attachments: req logs it.
       if (this.conn.status === "connected") this.req("sweep_attachments", { open: [...chats] }).catch(() => {});
     });
   }

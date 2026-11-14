@@ -52,9 +52,8 @@ export class Attachments {
   }
 
   /**
-   * Removes other chats' folders once their chat is closed: no pane (not in `open`, from the app's
-   * layout) and no live host, in two sweeps in a row (a layout read mid-change may miss a pane).
-   * Covers the chats whose host was down when their pane closed. The chats it removed.
+   * Removes the folders of other chats that are closed: no pane (not in `open`, from the app's layout)
+   * and no live host, in two sweeps in a row, since a layout read mid-change may miss a pane.
    */
   sweepClosed(open: Set<string>, live: (chat: string) => boolean): string[] {
     const root = dirname(this.dir);

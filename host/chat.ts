@@ -1424,11 +1424,7 @@ export class Chat {
     return { path: await this.opts.attachments.fromClipboard() };
   }
 
-  /**
-   * detach_image: the chip's ✕. A held or queued message that lists the image keeps it: the bundled
-   * composer never holds such a path (send clears it, queue_edit takes the message out first), so this
-   * guards other clients, best effort (`unconfirmed` forgets its oldest past MAX_UNCONFIRMED).
-   */
+  /** detach_image: the chip's ✕. A held or queued message that lists the image keeps it (a guard for other clients: protocol.md "Attachments"). */
   detachImage(path: string): Record<string, never> {
     if (![...this.held, ...this.unconfirmed.values()].some((m) => m.images.includes(path))) this.opts.attachments.remove(path);
     return {};
