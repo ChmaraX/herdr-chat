@@ -1,13 +1,14 @@
 // What sits around the composer (visual-v2.md §1, §4): the footer row's
 // controls (model and thinking chips, the context meter, extension status
 // chips with their "+N" popover), the widget trays, the queue
-// lanes, and the empty state's title.
+// lanes, the plan strip, and the empty state's title.
 // Extension-agnostic: statuses and widgets are shown by key, as sent.
 
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover } from "gpui-base";
 import { MOD, alpha, count, icon, money, providerIcon, spans, spansText, unwrapHc } from "./util.js";
 import { withKey } from "./shortcuts.js";
+import { planSteps } from "./cards.js";
 
 const STATUS_MAX = 28;
 const STATUS_W = (text) => Math.min(STATUS_MAX, [...text].length) * 6.3 + 18;
@@ -235,6 +236,39 @@ export function queueChips(v, s, t) {
   const follow = lane("followUp", q.followUp, q.followUpIds, q.followUpRemovable, q.followUpFrom, t.ansi3, "clock", "Follow-up: after this run");
   if (!steer && !follow) return null;
   return v_flex().w_full().gap(6).children([steer, follow].filter(Boolean));
+}
+
+// The agent's plan (state.plan, protocol v3.6): how many steps are done, and
+// the step it's on (in progress, else the first pending one).
+export function planProgress(plan) {
+  const steps = plan.steps;
+  const done = steps.filter((x) => x.status === "completed").length;
+  const current = steps.find((x) => x.status === "in_progress") ?? steps.find((x) => x.status === "pending") ?? null;
+  return { done, total: steps.length, current: current?.text ?? null };
+}
+
+// The plan strip, right above the composer: "2/5", a progress bar and the
+// current step. A click opens the full list above it; another closes it.
+export function planStrip(v, s, t) {
+  const plan = s.plan;
+  if (!plan?.steps?.length) return null;
+  const { done, total, current } = planProgress(plan);
+  const finished = done === total;
+  const open = v.planOpen;
+  const BAR = 56;
+  const head = h_flex().id("plan-strip").h(28).px(10).gap(8).items_center().text_size(12).cursor_pointer()
+    .hover((st) => st.bg(t.hover)).tooltip(open ? "Hide the steps" : "Show every step")
+    .on_click((_e, cx) => v.control("plan", cx))
+    .child(icon(finished ? "circle-check" : "list-checks", 12).text_color(finished ? t.ansi2 : t.dim))
+    .child(div().flex_none().text_color(t.muted).child(finished ? `${total}/${total} done` : `${done}/${total}`))
+    .child(div().flex_none().w(BAR).h(4).rounded(2).bg(alpha(t.muted, 0.2))
+      .child(div().h_full().rounded(2).w(Math.round((BAR * done) / total)).bg(finished ? t.ansi2 : t.accent)))
+    .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(finished ? "" : current ?? ""))
+    .child(icon(open ? "chevron-down" : "chevron-up", 11).text_color(t.dim));
+  return v_flex().w_full().rounded(10).border_1().border_color(t.border).bg(t.surface).overflow_hidden()
+    .when(open, (e) => e.child(div().id("plan-steps").max_h(240).overflow_y_scroll().px(12).py(10).border_b_1().border_color(alpha(t.border, 0.6))
+      .child(planSteps(plan, t))))
+    .child(head);
 }
 
 // The branch of the chat's folder (host git.ts, state.git), right of the hint

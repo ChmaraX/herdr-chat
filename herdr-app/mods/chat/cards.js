@@ -364,7 +364,7 @@ function notice(it, c) {
   const t = c.t;
   const color = it.level === "error" ? t.ansi1 : it.level === "warning" ? t.blocked : t.dim;
   return h_flex().gap(8).items_start().text_size(12)
-    .child(div().pt(2).child(icon(it.level === "info" ? "info" : "alert", 12).text_color(color)))
+    .child(div().pt(2).child(icon(it.source === "plan" ? "list-checks" : it.level === "info" ? "info" : "alert", 12).text_color(color)))
     .child(div().flex_1().min_w(0).text_color(t.muted).child(it.spans?.length ? spansOrText(it, c, t.muted) : it.text ?? ""));
 }
 
@@ -417,7 +417,7 @@ function liveRow(k, c) {
   return row.child(div().flex_1().min_w(0).truncate().font_family(c.mono).child(k.title || k.name));
 }
 
-// A plan / todo list (item kind "plan"), replaced in place as it changes.
+// A subagent's plan (item kind "plan"), replaced in place as it changes.
 function plan(it, c) {
   const t = c.t;
   const steps = it.steps ?? [];
@@ -427,8 +427,13 @@ function plan(it, c) {
       .child(icon("list-checks", 13).text_color(t.dim))
       .child(div().flex_1().text_size(12.5).font_medium().text_color(t.foreground).child("Plan"))
       .child(div().text_size(11.5).text_color(t.dim).child(`${done} of ${steps.length} done`)))
-    .when(Boolean(it.explanation), (e) => e.child(div().text_size(12.5).text_color(t.muted).child(it.explanation)))
-    .child(v_flex().gap(3).children(steps.map((x) => {
+    .child(planSteps(it, t));
+}
+
+export function planSteps(p, t) {
+  return v_flex().gap(6)
+    .when(Boolean(p.explanation), (e) => e.child(div().text_size(12.5).text_color(t.muted).child(p.explanation)))
+    .child(v_flex().gap(3).children((p.steps ?? []).map((x) => {
       const st = x.status;
       const mark = st === "completed" ? icon("circle-check", 13).text_color(t.ansi2)
         : st === "in_progress" ? icon("circle-half", 13).text_color(t.accent) : icon("circle", 13).text_color(t.dim);
