@@ -293,7 +293,11 @@ export class Chat {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
     this.urgentQueued = false;
-    this.syncPlan();
+    if (this.timeline.planChanged) {
+      this.timeline.planChanged = false;
+      this.state.plan = this.timeline.plan;
+      this.dirtyState.add("plan");
+    }
     if (!this.dirtyState.size && !this.timeline.dirty.size && !this.timeline.removed.size) return;
     const state: Partial<ChatState> = {};
     for (const k of this.dirtyState) (state as Record<string, unknown>)[k] = this.state[k];
@@ -308,14 +312,7 @@ export class Chat {
     for (const s of this.sinks) s.patch(p);
   }
 
-  private syncPlan(): void {
-    if (this.state.plan === this.timeline.plan) return;
-    this.state.plan = this.timeline.plan;
-    this.dirtyState.add("plan");
-  }
-
   snapshotData(): { state: ChatState; items: Item[]; hasOlder: boolean } {
-    this.syncPlan();
     const all = this.timeline.items;
     let items = all.slice(-MAX_SNAPSHOT_ITEMS);
     for (const it of items) this.render.prepare(it);
@@ -328,7 +325,8 @@ export class Chat {
       start--;
     }
     items = items.slice(start);
-    return { state: structuredClone(this.state), items: structuredClone(items), hasOlder: items.length < all.length };
+    // The timeline's plan: `state.plan` catches up at the next flush.
+    return { state: structuredClone({ ...this.state, plan: this.timeline.plan }), items: structuredClone(items), hasOlder: items.length < all.length };
   }
 
   /** Replace the whole timeline (new session, switch, resume). */
@@ -337,6 +335,8 @@ export class Chat {
     const old = this.timeline;
     this.timeline = t;
     t.dirty.clear();
+    t.planChanged = false;
+    this.state.plan = t.plan;
     this.dirtyState.clear();
     for (const s of this.sinks) s.snapshot();
     // The old items' image files are no longer referenced.

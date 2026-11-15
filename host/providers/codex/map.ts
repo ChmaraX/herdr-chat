@@ -248,7 +248,7 @@ export class CodexMapper {
   private stamp(thread: string, evs: NormalizedEvent[]): NormalizedEvent[] {
     const parent = this.parentOf(thread);
     for (const e of evs) {
-      if (parent && e.parent === undefined) e.parent = parent;
+      if (parent && e.parent === undefined && e.type !== "plan") e.parent = parent;
       if (this.ts !== undefined && e.ts === undefined) e.ts = this.ts;
     }
     return evs;
@@ -480,7 +480,9 @@ export class CodexMapper {
       }
       case "turn/plan/updated": {
         const steps: PlanStep[] = (Array.isArray(p.plan) ? p.plan : []).map((s: Rec) => ({ text: String(s?.step ?? ""), status: planStatus(s?.status) }));
-        out.push({ type: "plan", key: `${thread}:${p.turnId ?? ""}`, ...(str(p.explanation) ? { explanation: p.explanation } : {}), steps });
+        const plan = { ...(str(p.explanation) ? { explanation: p.explanation } : {}), steps };
+        const parent = this.parentOf(thread);
+        out.push(parent ? { type: "subagent_plan", key: `${thread}:${p.turnId ?? ""}`, parent, ...plan } : { type: "plan", ...plan });
         return this.stamp(thread, out);
       }
       case "thread/tokenUsage/updated": {

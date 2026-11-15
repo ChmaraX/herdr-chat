@@ -169,8 +169,10 @@ export type NormalizedEvent = Common &
         type: "tool_ended"; callId: string; name: string; args?: unknown; isError: boolean; declined?: boolean;
         output: string; images?: ImageBlock[]; result?: unknown; durationMs?: number; lostBytes?: number;
       }
-    /** A todo list or plan update. Top level: the chat's plan, replacing the last. With `parent`: the subagent's card, replaced in place per `key`. */
-    | { type: "plan"; key: string; explanation?: string; steps: PlanStep[] }
+    /** The agent's plan: it replaces the chat's plan. No steps: the plan is gone. */
+    | { type: "plan"; parent?: undefined; explanation?: string; steps: PlanStep[] }
+    /** A subagent's plan: a card in the group of its `parent`, replaced in place per `key`. */
+    | { type: "subagent_plan"; key: string; parent: string; explanation?: string; steps: PlanStep[] }
 
     // ---- asks
     | { type: "ask"; ask: Ask }

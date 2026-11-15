@@ -112,6 +112,8 @@ type ChatState = {
   model: { provider: string; id: string; name: string; reasoning: boolean; contextWindow: number | null;
            input: string[] } | null;
   thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
+  plan: { explanation?: string;  // the agent's current plan, shown above the composer (v3.6); null: none
+          steps: { text: string; status: "pending" | "in_progress" | "completed" }[] } | null;
   usage: { contextTokens: number | null; contextWindow: number | null; percent: number | null;
            cost: number | null } | null;
   queue: { steering: string[]; followUp: string[] };
@@ -606,16 +608,19 @@ plan: { explanation?: string;
     | null;                      // null: no plan (Pi has none)
 ```
 
-The agent's current plan: Claude Code's task list or TodoWrite, Codex's `update_plan`. The host keeps one per chat (`Timeline.plan`, mirrored into the state). A new plan replaces it, whatever its key. A plan with no steps clears it. A plan whose steps are all completed stays until the next top-level user message, which clears it. History rebuilds it as live: Claude Code's transcript, and for Codex the rollout file's `update_plan` calls (`thread/turns/list` has no item for them), placed after their turn's prompt.
+The agent's current plan: Claude Code's task list or TodoWrite, Codex's `update_plan`. The host keeps one per chat (`Timeline.plan`; the timeline reports each change and the next flush sends it). A new plan (a `plan` event) replaces it, whichever tool made it. A plan with no steps clears it. A plan whose steps are all completed stays until the next top-level user message, which clears it. A message the agent rejects or handles without a run puts it back. History rebuilds it as live:
+- Claude Code's transcript. A plan made by a subagent's step (the shared task list) is placed in time against the top-level items, so a background agent's change after the next user message comes after it.
+- Codex's rollout file (`thread/turns/list` has no item for `update_plan` calls), placed after their turn's prompt.
 
-A subagent's plan (a plan event with `parent`) is still a `plan` item with `parent`, a card in its group.
+A subagent's plan (a `subagent_plan` event, with `parent` and a `key`) is a `plan` item with `parent`, a card in its group, replaced in place per key. One whose subagent card isn't on the timeline (cut from the history) is dropped.
 
 ### The marker row
 
 The transcript gets a notice (`source: "plan"`, `level: "info"`) instead of a card, at most one per turn (from one top-level user message to the next):
 - `Plan created · N steps` when the plan starts: no plan before, or no step text carried over from the last one.
 - `Plan updated · N steps` when steps were added, removed or renamed.
-- A later change in the same turn edits that row (`created` wins). A change of status or explanation only makes no row.
+- `Plan cleared` when a plan with no steps ends it.
+- A later change in the same turn edits that row to the turn's last plan (`created` wins). A change of status or explanation only makes no row.
 
 The mod shows the plan as a strip above the composer (`2/5`, a progress bar, the step in progress, else the first pending one). A click opens the full list above it, another closes it. All done: `N/N done`.
 

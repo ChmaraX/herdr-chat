@@ -10,7 +10,7 @@ import type { NormalizedEvent, EventOf, PlanStep } from "../types.ts";
 type Obj = Record<string, unknown>;
 type Status = PlanStep["status"];
 type TaskTool = "TaskCreate" | "TaskUpdate" | "TaskList";
-type Plan = EventOf<"plan">;
+type PlanEvent = EventOf<"plan"> | EventOf<"subagent_plan">;
 /** What a task tool's result says it did to the list. */
 type Change =
   | { kind: "create"; id: string; subject: string }
@@ -29,11 +29,11 @@ const isStatus = (v: unknown): v is Status => typeof v === "string" && STATUSES.
 const isTaskTool = (v: string): v is TaskTool => TASK_TOOLS.has(v);
 const statusOf = (v: unknown): Status => (isStatus(v) ? v : "pending");
 
-function todoPlan(args: unknown, parent?: string): Plan | null {
+function todoPlan(args: unknown, parent?: string): PlanEvent | null {
   const todos = isObject(args) ? args.todos : undefined;
   if (!Array.isArray(todos)) return null;
   const steps = todos.filter(isObject).flatMap((t) => (typeof t.content === "string" ? [{ text: t.content, status: statusOf(t.status) }] : []));
-  return { type: "plan", key: parent ? `todos:${parent}` : "todos", steps, ...(parent ? { parent } : {}) };
+  return parent ? { type: "subagent_plan", key: `todos:${parent}`, parent, steps } : { type: "plan", steps };
 }
 
 /** The change a task tool's result reports, from its structured result, else its text; null when it changed nothing. */
@@ -74,7 +74,7 @@ export class ClaudePlans {
   private calls = new Map<string, { tool: TaskTool; input: Obj }>();
 
   /** The plan event an event makes, if any. */
-  observe(ev: NormalizedEvent): Plan | null {
+  observe(ev: NormalizedEvent): PlanEvent | null {
     if (ev.type === "tool_call") {
       if (ev.name === "TodoWrite") return todoPlan(ev.args, ev.parent);
       if (isTaskTool(ev.name)) this.calls.set(ev.callId, { tool: ev.name, input: isObject(ev.args) ? ev.args : {} });
@@ -93,8 +93,11 @@ export class ClaudePlans {
   /**
    * History's events with the plan events they make. They go through in time
    * order, as live: history nests a background agent's steps at its card, ahead
-   * of main-thread steps that came first. Each plan lands after its trigger and
-   * after the previous plan with its key, so the last one is the newest.
+   * of main-thread steps (and user messages) that came first. A chat's plan made
+   * by a subagent's step lands after the last top-level event before it in time,
+   * since a user message in between clears a finished plan. Every chat's plan
+   * lands after the previous one, and a subagent's card after its previous
+   * update, so the last one is the newest.
    */
   replay(events: NormalizedEvent[]): NormalizedEvent[] {
     let now = 0;
@@ -102,14 +105,22 @@ export class ClaudePlans {
       now = ev.ts ?? now;
       return { ev, at, ts: now };
     });
-    timed.sort((a, b) => a.ts - b.ts);
+    const topLevel = timed.filter((t) => t.ev.parent === undefined);
     const after = new Map<number, NormalizedEvent[]>();
-    const last = new Map<string, number>();
-    for (const { ev, at } of timed) {
+    let lastPlan = -1;
+    const lastCard = new Map<string, number>();
+    for (const { ev, at, ts } of [...timed].sort((a, b) => a.ts - b.ts)) {
       const plan = this.observe(ev);
       if (!plan) continue;
-      const pos = Math.max(at, last.get(plan.key) ?? at);
-      last.set(plan.key, pos);
+      let pos: number;
+      if (plan.type === "subagent_plan") {
+        pos = Math.max(at, lastCard.get(plan.key) ?? at);
+        lastCard.set(plan.key, pos);
+      } else {
+        const inTime = ev.parent === undefined ? at : (topLevel.findLast((t) => t.ts <= ts)?.at ?? at);
+        pos = Math.max(at, inTime, lastPlan);
+        lastPlan = pos;
+      }
       after.set(pos, [...(after.get(pos) ?? []), { ...plan, ...(ev.ts !== undefined ? { ts: ev.ts } : {}) }]);
     }
     return events.flatMap((ev, at) => [ev, ...(after.get(at) ?? [])]);
@@ -139,11 +150,11 @@ export class ClaudePlans {
   }
 
   /** The task list's plan when its steps changed. An empty list makes no plan, though it clears one. */
-  private listPlan(): Plan | null {
+  private listPlan(): PlanEvent | null {
     const steps = [...this.tasks].sort(([a], [b]) => Number(a) - Number(b)).map(([, step]) => step);
     if (this.shown ? sameSteps(this.shown, steps) : !steps.length) return null;
     this.shown = steps;
-    return { type: "plan", key: "tasks", steps };
+    return { type: "plan", steps };
   }
 }
 

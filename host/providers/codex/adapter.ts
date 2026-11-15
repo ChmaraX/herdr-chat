@@ -1124,7 +1124,7 @@ export class CodexAdapter implements ProviderAdapter {
       // The turn's plans follow its prompt: the rollout doesn't say where among the turn's items they came.
       let turnPlans = threadId === thread ? plans.get(String(turn.id)) ?? [] : [];
       const emitPlans = () => {
-        out.push(...turnPlans.map((p): NormalizedEvent => ({ type: "plan", key: `${thread}:${turn.id}`, ...p })));
+        out.push(...turnPlans.map((p): NormalizedEvent => ({ type: "plan", ...p })));
         turnPlans = [];
       };
       let children: string[] = [];
