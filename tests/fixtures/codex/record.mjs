@@ -143,8 +143,18 @@ class Rec {
   }
 }
 
+const MCP_ALIASES = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"];
+
+/** The person's MCP server names, as aliases: they name the person's tools and accounts. */
+function mcpNames(text) {
+  const names = [...new Set([...text.matchAll(/"method":"mcpServer\/startupStatus\/updated","params":\{[^}]*?"name":"([^"]+)"/g)].map((m) => m[1]))];
+  return names.filter((n) => n !== "codex_apps").map((n, i) => [n, `${MCP_ALIASES[i % MCP_ALIASES.length]}${n.endsWith("_mcp") ? "_mcp" : ""}`]);
+}
+
 function scrub(text, cwd) {
   const home = homedir();
+  for (const [name, alias] of mcpNames(text)) text = text.split(name).join(alias);
+  text = text.split("\n").map((l) => (l.includes('"dir":"stderr"') ? l.replace(/https?:\/\/[^"\\\s]+/g, "<url>") : l)).join("\n");
   return text
     .split(cwd).join("/tmp/codex-fixture")
     .split(realpathSync(tmpdir())).join("/tmp")
