@@ -610,7 +610,7 @@ plan: { explanation?: string;
 
 The agent's current plan: Claude Code's task list or TodoWrite, Codex's `update_plan`. The host keeps one per chat (`Timeline.plan`; the timeline reports each change and the next flush sends it). A new plan (a `plan` event) replaces it, whichever tool made it. A plan with no steps clears it. A plan whose steps are all completed stays until the next top-level user message, which clears it. A message the agent rejects or handles without a run puts it back. History rebuilds it as live:
 - Claude Code's transcript. A plan made by a subagent's step (the shared task list) is placed in time against the top-level items, so a background agent's change after the next user message comes after it.
-- Codex's rollout file (`thread/turns/list` has no item for `update_plan` calls), placed after their turn's prompt.
+- Codex's rollout files (`thread/turns/list` has no item for `update_plan` calls): each call after the user message of its turn it came after, a steer being a second one. A fork's history is its source's rollout up to the fork (`session_meta.history_base`).
 
 A subagent's plan (a `subagent_plan` event, with `parent` and a `key`) is a `plan` item with `parent`, a card in its group, replaced in place per key. One whose subagent card isn't on the timeline (cut from the history) is dropped.
 

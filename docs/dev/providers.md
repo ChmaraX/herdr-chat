@@ -80,7 +80,7 @@ What else differs, from each agent's own mechanism, not from the chat:
 | Another process on the session | the lock extension | its `~/.claude/sessions` registry (`sessionHolder`) | its "active writer" error |
 | The chat follows a session switch made in `/tui` | yes (the lock extension's hand-off file) | no | no |
 | Continue as chat: the TUI's session (`tui.ts`) | the lock extension's label | its `~/.claude/sessions/<pid>.json` | the rollout it has open, else the newest in its folder |
-| The plan (`state.plan`; a subagent's is a `plan` card) | none | TodoWrite: the chat's plan from the call, a subagent's as its card. TaskCreate/TaskUpdate/TaskList: the chat's plan, subagents' changes included, from the results (`plans.ts`), in task id order; a resume carries the transcript's list on, a fork starts a new one | `turn/plan/updated`, each turn's update replaces the plan; a subagent thread's is its card. Resume reads the rollout's `update_plan` calls (`rollout.ts`) |
+| The plan (`state.plan`; a subagent's is a `plan` card) | none | TodoWrite: the chat's plan from the call, a subagent's as its card. TaskCreate/TaskUpdate/TaskList: the chat's plan, subagents' changes included, from the results (`plans.ts`), in task id order; a resume carries the transcript's list on, a fork starts a new one | `turn/plan/updated`, each turn's update replaces the plan; a subagent thread's is its card. Resume reads the rollout's `update_plan` calls (`rollout.ts`; code mode's `exec` JS too), and a fork's source's up to the fork |
 
 ## Process (one host process per chat)
 
