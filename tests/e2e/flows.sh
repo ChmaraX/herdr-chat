@@ -253,17 +253,67 @@ fi
 
 # --- flow: an image, /resume, /copy, Pi crashing ------------------------------------------------
 if want misc; then
-  step "a dropped image goes with the prompt (and shows as a thumbnail)"
+  step "dropped images go with the prompt, appear whole in the frame that makes room for them, at their own aspect ratio (#16)"
   CHAT=$(open_chat misc crash)
   ready
-  python3 -c 'import base64,sys; open(sys.argv[1],"wb").write(base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="))' "$PROJ/shot.png"
-  cmd "drop:$PROJ/shot.png"
-  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ] && cmp -s "$(d "d[\"composer\"][\"chips\"][0]")" "$PROJ/shot.png"' "the drop made an image chip (the chat's copy of the file)" 5
-  send_text "what is in this picture"
-  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "answered" 15
+  send_text "fill the pane"
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "a long answer: the transcript overflows, pinned to the bottom" 15
+  # Flat colour blocks (appears.py finds the images on screen by these colours).
+  python3 - "$PROJ" <<'EOF'
+import struct, sys, zlib
+def png(path, w, h, a, b):
+    rows = b"".join(b"\0" + b"".join(bytes(b if (x * 6 // w + y * 4 // h) % 2 else a) for x in range(w)) for y in range(h))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+    open(path, "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                           + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+png(sys.argv[1] + "/wide.png", 600, 200, (40, 110, 220), (190, 110, 100))
+png(sys.argv[1] + "/tall.png", 400, 900, (60, 200, 90), (220, 200, 60))
+EOF
+  cmd "drop:$PROJ/wide.png,$PROJ/tall.png"
+  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 2 ] && [ "$(d "d[\"composer\"][\"pending\"]")" = 0 ] && cmp -s "$(d "d[\"composer\"][\"chips\"][0]")" "$PROJ/wide.png" && cmp -s "$(d "d[\"composer\"][\"chips\"][1]")" "$PROJ/tall.png"' "the drop made two image chips (the chat's copies of the files)" 5
+  [ "$(d 'd["composer"].get("chipSizes") == [{"w": 600, "h": 200}, {"w": 400, "h": 900}]')" = true ] && ok "the chips carry the images' sizes, for the viewer" \
+    || fail "chip sizes: $(d 'd["composer"].get("chipSizes")')"
+  type_text "what is in this picture"
+  # The app's own frames (herdr-app shot: the last frame drawn) from just before Enter until 2 s after.
+  visible
+  FR="$ART/misc-send-frames"; rm -rf "$FR"; mkdir -p "$FR"
+  ( end=$(( $(date +%s) + 3 )); while [ "$(date +%s)" -lt "$end" ]; do
+      "$APP" shot "$FR/$(perl -MTime::HiRes=time -e 'printf "%d", time*1000').png" >/dev/null 2>&1 || true; done ) &
+  BURST=$!
+  sleep 0.3
+  keys enter
+  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 2 || { note "Enter dropped: chat.click:send"; cmd click:send; }
+  wait "$BURST" || true
+  SENT_DRAWN=; ! screen_locked && drawn && SENT_DRAWN=1
+  hidden
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 2 ]' "answered" 15
   host >"$ART/misc-host.json"
-  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); u=[i for i in d["items"] if i["kind"]=="user"][-1]; print(u.get("images"), u.get("imagePaths")); sys.exit(0 if u.get("images")==1 else 1)' "$ART/misc-host.json" >>"$LOG" \
-    && ok "the user item carries the image" || fail "no image on the user item"
+  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); u=[i for i in d["items"] if i["kind"]=="user"][-1]; print(u.get("images"), u.get("imagePaths")); sys.exit(0 if u.get("images")==2 else 1)' "$ART/misc-host.json" >>"$LOG" \
+    && ok "the user item carries the images" || fail "no images on the user item"
+  if [ -n "$SENT_DRAWN" ] && [ "$(ls "$FR" | wc -l)" -gt 10 ]; then
+    RC=0; "$PY" "$E2E/appears.py" "$FR" "$ART/misc-appears.json" 40,110,220 190,110,100 60,200,90 220,200,60 >>"$LOG" || RC=$?
+    case $RC in
+      0) ok "the new row is whole (its text drawn) in the frame its place on screen first changes: no hole, no fade-in ($(ls "$FR" | wc -l | tr -d ' ') frames: misc-appears.json)" ;;
+      2) skip "the new row's first frames (too few frames: $(tail -1 "$LOG"))" ;;
+      *) fail "the new row: $(tail -1 "$LOG") (misc-appears.json, misc-send-frames/)" ;;
+    esac
+  else
+    skip "the new row's first frames (no frames: $(screen_locked && echo "the screen is locked" || echo "the window isn't drawn"))"
+  fi
+  if needs_frames "the thumbnails' boxes and the new row's height (measured while drawing)"; then
+    python3 - "$ART/misc-host.json" "$STATE/debug/$CHAT.json" <<'EOF' >>"$LOG" && ok "the new row is measured at one height; wide 600x200 and tall 400x900 (under the 320 pt cap) keep their aspect ratio" || fail "thumbnails: $(tail -1 "$LOG")"
+import json, sys
+u = [i for i in json.load(open(sys.argv[1]))["items"] if i["kind"] == "user"][-1]
+d = json.load(open(sys.argv[2]))
+heights = d["heightsSeen"].get(u["id"], [])
+boxes = [d["thumbsSeen"].get(p, []) for p in u["imagePaths"]]
+print("heights", heights, "boxes", boxes)
+ratio = lambda b: b[1] / b[2]
+ok = len(heights) == 1 and all(len(b) == 1 for b in boxes) \
+  and abs(ratio(boxes[0][0]) / 3 - 1) < 0.03 and abs(ratio(boxes[1][0]) / (400 / 900) - 1) < 0.03 and boxes[1][0][2] == 320
+sys.exit(0 if ok else 1)
+EOF
+  fi
   shot misc-1-image 0.3
   step "/copy and /resume"
   cmd focus; sleep 0.3

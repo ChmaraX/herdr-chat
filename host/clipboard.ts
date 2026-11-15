@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, statSync, existsSync, unlinkSync, writeFileSyn
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
+import { imageSize } from "./imagesize.ts";
 
 /** Saves the clipboard's image as `path` (its folder must exist): `path`, or null when it holds none. */
 export function clipboardImage(path: string): Promise<string | null> {
@@ -48,21 +49,13 @@ function run(cmd: string, args: string[]): Promise<string | null> {
   });
 }
 
-/** Pixel size via sips (macOS). */
-async function dimensions(path: string): Promise<{ w: number; h: number } | null> {
-  const out = await run("sips", ["-g", "pixelWidth", "-g", "pixelHeight", path]);
-  const w = Number(/pixelWidth:\s*(\d+)/.exec(out ?? "")?.[1]);
-  const h = Number(/pixelHeight:\s*(\d+)/.exec(out ?? "")?.[1]);
-  return w > 0 && h > 0 ? { w, h } : null;
-}
-
 /**
  * Downscales to a MAX_EDGE longest edge with `sips -Z` (macOS only, no
  * dependencies). Returns the original bytes when smaller, not macOS, or sips fails.
  */
 export async function downscale(path: string, bytes: Buffer, mime: string): Promise<Buffer> {
   if (process.platform !== "darwin") return bytes;
-  const dim = await dimensions(path);
+  const dim = imageSize(bytes);
   if (!dim || Math.max(dim.w, dim.h) <= MAX_EDGE) return bytes;
   const dir = join(tmpdir(), "herdr-chat-images");
   mkdirSync(dir, { recursive: true });

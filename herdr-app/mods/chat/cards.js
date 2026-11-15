@@ -6,7 +6,8 @@
 // `c` is the render context from main.js: theme `t`, `mono`, sets/maps of
 // UI state (`expanded`, `full`), the column width `colW`, and the actions
 // (toggle, more, copy, copied, enlarge, svgSize, openFile, editResend,
-// hover, setHover, svgHover, setSvgHover, groupOpen, modelName, now).
+// hover, setHover, svgHover, setSvgHover, groupOpen, modelName, now), and
+// traceThumb, debug only: the box each thumbnail is drawn at (the dump's thumbsSeen).
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
@@ -54,16 +55,20 @@ export function item(it, c, footer, slot = true) {
   }
 }
 
-// Thumbnails of image files (≤ 320 px wide); a click enlarges. A file
-// image() can't show (outside the app home) is a named chip.
-function images(paths, owner, c) {
+// Thumbnails of image files within 320 × 320 and 60 % of the column, never
+// enlarged; a click enlarges. `sizes`: each file's pixel size from the host
+// (protocol.md v3.7), so the row has its final height in its first frame.
+// Without one (an older host), a 16:10 box. A file image() can't show
+// (outside the app home) is a named chip.
+function images(paths, sizes, owner, c) {
   if (!paths?.length) return null;
-  return h_flex().gap(8).flex_wrap().children(paths.map((p, i) => {
-    const sz = c.svgSize(p);
-    const w = Math.min(320, c.colW * 0.6, sz?.w ?? 320);
-    const h = sz ? Math.round((w * sz.h) / sz.w) : 200;
-    return thumbnail(`img-${owner}-${i}`, p, w, Math.min(h, 320), c)
-      ?? fileChip(`img-${owner}-${i}`, p.split("/").pop(), c.t).cursor_pointer().on_click((_e, cx) => c.enlarge(p, sz, cx));
+  const maxW = Math.min(320, c.colW * 0.6);
+  return h_flex().gap(8).flex_wrap().children(paths.map((path, i) => {
+    const size = sizes?.[i] ?? null;
+    const k = size && Math.min(1, maxW / size.w, 320 / size.h);
+    const [w, h] = (size ? [size.w * k, size.h * k] : [maxW, (maxW * 10) / 16]).map((v) => Math.max(1, Math.round(v)));
+    return thumbnail(`img-${owner}-${i}`, { path, size }, w, h, c)
+      ?? fileChip(`img-${owner}-${i}`, path.split("/").pop(), c.t).cursor_pointer().on_click((_e, cx) => c.enlarge(path, size, cx));
   }));
 }
 
@@ -130,7 +135,7 @@ function user(it, c) {
     .child(v_flex().max_w(Math.round(c.colW * 0.85)).gap(6).px(b.x).py(b.y).rounded(b.r).bg(t.raised)
       .when(tags.length > 0, (e) => e.child(h_flex().gap(8).text_size(11).text_color(t.dim).children(tags)))
       .children(content)
-      .children([images(it.imagePaths, it.id, c)].filter(Boolean)));
+      .children([images(it.imagePaths, it.imageSizes, it.id, c)].filter(Boolean)));
 }
 
 // The skill a message ran: a tinted pill with its name. Its file shows on
@@ -279,7 +284,7 @@ export function tool(it, c) {
     .border_color(it.status === "error" ? alpha(t.ansi1, 0.45) : it.status === "declined" ? alpha(t.blocked, 0.45) : t.border).bg(t.surface)
     .child(head).children(body ? [body] : [])
     .when(it.status === "declined", (e) => e.child(div().border_t_1().border_color(c.line).px(10).py(5).text_size(11.5).text_color(t.blocked).child("Declined: not run")))
-    .children(it.images?.length ? [div().px(10).pb(10).child(images(it.images, it.id, c))] : []);
+    .children(it.images?.length ? [div().px(10).pb(10).child(images(it.images, it.imageSizes, it.id, c))] : []);
 }
 
 function toolBody(it, d, c) {

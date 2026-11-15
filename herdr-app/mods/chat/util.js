@@ -159,12 +159,14 @@ export function homeRel(p, appHomeDir) {
 }
 
 // An image file as a w×h thumbnail that enlarges on click (`c`: the render context), or null when
-// image() can't show it: it takes only app-home-relative paths.
-export function thumbnail(id, path, w, h, c) {
+// image() can't show it: it takes only app-home-relative paths. `size`: its pixel size from the
+// host (protocol.md v3.7), for the viewer; null when unknown.
+export function thumbnail(id, { path, size }, w, h, c) {
   const rel = homeRel(path, appHome());
   if (!rel) return null;
+  c.traceThumb(path, w, h);
   return h_flex().id(id).flex_none().cursor_pointer().rounded(10).overflow_hidden().border_1().border_color(c.t.border)
-    .on_click((_e, cx) => c.enlarge(path, c.svgSize(path), cx))
+    .on_click((_e, cx) => c.enlarge(path, size, cx))
     .child(image(rel).w(w).h(h));
 }
 

@@ -5,8 +5,8 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { Timeline } from "./timeline.ts";
-import type { Item, UserSource, ImageBlock, ToolDetail, NoticeItem, Plan } from "./timeline.ts";
+import { Timeline, toWire } from "./timeline.ts";
+import type { Item, WireItem, UserSource, ImageBlock, ToolDetail, NoticeItem, Plan } from "./timeline.ts";
 import { toSpans, toSpanLines, stripAnsi } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 import { mergeCommands, parseBuiltin, builtins } from "./commands.ts";
@@ -20,6 +20,7 @@ import { GitWatch } from "./git.ts";
 import type { GitState } from "./git.ts";
 import { loadImages } from "./clipboard.ts";
 import type { Attachments } from "./attachments.ts";
+import type { ImageFile } from "./imagesize.ts";
 import { Renderer, diffLines } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
@@ -105,7 +106,7 @@ export type Queue = {
   steeringFrom?: (string | null)[]; followUpFrom?: (string | null)[];
 };
 
-export type Patch = { state: Partial<ChatState>; upsert: Item[]; remove: string[] };
+export type Patch = { state: Partial<ChatState>; upsert: WireItem[]; remove: string[] };
 export type Sink = {
   patch(p: Patch): void;
   snapshot(): void;
@@ -249,13 +250,13 @@ export class Chat {
     const dir = this.opts.imageDir;
     if (!dir) return new Timeline(this.opts.cwd, null, this.adapter.tools);
     const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/jpg": "jpg", "image/gif": "gif", "image/webp": "webp" };
-    return new Timeline(this.opts.cwd, (itemId: string, n: number, img: ImageBlock) => {
-      const ext = EXT[img.mimeType.toLowerCase()];
+    return new Timeline(this.opts.cwd, ({ itemId, n, bytes, mimeType }) => {
+      const ext = EXT[mimeType.toLowerCase()];
       if (!ext) return null;
       try {
         mkdirSync(dir, { recursive: true, mode: 0o700 });
         const path = join(dir, `${itemId}-${n}.${ext}`);
-        writeFileSync(path, Buffer.from(img.data, "base64"), { mode: 0o600 });
+        writeFileSync(path, bytes, { mode: 0o600 });
         return path;
       } catch (e) {
         this.opts.log(`could not save an image: ${errText(e)}`);
@@ -308,11 +309,11 @@ export class Chat {
     const remove = [...this.timeline.removed];
     this.timeline.dirty.clear();
     this.timeline.removed.clear();
-    const p = { state, upsert: structuredClone(upsert), remove };
+    const p = { state, upsert: upsert.map(toWire), remove };
     for (const s of this.sinks) s.patch(p);
   }
 
-  snapshotData(): { state: ChatState; items: Item[]; hasOlder: boolean } {
+  snapshotData(): { state: ChatState; items: WireItem[]; hasOlder: boolean } {
     const all = this.timeline.items;
     let items = all.slice(-MAX_SNAPSHOT_ITEMS);
     for (const it of items) this.render.prepare(it);
@@ -326,7 +327,7 @@ export class Chat {
     }
     items = items.slice(start);
     // The timeline's plan: `state.plan` catches up at the next flush.
-    return { state: structuredClone({ ...this.state, plan: this.timeline.plan }), items: structuredClone(items), hasOlder: items.length < all.length };
+    return { state: structuredClone({ ...this.state, plan: this.timeline.plan }), items: items.map(toWire), hasOlder: items.length < all.length };
   }
 
   /** Replace the whole timeline (new session, switch, resume). */
@@ -340,12 +341,9 @@ export class Chat {
     this.dirtyState.clear();
     for (const s of this.sinks) s.snapshot();
     // The old items' image files are no longer referenced.
-    const keep = new Set(t.items.flatMap((i) => (i.kind === "tool" ? i.images ?? [] : i.kind === "user" ? i.imagePaths ?? [] : [])));
-    for (const it of old.items) {
-      for (const p of it.kind === "tool" ? it.images ?? [] : it.kind === "user" ? it.imagePaths ?? [] : []) {
-        if (!keep.has(p)) rmSync(p, { force: true });
-      }
-    }
+    const files = (it: Item) => (it.kind === "tool" || it.kind === "user" ? it.imageFiles ?? [] : []).map((f) => f.path);
+    const keep = new Set(t.items.flatMap(files));
+    for (const p of old.items.flatMap(files)) if (!keep.has(p)) rmSync(p, { force: true });
   }
 
   private toast(level: "info" | "warning" | "error", text: string): void {
@@ -1430,8 +1428,8 @@ export class Chat {
     return { files: await this.files.search(String(query ?? ""), typeof limit === "number" ? limit : 50) };
   }
 
-  async clipboardImage(): Promise<{ path: string | null }> {
-    return { path: await this.opts.attachments.fromClipboard() };
+  async clipboardImage(): Promise<ImageFile | { path: null }> {
+    return (await this.opts.attachments.fromClipboard()) ?? { path: null };
   }
 
   /** detach_image: the chip's ✕. A held or queued message that lists the image keeps it (a guard for other clients: protocol.md "Attachments"). */
@@ -1453,10 +1451,10 @@ export class Chat {
     return { removed };
   }
 
-  history(before: string, limit?: number): { items: Item[]; hasOlder: boolean } {
+  history(before: string, limit?: number): { items: WireItem[]; hasOlder: boolean } {
     const r = this.timeline.older(String(before ?? ""), typeof limit === "number" && limit > 0 ? Math.min(limit, 500) : 100);
     for (const it of r.items) this.render.prepare(it);
-    return structuredClone(r);
+    return { items: r.items.map(toWire), hasOlder: r.hasOlder };
   }
 
   toolOutput(itemId: string): { text: string } {
@@ -1717,7 +1715,7 @@ export class Chat {
       case "clipboard_image":
         return this.clipboardImage();
       case "attach_image":
-        return { path: this.opts.attachments.fromFile(String(a.path ?? "")) };
+        return this.opts.attachments.fromFile(String(a.path ?? ""));
       case "detach_image":
         return this.detachImage(String(a.path ?? ""));
       case "sweep_attachments":

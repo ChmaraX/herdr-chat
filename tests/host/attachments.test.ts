@@ -40,8 +40,9 @@ test("composer images: copied under the state dir, kept while a message or the c
     const c = h.client;
     await c.waitFor(idle, 10_000);
 
-    const { path: dropped } = await c.req("attach_image", { path: own });
+    const { path: dropped, size } = await c.req("attach_image", { path: own });
     assert.equal(dirname(dropped), dir, "a dropped file is copied into the chat's attachments");
+    assert.deepEqual(size, { w: 1, h: 1 }, "with its pixel size, for the viewer");
     assert.match(basename(dropped), /shot\.png$/);
     assert.deepEqual(readFileSync(dropped), PNG);
     writeFileSync(join(h.dir, "notes.txt"), "x");

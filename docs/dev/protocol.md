@@ -157,6 +157,7 @@ Each item has `id` (stable for its lifetime), `kind` and `ts` (epoch ms).
 ```ts
 type Item =
   | { id; kind: "user"; ts; text: string; images: number; imagePaths?: string[];
+      imageSizes?: ({ w: number; h: number } | null)[];   // v3.7: pixel size of each of imagePaths
       source: "composer" | "external" | "queued" | "extension"; from?: string;
       skill?: { name: string; command: string; path?: string; body?: string } }
   | { id; kind: "assistant"; ts; text: string; streaming: boolean;
@@ -174,6 +175,7 @@ type Item =
       outputTruncated: boolean;   // full text via op "tool_output"
       durationMs?: number;
       images?: string[];          // absolute paths of images in the result, saved by the host
+      imageSizes?: ({ w: number; h: number } | null)[];   // v3.7: pixel size of each of images
       outputLines?: Span[][];     // v2: `output` as styled lines: bash keeps ANSI colors, read is syntax highlighted
                                   //     by the file's extension (same bounds as `output`)
       detail: ToolDetail }
@@ -212,6 +214,7 @@ type ToolDetail =
 - **Images:**
   - The host saves the images in tool results, and those attached to user messages, as files: `<stateDir>/images/<chat>/<item id>-<n>.<png|jpg|gif|webp>`.
   - It lists them in `images` / `imagePaths` (absolute paths). These are at most 8 per item.
+  - `imageSizes` (v3.7) gives each one's pixel size, in the same order.
   - The mod shows them with `image()`, using a path relative to the app home when it can.
   - Base64 never goes over the wire.
 - **Attachments** (the composer's images, `host/attachments.ts`):
@@ -252,8 +255,8 @@ type ToolDetail =
 | `fork_points` | | `{points: {id, text}[]}` | the person's messages in this session, newest first, as typed (a skill as its `/command`). Refused when the agent can't fork (`capabilities.fork`) |
 | `fork` | `point` | `{text}` | a new session holding what came before that message (the agent's own fork: Pi `fork`, Claude Code `--fork-session --resume-session-at`, Codex `thread/fork`); the original is unchanged. Then a new snapshot, and `text` (the message, as typed) is the client's to put in its composer |
 | `files` | `query`, `limit?` | `{files: string[]}` | cwd-relative paths, fuzzy-ranked. `git ls-files` (else a bounded walk), cached and refreshed every 30 s |
-| `clipboard_image` | | `{path: string \| null}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»); null when the clipboard holds none |
-| `attach_image` | `path` | `{path}` | a copy of an image file (a drop) as an attachment, `<ms>-<hex>-<name>` (a name over 200 bytes is shortened, its extension kept). It checks the file as `send` does and fails with the same messages (type, unreadable or over 64 MiB, not a valid PNG/JPEG/GIF/WebP) |
+| `clipboard_image` | | `{path: string \| null, size?}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»); null when the clipboard holds none. `size` (v3.7): its pixel size `{w, h}`, or null |
+| `attach_image` | `path` | `{path, size}` | a copy of an image file (a drop) as an attachment, `<ms>-<hex>-<name>` (a name over 200 bytes is shortened, its extension kept). It checks the file as `send` does and fails with the same messages (type, unreadable or over 64 MiB, not a valid PNG/JPEG/GIF/WebP). `size` (v3.7): its pixel size `{w, h}`, or null |
 | `detach_image` | `path` | `{}` | the chip's ✕: removes an attachment, unless a held or queued message lists it. Any path outside the chat's attachments is left alone |
 | `sweep_attachments` | `open: string[]` | `{removed: string[]}` | `open`: the chats with a pane in the app's layout. Removes the attachments of other chats that have no pane and no live host, once two calls in a row agree (see "Attachments") |
 | `history` | `before` (item id), `limit?` | `{items, hasOlder}` | older items |
@@ -624,3 +627,9 @@ The transcript gets a notice (`source: "plan"`, `level: "info"`) instead of a ca
 
 The mod shows the plan as a strip above the composer (`2/5`, a progress bar, the step in progress, else the first pending one). A click opens the full list above it, another closes it. All done: `N/N done`.
 
+## v3.7: image sizes (additive)
+
+- Items with saved images carry `imageSizes`: user items next to `imagePaths`, tool items next to `images`. Entry `i` is the pixel size `{w, h}` of path `i` as `image()` draws it, read by the host from the image's header when it saves it (`host/imagesize.ts`: PNG, JPEG, GIF, WebP; a JPEG whose EXIF orientation turns it a quarter, 5–8, has w and h swapped). It is `null` when the header can't be read. Inside the host an item keeps one `{path, size}` list (`imageFiles`); `toWire()` splits it into these arrays.
+- The mod draws each thumbnail at that aspect ratio from the first frame (`cards.js` `images()`), within 320 × 320 points and 60 % of the column, never enlarged. A row with images then has its final height when it first appears, so the rows above it never jump. The size also goes to the viewer when a thumbnail is enlarged.
+- The composer's images carry theirs too: `clipboard_image` and `attach_image` answer `{path, size}`, the size read from the attachment's bytes. A chip keeps its fixed 64 × 48 box (the composer's height doesn't wait on the host's answer), so its size only goes to the viewer when the chip is enlarged. A message sent with chips gets sizes as any user item does, from the images the host saved for it.
+- The mod can't read raster files itself (the manifest grants no `fs.read`). An image without a size (a `null`, or a host older than v3.7) gets a 16:10 box as wide as a thumbnail may be, and the viewer opens it at a 1600 × 1000 guess. SVGs (mermaid blocks) are still sized by the mod, from the file's `viewBox`.

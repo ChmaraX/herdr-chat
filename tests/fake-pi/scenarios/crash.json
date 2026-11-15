@@ -1,5 +1,5 @@
 {
- "description": "Pi crashes mid-run: a prompt starting with 'Run' starts a tool, prints a line, then the process exits with code 1. Other prompts get the default answer. The extension command /die makes Pi exit with code 3 while idle (a crash between turns).",
+ "description": "Pi crashes mid-run: a prompt starting with 'Run' starts a tool, prints a line, then the process exits with code 1. A prompt starting with 'fill' gets a 40-line answer, so the transcript overflows the pane and is pinned to the bottom. A prompt ending in 'picture' is answered after 1.5 s (nothing else moves on screen right after it's sent). Other prompts get the default answer. The extension command /die makes Pi exit with code 3 while idle (a crash between turns).",
  "prompts": [
   {
    "match": "^Run",
@@ -51,6 +51,29 @@
     },
     {
      "crash": 1
+    }
+   ]
+  },
+  {
+   "match": "^fill",
+   "steps": [
+    {
+     "assistant": {
+      "text": "1. Line 1 of a long answer, so the transcript fills the pane.\n2. Line 2 of a long answer, so the transcript fills the pane.\n3. Line 3 of a long answer, so the transcript fills the pane.\n4. Line 4 of a long answer, so the transcript fills the pane.\n5. Line 5 of a long answer, so the transcript fills the pane.\n6. Line 6 of a long answer, so the transcript fills the pane.\n7. Line 7 of a long answer, so the transcript fills the pane.\n8. Line 8 of a long answer, so the transcript fills the pane.\n9. Line 9 of a long answer, so the transcript fills the pane.\n10. Line 10 of a long answer, so the transcript fills the pane.\n11. Line 11 of a long answer, so the transcript fills the pane.\n12. Line 12 of a long answer, so the transcript fills the pane.\n13. Line 13 of a long answer, so the transcript fills the pane.\n14. Line 14 of a long answer, so the transcript fills the pane.\n15. Line 15 of a long answer, so the transcript fills the pane.\n16. Line 16 of a long answer, so the transcript fills the pane.\n17. Line 17 of a long answer, so the transcript fills the pane.\n18. Line 18 of a long answer, so the transcript fills the pane.\n19. Line 19 of a long answer, so the transcript fills the pane.\n20. Line 20 of a long answer, so the transcript fills the pane.\n21. Line 21 of a long answer, so the transcript fills the pane.\n22. Line 22 of a long answer, so the transcript fills the pane.\n23. Line 23 of a long answer, so the transcript fills the pane.\n24. Line 24 of a long answer, so the transcript fills the pane.\n25. Line 25 of a long answer, so the transcript fills the pane.\n26. Line 26 of a long answer, so the transcript fills the pane.\n27. Line 27 of a long answer, so the transcript fills the pane.\n28. Line 28 of a long answer, so the transcript fills the pane.\n29. Line 29 of a long answer, so the transcript fills the pane.\n30. Line 30 of a long answer, so the transcript fills the pane.\n31. Line 31 of a long answer, so the transcript fills the pane.\n32. Line 32 of a long answer, so the transcript fills the pane.\n33. Line 33 of a long answer, so the transcript fills the pane.\n34. Line 34 of a long answer, so the transcript fills the pane.\n35. Line 35 of a long answer, so the transcript fills the pane.\n36. Line 36 of a long answer, so the transcript fills the pane.\n37. Line 37 of a long answer, so the transcript fills the pane.\n38. Line 38 of a long answer, so the transcript fills the pane.\n39. Line 39 of a long answer, so the transcript fills the pane.\n40. Line 40 of a long answer, so the transcript fills the pane."
+     }
+    }
+   ]
+  },
+  {
+   "match": "picture$",
+   "steps": [
+    {
+     "wait": 1500
+    },
+    {
+     "assistant": {
+      "text": "Got the picture."
+     }
     }
    ]
   }

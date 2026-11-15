@@ -45,7 +45,9 @@ export class Viewer {
     this.path = v.path; // relative to the app's home
     this.abs = `${appHome().replace(/\/$/, "")}/${v.path}`;
     this.svg = /\.svg$/i.test(v.path);
-    this.natural = v.w > 0 && v.h > 0 ? { w: v.w, h: v.h } : null;
+    // A raster's size comes with its item or chip (protocol.md v3.7); without one (an older host) it's a
+    // guess, since the mod can't read raster files (no fs.read grant). An SVG's is read below.
+    this.natural = v.w > 0 && v.h > 0 ? { w: v.w, h: v.h } : this.svg ? null : { w: 1600, h: 1000 };
     const [W, H] = v.want ?? [900, 600];
     this.frame = { w: W - 32, h: H - 84, measured: false }; // until on_size_change says
     this.fit = true;
@@ -62,7 +64,7 @@ export class Viewer {
     this.debug = new Debug(cx, "viewer", () => this.dump());
     if (!this.natural) {
       cx.spawn(async (cx) => {
-        this.natural = (await readImageSize(this.abs)) ?? { w: 1600, h: 1000 };
+        this.natural = (await readSvgSize(this.abs).catch(() => null)) ?? { w: 1600, h: 1000 };
         this.refit();
         cx.notify();
       });
@@ -351,29 +353,11 @@ function hash(s) {
   return h.toString(36);
 }
 
-// An image's natural size: an SVG's width/height (else its viewBox), a PNG,
-// GIF or JPEG's pixels from its header. Null when unknown.
-export async function readImageSize(path) {
-  if (!/\.svg$/i.test(path)) return imageSize(await fs.readFile(path));
+// An SVG's natural size: its width/height, else its viewBox. Null when unknown.
+export async function readSvgSize(path) {
   const head = ((await readTextFile(path)) ?? "").slice(0, 2000);
   const vb = /viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(head);
   const w = Number(/\swidth="([\d.]+)(px)?"/.exec(head)?.[1] ?? vb?.[1]);
   const h = Number(/\sheight="([\d.]+)(px)?"/.exec(head)?.[1] ?? vb?.[2]);
   return w > 0 && h > 0 ? { w, h } : null;
-}
-
-function imageSize(b) {
-  if (!b || b.length < 24) return null;
-  if (b[0] === 0x89 && b[1] === 0x50) return { w: (b[16] << 24 | b[17] << 16 | b[18] << 8 | b[19]) >>> 0, h: (b[20] << 24 | b[21] << 16 | b[22] << 8 | b[23]) >>> 0 };
-  if (b[0] === 0x47 && b[1] === 0x49) return { w: b[6] | b[7] << 8, h: b[8] | b[9] << 8 };
-  if (b[0] === 0xff && b[1] === 0xd8) {
-    let i = 2;
-    while (i + 9 < b.length) {
-      if (b[i] !== 0xff) return null;
-      const m = b[i + 1], len = b[i + 2] << 8 | b[i + 3];
-      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: b[i + 5] << 8 | b[i + 6], w: b[i + 7] << 8 | b[i + 8] };
-      i += 2 + len;
-    }
-  }
-  return null;
 }
