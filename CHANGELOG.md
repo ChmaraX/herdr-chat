@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/ChmaraX/herdr-chat/compare/v0.3.0...v0.4.0) (2026-11-15)
+
+
+### Features
+
+* **chat:** answer question cards from the keyboard (↑↓, Enter, Space) ([#22](https://github.com/ChmaraX/herdr-chat/issues/22)) ([ed6e88f](https://github.com/ChmaraX/herdr-chat/commit/ed6e88fa6673dfd25ffd67165129737881f40b21))
+* **chat:** pasted and dropped images show as thumbnails in the composer ([#23](https://github.com/ChmaraX/herdr-chat/issues/23)) ([7d42f60](https://github.com/ChmaraX/herdr-chat/commit/7d42f60ceeba48afb69b42d4008905312276dd2d))
+* **chat:** the agent's plan in a strip above the composer; Claude's task list feeds it ([#20](https://github.com/ChmaraX/herdr-chat/issues/20)) ([63e4d64](https://github.com/ChmaraX/herdr-chat/commit/63e4d64bb3c630b58d52c49b73fbbeebefa232d6))
+
+
+### Bug Fixes
+
+* **chat:** a sent image appears once, at its real aspect ratio, with no jump ([#24](https://github.com/ChmaraX/herdr-chat/issues/24)) ([a5810ee](https://github.com/ChmaraX/herdr-chat/commit/a5810ee9da2b5a283b18ec6b95e79bffaba6ade9))
+* **chat:** the thinking timer shows once, not twice ([#21](https://github.com/ChmaraX/herdr-chat/issues/21)) ([ba0db69](https://github.com/ChmaraX/herdr-chat/commit/ba0db699906b13f5b6e336cfe9cd22d77c84d6dd))
+* installs and closed chats no longer leak sockets until every chat sticks at "Starting…" ([#17](https://github.com/ChmaraX/herdr-chat/issues/17)) ([ae28634](https://github.com/ChmaraX/herdr-chat/commit/ae28634258ffa9b5b1749bf11ff134ca9cb25659))
+
 ## [0.3.0](https://github.com/ChmaraX/herdr-chat/compare/v0.2.0...v0.3.0) (2026-11-12)
 
 
