@@ -22,6 +22,7 @@ export class Timeline {
     this.viewH = 0;
     this.total = 0;
     this.shown = [];
+    this.heightsSeen = null; // debug only (trace()): row id → [[ms, height]…], the heights it was measured at
   }
 
   h(r) {
@@ -37,6 +38,10 @@ export class Timeline {
     this.top -= dy;
     if (this.top < 0) this.top = 0;
     if (this.top >= this.total - this.viewH - 2) this.sticky = true;
+  }
+
+  trace(debug) {
+    this.heightsSeen = debug.trace();
   }
 
   toBottom() {
@@ -87,6 +92,7 @@ export class Timeline {
       const old = this.heights.get(it.id);
       if (old === s.height) return;
       this.heights.set(it.id, s.height);
+      this.heightsSeen?.add(it.id, Math.round(s.height));
       // A row above the viewport changed size: keep the view still.
       const off = this.offsets.get(it.id);
       if (!this.sticky && off !== undefined && off < this.top) this.top += s.height - (old ?? this.h(it));

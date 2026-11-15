@@ -6,7 +6,8 @@
 // `c` is the render context from main.js: theme `t`, `mono`, sets/maps of
 // UI state (`expanded`, `full`), the column width `colW`, and the actions
 // (toggle, more, copy, copied, enlarge, svgSize, openFile, editResend,
-// hover, setHover, svgHover, setSvgHover, groupOpen, modelName, now).
+// hover, setHover, svgHover, setSvgHover, groupOpen, modelName, now), and
+// traceThumb, debug only: the box each thumbnail is drawn at (the dump's thumbsSeen).
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";

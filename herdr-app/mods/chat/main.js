@@ -103,6 +103,7 @@ export default class HerdrChat extends View {
     this.uid = `v${++VIEWS}`;
     owners.set(this.uid, this);
     this.svgSizes = new Map(); // image path → {w, h} | null (loading)
+    this.thumbsSeen = null; // debug only: image path → [[ms, w, h]…], the boxes its thumbnail was drawn at
     this.width = 0;
     this.homeDir = home();
     this.prefs = loadPrefs();
@@ -110,7 +111,10 @@ export default class HerdrChat extends View {
     this.placeFrom = null; // "doc" | "guess" (no document to read)
     this.hide = null; // the host's pane in the layout document: {terminal, pane, hidden, …} (keepHostHidden)
     this.fallback = null; // {terminal, reason, at}: the hidden flag can't be written, the pane is 0 px instead
-    this.debug = new Debug(cx, this.peekMode ? `${this.chat}.peek` : this.chat, () => this.dump());
+    this.debug = new Debug(cx, this.peekMode ? `${this.chat}.peek` : this.chat, () => this.dump(), () => {
+      this.timeline.trace(this.debug);
+      this.thumbsSeen = this.debug.trace();
+    });
     if (!this.peekMode) this.lookupPlace(cx);
     // Chat-scoped shortcuts (shortcuts.js): defaults, then the person's keys.json; then the
     // chat's bindings in the app's keymap, kept there when Herdr rebuilds it (keymap.js).
@@ -1934,7 +1938,7 @@ export default class HerdrChat extends View {
       hasOlder: this.store.hasOlder,
       expanded: [...this.expanded], full: [...this.full.keys()],
       sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, shown: this.timeline.shown,
-      composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
+      composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), chipSizes: this.composer.chips.map((c) => c.size), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
       menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
       picker: this.picker ? { kind: this.picker.kind, sel: this.picker.sel, top: this.picker.top ?? 0, wheeled: this.picker.wheeled ?? 0,
@@ -1966,6 +1970,7 @@ export default class HerdrChat extends View {
       update: { ...this.updater.dump(this.conn.welcome), healing: this.healing ?? null },
       widgetsOpen: this.prefs.widgetsOpen, themeSent: Boolean(this.themeSent), themeOk: this.themeOk ?? null,
       enlarged: this.enlarged ?? null, svgHover: this.svgHover ?? null, svgSizes: Object.fromEntries(this.svgSizes),
+      heightsSeen: this.timeline.heightsSeen?.dump() ?? null, thumbsSeen: this.thumbsSeen?.dump() ?? null,
       blocks: this.store.items.filter((it) => it.kind === "assistant" && it.blocks?.length).map((it) => ({ id: it.id, types: it.blocks.map((b) => b.type + (b.open ? "*" : "")) })),
       renderError: this.renderError ?? null,
       perf: this.perf ? { renders: this.perf.n, avgMs: +(this.perf.total / this.perf.n).toFixed(2), maxMs: this.perf.max } : null,
@@ -2064,7 +2069,7 @@ export default class HerdrChat extends View {
       codeView: (key) => this.codeViews.get(key)?.entity ?? null,
       toggle: (id, cx) => this.toggle(id, cx), more: (id, cx) => this.more(id, cx),
       copy: (id, text, cx) => this.copy(id, text, cx), copied: (id) => this.copiedAt.has(id),
-      enlarge: (p, size, cx) => this.enlarge(p, size, cx), svgSize: (p) => this.svgSize(p),
+      enlarge: (p, size, cx) => this.enlarge(p, size, cx), svgSize: (p) => this.svgSize(p), traceThumb: (p, w, h) => this.thumbsSeen?.add(p, w, h),
       openFile: (p, line, cx) => this.openFile(p, line, cx), editResend: (it, cx) => this.editResend(it, cx),
       setHover: (id, on, cx) => this.setHover(id, on, cx), svgHover: this.svgHover ?? null,
       setSvgHover: (key, on, cx) => this.setSvgHover(key, on, cx), groupOpen: (id) => this.groups.get(id),

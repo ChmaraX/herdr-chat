@@ -163,6 +163,7 @@ export function homeRel(p, appHomeDir) {
 export function thumbnail(id, path, w, h, c) {
   const rel = homeRel(path, appHome());
   if (!rel) return null;
+  c.traceThumb(path, w, h);
   return h_flex().id(id).flex_none().cursor_pointer().rounded(10).overflow_hidden().border_1().border_color(c.t.border)
     .on_click((_e, cx) => c.enlarge(path, c.svgSize(path), cx))
     .child(image(rel).w(w).h(h));
