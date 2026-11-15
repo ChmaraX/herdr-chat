@@ -19,7 +19,7 @@ which also reads back what the host sent (`requests(method)`, `answers()`).
 - `FAKE_CODEX_REPLAY=<fixture.jsonl>`: replay a recorded real session instead (below).
 - `FAKE_CODEX_SPEED=<n>`: divides every wait.
 - `FAKE_CODEX_LOG=<file>`: every message received, one JSON per line, after a `{_start, argv, cwd, env}` line.
-- `FAKE_CODEX_HOME=<dir>`: where threads persist (`<dir>/sessions/rollout-<ts>-<id>.jsonl`, the thread as JSON on the first line, then the real rollout's `task_started` and `update_plan` records, written at the first turn like Codex). A restarted fake resumes them.
+- `FAKE_CODEX_HOME=<dir>`: where threads persist (`<dir>/sessions/rollout-<ts>-<id>.jsonl`, written at the first turn like Codex). The first line is the thread as JSON; after it come the records the host reads, shaped as codex-cli 0.163 writes them (`tests/fixtures/codex/plan-rollout.rollout.jsonl`): `session_meta`, `task_started`, `turn_context`, the user messages, and `update_plan` as code mode's `exec` call. A fork's file holds only its own records and names its source in `session_meta.history_base`, as Codex does. A restarted fake resumes them.
 
 ## Behaviour that mirrors Codex 0.163
 
@@ -46,6 +46,7 @@ which also reads back what the host sent (`requests(method)`, `answers()`).
   "resumeError": {"code": -32600, "message": "… active writer"},
   "settingsUpdateUnsupported": true,   // thread/settings/update → -32601 (older Codex)
   "readStatus": {"type": "idle"},      // what thread/read reports (a turn Codex never completes)
+  "rejectPrompts": "regex",            // turn/start with matching text → -32602
   "compactMs": 150, "compactFails": "message",
   "startupNotifications": [msg | {"wait": ms}…]  // sent after thread/started ("{thread}" is replaced)
 }
@@ -67,7 +68,7 @@ which also reads back what the host sent (`requests(method)`, `answers()`).
 | `{"permissions": {reason, permissions}, "then": {session\|turn\|denied: …}}` | `item/permissions/requestApproval` |
 | `{"elicitation": {serverName, mode, message, requestedSchema \| url}, "then": {accept\|decline\|cancel: …}}` | `mcpServer/elicitation/request`; `{content}` is the answer |
 | `{"plan": "markdown"}` | `plan` item with `item/plan/delta`s |
-| `{"todo": {explanation?, plan: [{step, status}]}}` | `turn/plan/updated`, and an `update_plan` call in the rollout |
+| `{"todo": {explanation?, plan: [{step, status}]}}` | `turn/plan/updated`, and an `exec` call to `tools.update_plan` in the rollout |
 | `{"error", "willRetry"?, "details"?}` | `error` notification |
 | `{"fail": "message"}` | ends the turn `failed` with that error |
 | `{"wait": ms}`, `{"hang": true \| ms}` | silence (a stall) until interrupted |

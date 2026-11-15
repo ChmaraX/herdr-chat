@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { idle } from "./harness.ts";
+import { idle, strip, markers } from "./harness.ts";
 import { startClaude } from "../fake-claude/host.ts";
 import { lockPath } from "../../host/registry.ts";
 
@@ -47,8 +47,6 @@ const SCENARIO = {
   ],
 };
 
-const strip = (c: { state: any }) => c.state.plan?.steps.map((s: any) => [s.text, s.status]) ?? null;
-const markers = (items: any[]) => items.filter((i) => i.kind === "notice" && i.source === "plan").map((i) => i.text);
 const cards = (items: any[]) => items.filter((i) => i.kind === "plan");
 
 test("claude: resume from the transcript shows the same timeline as live (tools, diffs, declines, nested steps, plan, /context)", async () => {
@@ -268,6 +266,71 @@ test("claude: a background agent's task changes land on the session's plan in ta
     fork.artifact("claude-tasks-fork-resumed");
   } finally {
     await fork.stop();
+  }
+});
+
+// A background agent that outlives its turn finishes the task list after the
+// next message, while TodoWrite's list (a second source of the chat's plan) was
+// the plan in between. An orphan subagent's TodoWrite has no card to land on.
+const LATE = {
+  turns: [
+    {
+      match: "Start the work",
+      steps: [
+        taskCreate("1", "Find the flaky tests"),
+        taskCreate("2", "Fix them"),
+        {
+          subagent: {
+            description: "Fix flakes", type: "general-purpose", background: "outlives", report: "Fixed.",
+            steps: [{ sleep: 2400 }, taskUpdate("1", { status: "completed" }), taskUpdate("2", { status: "completed" })],
+          },
+        },
+        { todos: [{ content: "Review the fix", status: "pending", activeForm: "Reviewing" }] },
+        {
+          emit: {
+            type: "assistant", parent_tool_use_id: "toolu_gone",
+            message: { model: "claude-opus-4-8", id: "msg_orphan", type: "message", role: "assistant", stop_reason: null, content: [{ type: "tool_use", id: "toolu_orphan_todo", name: "TodoWrite", input: { todos: [{ content: "Lost", status: "pending", activeForm: "Losing" }] } }] },
+          },
+        },
+        { text: "On it." },
+      ],
+    },
+    { match: "Thanks", steps: [{ text: "You're welcome." }] },
+  ],
+};
+
+test("claude: a background agent's last task change after the next message, and TodoWrite's list in between, resume as they went live", async () => {
+  const live = await startClaude({ name: "claude-tasks-late", speed: 4, scenario: LATE });
+  let liveItems: any[];
+  let livePlan: any;
+  try {
+    const c = live.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "Start the work" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "On it."), 10_000);
+    assert.deepEqual(strip(c), [["Review the fix", "pending"]], "TodoWrite's list replaced the task list");
+    assert.deepEqual(cards(c.items), [], "the orphan subagent's list is no card");
+    await c.req("send", { text: "Thanks" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "You're welcome."), 10_000);
+    await c.waitFor((x) => strip(x)?.every(([, st]) => st === "completed") ?? false, 10_000, "the agent finished the task list");
+    assert.deepEqual(strip(c), [["Find the flaky tests", "completed"], ["Fix them", "completed"]]);
+    assert.deepEqual(markers(c.items), ["Plan created · 1 step", "Plan created · 2 steps"], "the agent's list is a new plan in the turn it came in");
+    liveItems = structuredClone(c.items);
+    livePlan = structuredClone(c.state.plan);
+    live.artifact("claude-tasks-late-live");
+  } finally {
+    await live.stop();
+  }
+
+  const again = await startClaude({ name: "claude-tasks-late-resumed", speed: 4, scenario: LATE, dir: live.dir });
+  try {
+    const c = again.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "You're welcome."), 10_000, "history loaded");
+    assert.deepEqual(c.state.plan, livePlan, "the agent's late changes replay after the message that came before them");
+    assert.deepEqual(seen(c.items).filter((i) => i.kind === "notice" || i.kind === "user"), seen(liveItems).filter((i) => i.kind === "notice" || i.kind === "user"), "the markers sit in the same turns");
+    again.artifact("claude-tasks-late-resumed");
+  } finally {
+    await again.stop();
   }
 });
 

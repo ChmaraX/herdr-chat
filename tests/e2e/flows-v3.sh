@@ -44,13 +44,18 @@ plan_open_shot() {
   cmd click:plan
   expect '[ "$(d "d[\"plan\"][\"open\"]")" = false ]' "another click closes them" 5
 }
-# A plan's last turn: every step done → "N/N done", gone at the next message.
+# A plan's last turn: every step done → "N/N done", gone at the next message; the next plan's strip starts closed.
 plan_done() {
   send_text "wrap up the todos"
   expect '[ "$(phase)" = idle ] && [ "$(strip)" = "[3, 3, null]" ]' "every step done: the strip says 3/3 done" 15
   shot "$1" 0.5
+  cmd click:plan
+  expect '[ "$(d "d[\"plan\"][\"open\"]")" = true ]' "the finished plan's steps open" 5
   send_text "thanks"
   expect '[ "$(phase)" = idle ] && [ "$(strip)" = null ]' "the next message clears the finished plan" 15
+  send_text "start a new list"
+  expect '[ "$(phase)" = idle ] && [ "$(strip)" = "[0, 1, \"Write the notes\"]" ]' "a new plan on the strip" 15
+  [ "$(d "d['plan']['open']")" = false ] && ok "the new plan's strip starts closed" || fail "the new plan's strip opened with the last one's state"
 }
 open_dialog() { expect '[ "$(d "d[\"dialog\"][\"method\"]")" = '"$1"' ]' "${2:-a $1 card}" 10; }
 # The mode picker, then ↓/↑ to the mode $1 and Enter (else the picker's own code: by_command).
@@ -420,7 +425,6 @@ if want v3 || want codex; then
   [ "$(count_kind plan)" = 0 ] && ok "no plan card in the transcript" || fail "$(count_kind plan) plan cards"
   expect '[ "$(strip)" = "[1, 3, \"Fix the trimming\"]" ]' "turn/plan/updated → the strip: 1/3, on the step in progress ($(strip))" 5
   shot v3-4-codex-plan 0.4
-  shot strip-codex-collapsed 0.1
   plan_open_shot strip-codex-open
   send_text "use an agent"
   expect '[ "$(phase)" = idle ]' "the agent run settles" 20

@@ -62,6 +62,7 @@ Text can use these placeholders: `{prompt}`, `{steers}` (the steers folded in so
 - `{ "subagent": { "description", "type", "prompt", "steps": [{ "tool" … } | { "text" } | { "sleep": ms }], "report", "background" } }`: an `Agent` call with nested records (`parent_tool_use_id`), a subagent transcript, and a report.
   - Live, a nested tool result carries no `tool_use_result`, as the real CLI's don't. The transcript has `toolUseResult`.
   - `"background": true`: the call answers `async_launched` at once and the turn goes on. The nested steps run alongside it, and the turn's `result` waits for them.
+  - `"background": "outlives"`: the same, but the turn's `result` doesn't wait: the steps go on into the next turns.
 - `{ "todos": [{ "content", "status", "activeForm" }] }`: a `TodoWrite` call.
 
 **Asks**
@@ -72,6 +73,7 @@ Text can use these placeholders: `{prompt}`, `{steers}` (the steers folded in so
 - `{ "apiError": "authentication_failed", "text": "…" }`: a synthetic error message and an `is_error` result.
 - `{ "retry": { "attempt", "max", "delayMs", "error" } }`: `api_retry`.
 - `{ "notice": "…" }`, `{ "rateLimit": "rejected" }`.
+- `{ "emit": record }`: writes the record as is (with the session id and uuid), for records no other step makes.
 
 **Failures and other runs**
 - `{ "hang": true, "ignoreInterrupt": false }`: silence until an interrupt (or forever).

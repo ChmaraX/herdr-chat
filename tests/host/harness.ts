@@ -227,3 +227,7 @@ export async function startHost(opts: HostOptions): Promise<Host> {
 }
 
 export const idle = (c: ChatClient) => c.state.phase === "idle";
+/** The chat's plan as the strip shows it: [text, status] per step, or null. */
+export const strip = (c: { state: any }): [string, string][] | null => c.state.plan?.steps.map((s: any) => [s.text, s.status]) ?? null;
+/** The transcript's plan marker rows. */
+export const markers = (items: any[]): string[] => items.filter((i) => i.kind === "notice" && i.source === "plan").map((i) => i.text);

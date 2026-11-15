@@ -80,9 +80,32 @@ function saveThread(t) {
   const lines = [JSON.stringify({ ...t, live: undefined, rollout: undefined }), ...(t.rollout ?? []).map((r) => JSON.stringify(r))];
   writeFileSync(threadFile(t), lines.join("\n") + "\n");
 }
-// The real rollout's records the host reads back (update_plan calls, by turn), after the thread's own line.
+// The real rollout's records the host reads back, after the thread's own line, shaped as
+// codex-cli 0.163 writes them (tests/fixtures/codex/plan-rollout.rollout.jsonl).
 function record(t, type, payload) {
-  (t.rollout ??= []).push({ timestamp: new Date().toISOString(), type, payload });
+  t.rollout ??= [];
+  t.rollout.push({ timestamp: new Date().toISOString(), ordinal: t.rollout.length, type, payload });
+}
+function sessionMeta(t, fork) {
+  record(t, "session_meta", {
+    session_id: t.id, id: t.id, ...(fork ?? {}), timestamp: new Date().toISOString(), cwd: t.cwd, originator: "herdr_chat", cli_version: VERSION, source: "vscode", model_provider: "openai",
+  });
+}
+function turnStarted(t, turn) {
+  record(t, "event_msg", {
+    type: "task_started", turn_attribution: { turn_id: turn.id, turn_trigger: null, parent_turn_id: null, initiating_agent_path: null, root_turn_id: turn.id },
+    turn_id: turn.id, root_turn_id: turn.id, started_at: turn.startedAt, model_context_window: 258400, collaboration_mode_kind: t.settings.collaborationMode.mode,
+  });
+  record(t, "turn_context", {
+    turn_id: turn.id, root_turn_id: turn.id, disabled_plugin_ids: [], cwd: t.cwd, approval_policy: t.settings.approvalPolicy, approvals_reviewer: t.settings.approvalsReviewer,
+    model: t.settings.model, collaboration_mode: t.settings.collaborationMode, multi_agent_version: "v1", realtime_active: false, effort: t.settings.effort, summary: "none",
+  });
+}
+/** A value as JS source, keys unquoted: how code mode's model writes a tool's arguments. */
+function js(v) {
+  if (Array.isArray(v)) return `[${v.map(js).join(",")}]`;
+  if (v && typeof v === "object") return `{${Object.entries(v).map(([k, x]) => `${k}:${js(x)}`).join(",")}}`;
+  return JSON.stringify(v);
 }
 function readThread(file) {
   const [first, ...rest] = readFileSync(file, "utf8").split("\n").filter(Boolean);
@@ -174,6 +197,13 @@ function itemStarted(a, item) {
 function itemCompleted(a, item) {
   a.started?.delete(item.id);
   a.items.push(item);
+  if (item.type === "userMessage") {
+    const at = now();
+    record(a.thread, "event_msg", {
+      type: "item_completed", thread_id: a.thread.id, turn_id: a.turn.id,
+      item: { type: "UserMessage", id: item.id, ...(item.clientId ? { client_id: item.clientId } : {}), content: item.content }, started_at_ms: at, completed_at_ms: at,
+    });
+  }
   notify("item/completed", { item, threadId: a.thread.id, turnId: a.turn.id, completedAtMs: now() });
 }
 function usage(a, out = 20) {
@@ -319,7 +349,11 @@ async function runStep(a, step) {
   if (step.todo !== undefined) {
     notify("turn/plan/updated", { threadId: t.id, turnId: a.turn.id, explanation: step.todo.explanation ?? null, plan: step.todo.plan });
     const plan = step.todo.plan.map((s) => ({ step: s.step, status: s.status === "inProgress" ? "in_progress" : s.status }));
-    record(t, "response_item", { type: "function_call", name: "update_plan", arguments: JSON.stringify({ ...(step.todo.explanation ? { explanation: step.todo.explanation } : {}), plan }), call_id: uid("call_") });
+    record(t, "response_item", {
+      type: "custom_tool_call", id: uid("ctc_"), status: "completed", call_id: uid("call_"), name: "exec",
+      input: `const r = await tools.update_plan(${js({ ...(step.todo.explanation ? { explanation: step.todo.explanation } : {}), plan })}); text(r)\n`,
+      internal_chat_message_metadata_passthrough: { turn_id: a.turn.id, create_time: Date.now() / 1000 },
+    });
     return;
   }
   if (step.error !== undefined) {
@@ -446,6 +480,8 @@ async function runSubagent(a, s) {
   const ct = { id: uid(), rootTurnId: a.turn.id, items: [], itemsView: "notLoaded", status: "inProgress", error: null, startedAt: secs(), completedAt: null, durationMs: null };
   notify("thread/status/changed", { threadId: child.id, status: { type: "active", activeFlags: [] } });
   notify("turn/started", { threadId: child.id, turn: ct });
+  if (!child.rollout) sessionMeta(child);
+  turnStarted(child, ct);
   const ca = { thread: child, turn: ct, items: [], steers: [] };
   Object.defineProperty(ca, "interrupted", { get: () => a.interrupted });
   const um = { type: "userMessage", id: uid(), clientId: null, content: [{ type: "text", text: s.prompt, text_elements: [] }] };
@@ -487,7 +523,8 @@ async function startTurn(t, params, steps) {
     notify("thread/status/changed", { threadId: t.id, status: { type: "active", activeFlags: [] } });
     turn.startedAt = secs();
     notify("turn/started", { threadId: t.id, turn: { ...turn } });
-    record(t, "event_msg", { type: "task_started", turn_id: turn.id });
+    if (!t.rollout) sessionMeta(t);
+    turnStarted(t, turn);
     if (!t.written && !t.ephemeral) {
       t.written = true;
       saveThread(t);
@@ -580,9 +617,16 @@ async function handle(msg) {
       t.settings.effort = scenario.forkEffort ?? t.settings.effort;
       t.forkedFromId = src.id;
       t.turns = JSON.parse(JSON.stringify(src.turns.slice(0, upTo + 1)));
+      // Like Codex 0.163, the fork's rollout holds only its own records: its history is the source's up to the first turn it doesn't keep.
       const kept = new Set(t.turns.map((x) => x.id));
-      let turnOf = null;
-      t.rollout = (src.rollout ?? []).filter((r) => (turnOf = r.payload?.type === "task_started" ? r.payload.turn_id : turnOf) && kept.has(turnOf));
+      let end = src.rollout?.length ?? 0;
+      for (const r of src.rollout ?? []) {
+        if (r.type === "event_msg" && r.payload.type === "task_started" && !kept.has(r.payload.turn_id)) {
+          end = r.ordinal;
+          break;
+        }
+      }
+      sessionMeta(t, { forked_from_id: src.id, history_base: { thread_id: src.id, end_ordinal_exclusive: end } });
       t.written = t.turns.length > 0;
       t.preview = src.preview;
       t.config = p.config ?? null;
@@ -622,7 +666,10 @@ async function handle(msg) {
     }
     case "thread/read": {
       const t = threads.get(p.threadId);
-      if (!t) return err(-32600, "thread not loaded");
+      if (!t) {
+        const saved = loadThread(p.threadId);
+        return saved ? { thread: threadView(saved, { type: "notLoaded" }) } : err(-32600, `no rollout found for thread id ${p.threadId}`);
+      }
       const status = scenario.readStatus ?? (active && active.thread === t ? { type: "active", activeFlags: [] } : { type: "idle" });
       return { thread: threadView(t, status) };
     }
@@ -676,6 +723,7 @@ async function handle(msg) {
     case "turn/start": {
       const t = threads.get(p.threadId);
       if (!t) return err(-32600, "thread not found");
+      if (scenario.rejectPrompts && new RegExp(scenario.rejectPrompts, "s").test(textOf(p.input))) return err(-32602, `Rejected: ${textOf(p.input)}`);
       if (p.model) t.settings.model = p.model;
       if (p.effort) t.settings.effort = p.effort;
       if (p.summary) t.settings.summary = p.summary;

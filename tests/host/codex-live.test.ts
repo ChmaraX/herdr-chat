@@ -43,3 +43,39 @@ test("live: real Codex — a shell command answered through a permission ask, th
     await h.stop();
   }
 });
+
+test("live: real Codex — update_plan feeds the chat's plan, and the rollout brings it back after a restart", { skip: !LIVE, timeout: 300_000 }, async () => {
+  const h = await codexHost({ name: "codex-live-plan", agent: process.env.CODEX_BIN ?? "codex" });
+  let live: { plan: unknown; markers: string[]; file: string };
+  try {
+    const c = h.client;
+    await c.waitFor(idle, 60_000, "Codex started");
+    await c.req("set_model", { provider: "openai", modelId: "gpt-5.6-luna" });
+    await c.req("set_thinking", { level: "low" });
+    await c.waitFor((x) => x.state.model?.id === "gpt-5.6-luna" && x.state.thinking === "low", 10_000, "settings");
+    await c.req("send", {
+      text: "Use your plan tool (update_plan) three times: first a 3-step plan for a haiku about rain with step 1 in_progress, then with step 1 completed and step 2 in_progress, then with every step completed. Then reply with the haiku. Don't use the shell.",
+    });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "assistant" && !i.streaming && i.text), 180_000, "answer");
+    const markers = c.items.filter((i) => i.kind === "notice" && i.source === "plan").map((i) => i.text);
+    assert.equal(c.state.plan?.steps.length, 3, `turn/plan/updated fed the plan: ${JSON.stringify(c.state.plan)}`);
+    assert.ok(c.state.plan.steps.every((s: { status: string }) => s.status === "completed"), "the last update finished every step");
+    assert.deepEqual(markers, ["Plan created · 3 steps"]);
+    live = { plan: structuredClone(c.state.plan), markers, file: c.state.sessionFile };
+    h.artifact("codex-live-plan", { rollout: live.file });
+  } finally {
+    await h.stop();
+  }
+
+  const again = await codexHost({ name: "codex-live-plan-resumed", agent: process.env.CODEX_BIN ?? "codex", dir: h.dir });
+  try {
+    const c = again.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "assistant"), 60_000, "history");
+    assert.equal(c.state.sessionFile, live.file);
+    assert.deepEqual(c.state.plan, live.plan, "the rollout's records rebuild the plan under thread/turns/list's turn id");
+    assert.deepEqual(c.items.filter((i) => i.kind === "notice" && i.source === "plan").map((i) => i.text), live.markers);
+    again.artifact("codex-live-plan-resumed", { rollout: live.file });
+  } finally {
+    await again.stop();
+  }
+});

@@ -4,7 +4,7 @@
 // Run it under `hc exec` (Codex's code-mode host may not start from an agent's shell).
 // Output: tests/fixtures/codex/<name>.jsonl, lines {"t", "dir": "out"|"in"|"stderr"|"mark", "msg"}, scrubbed.
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync, realpathSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, realpathSync, rmSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -214,7 +214,66 @@ const RECORDINGS = {
     await r.close();
     return [r, "Plan collaboration mode: item/tool/requestUserInput (answered with the first option), then a plan item with item/plan/delta."];
   },
+  /**
+   * update_plan calls (the host's thread config), a steer between two of them, a second turn's plan, then a fork
+   * after the first turn with a plan of its own; thread/turns/list for both threads. The two rollouts, trimmed, are
+   * plan-rollout.rollout.jsonl and plan-rollout.fork.rollout.jsonl.
+   */
+  async "plan-rollout"(cwd) {
+    const config = { "tools.update_plan.enabled": true };
+    const r = new Rec(cwd);
+    await r.init();
+    const source = await r.thread({ ephemeral: false, config });
+    const firstPlan = r.until((m) => m.method === "turn/plan/updated");
+    const done = r.until((m) => m.method === "turn/completed" && m.params.threadId === r.threadId);
+    const started = await r.request("turn/start", {
+      threadId: r.threadId, effort: "low", summary: "auto",
+      input: [{ type: "text", text: "Use your plan tool (update_plan) for a 3-step plan to write a haiku about rain, step 1 in_progress. Then pause and think about rain imagery for a moment before you go on. Don't use the shell.", text_elements: [] }],
+    });
+    await firstPlan;
+    r.mark("steer");
+    await r.request("turn/steer", {
+      threadId: r.threadId, expectedTurnId: started.result.turn.id,
+      input: [{ type: "text", text: "Now call update_plan with every step completed, then reply with just the haiku.", text_elements: [] }],
+    });
+    await done;
+    await r.turn("Use update_plan once more: a new 2-step plan to write a limerick, step 1 in_progress. Then reply with the word ok.");
+    r.mark("thread/turns/list");
+    await r.request("thread/turns/list", { threadId: r.threadId, limit: 20, sortDirection: "asc", itemsView: "full" });
+    r.mark("thread/fork");
+    const fork = await r.request("thread/fork", { threadId: r.threadId, lastTurnId: started.result.turn.id, excludeTurns: true, config, model: MODEL });
+    r.threadId = fork.result.thread.id;
+    await r.turn("Use update_plan: a new 2-step plan to write a couplet, step 1 in_progress. Then reply with the word ok.");
+    r.mark("thread/turns/list");
+    await r.request("thread/turns/list", { threadId: r.threadId, limit: 20, sortDirection: "asc", itemsView: "full" });
+    await r.close();
+    for (const [name, path] of [["plan-rollout.rollout.jsonl", source.thread.path], ["plan-rollout.fork.rollout.jsonl", fork.result.thread.path]]) {
+      writeFileSync(join(HERE, name), scrub(trimRollout(readFileSync(path, "utf8")), cwd));
+      console.log(`wrote ${name}`);
+    }
+    return [r, "update_plan with the host's thread config (code mode: an `exec` custom_tool_call), a steer between two calls of one turn, a second turn's plan, then a fork after the first turn with a plan of its own; thread/turns/list for each. The rollouts, trimmed, are plan-rollout.rollout.jsonl and plan-rollout.fork.rollout.jsonl."];
+  },
 };
+
+const META = ["session_id", "id", "forked_from_id", "forked_from_ordinal_exclusive", "timestamp", "cwd", "originator", "cli_version", "source", "model_provider", "history_mode", "history_base"];
+
+/** The rollout records the host reads (the session's meta, turn starts and contexts, user messages, tool calls), verbatim but for the meta's account ids and instructions; the rest dropped. */
+function trimRollout(text) {
+  const keep = (r) =>
+    r.type === "session_meta" ||
+    (r.type === "event_msg" && (r.payload.type === "task_started" || (r.payload.type === "item_completed" && r.payload.item.type === "UserMessage"))) ||
+    r.type === "turn_context" ||
+    (r.type === "response_item" && (r.payload.type === "custom_tool_call" || r.payload.type === "function_call"));
+  const out = [];
+  for (const line of text.split("\n")) {
+    if (!line) continue;
+    const r = JSON.parse(line);
+    if (!keep(r)) continue;
+    if (r.type === "session_meta") r.payload = Object.fromEntries(META.filter((k) => k in r.payload).map((k) => [k, r.payload[k]]));
+    out.push(r.type === "session_meta" ? JSON.stringify(r) : line);
+  }
+  return out.join("\n") + "\n";
+}
 
 const names = process.argv.slice(2);
 for (const name of names.length ? names : Object.keys(RECORDINGS)) {

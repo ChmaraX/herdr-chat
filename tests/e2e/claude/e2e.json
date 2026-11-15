@@ -283,6 +283,24 @@
      "text": "Every step is done."
     }
    ]
+  },
+  {
+   "match": "start a new list",
+   "once": false,
+   "steps": [
+    {
+     "todos": [
+      {
+       "content": "Write the notes",
+       "status": "pending",
+       "activeForm": "Writing"
+      }
+     ]
+    },
+    {
+     "text": "A new list."
+    }
+   ]
   }
  ],
  "default": [

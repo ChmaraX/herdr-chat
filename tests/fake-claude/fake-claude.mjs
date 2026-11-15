@@ -338,7 +338,8 @@ async function runSubagent(step, ctx) {
   const accept = { permission_decision: { decision: "accept", source: "config" } };
   if (s.background) {
     toolResult(id, `Async agent launched successfully.\nagentId: ${agentId}`, false, { isAsync: true, status: "async_launched", agentId, description: input.description, prompt: input.prompt, outputFile: "" }, accept);
-    ctx.background.push(subagentSteps(s, id, agentId, agentFile).then(() => out({ type: "system", subtype: "task_notification", task_id: agentId, tool_use_id: id, status: "completed", summary: s.report ?? "Done.", ...base() })));
+    const run = subagentSteps(s, id, agentId, agentFile).then(() => out({ type: "system", subtype: "task_notification", task_id: agentId, tool_use_id: id, status: "completed", summary: s.report ?? "Done.", ...base() }));
+    if (s.background !== "outlives") ctx.background.push(run);
     return;
   }
   const report = await subagentSteps(s, id, agentId, agentFile);
@@ -533,7 +534,8 @@ async function turnBody(first, ctx) {
       else if (step.retry) {
         out({ type: "system", subtype: "api_retry", attempt: step.retry.attempt ?? 1, max_retries: step.retry.max ?? 10, retry_delay_ms: step.retry.delayMs ?? 500, error_status: 529, error: step.retry.error ?? "overloaded", ...base() });
         await sleep(step.retry.delayMs ?? 500);
-      } else if (step.notice) out({ type: "system", subtype: "notification", key: "n", text: step.notice, priority: step.priority ?? "low", ...base() });
+      } else if (step.emit) out({ ...step.emit, ...base() });
+      else if (step.notice) out({ type: "system", subtype: "notification", key: "n", text: step.notice, priority: step.priority ?? "low", ...base() });
       else if (step.rateLimit) out({ type: "rate_limit_event", rate_limit_info: { status: step.rateLimit, rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 }, ...base() });
       else if (step.apiError) {
         closeMessage("end_turn");

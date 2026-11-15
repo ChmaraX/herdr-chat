@@ -1,7 +1,7 @@
 // Codex runs through the real host: abort mid-tool, steer and follow-up mid-run, a plan, retries and failed turns.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { idle, sleep } from "./harness.ts";
+import { idle, sleep, strip, markers } from "./harness.ts";
 import { codexHost } from "../fake-codex/host.ts";
 
 const answered = (text: RegExp) => (x: any) => idle(x) && x.items.some((i: any) => i.kind === "assistant" && text.test(i.text) && !i.streaming);
@@ -130,8 +130,6 @@ test("codex: a plan item and a todo list; a retried error, then a failed turn sh
   }
 });
 
-const strip = (c: { state: any }) => c.state.plan?.steps.map((s: any) => [s.text, s.status]) ?? null;
-const markers = (items: any[]) => items.filter((i) => i.kind === "notice" && i.source === "plan").map((i) => i.text);
 const PLANS = {
   prompts: [
     {
@@ -193,6 +191,110 @@ test("codex: each turn's plan updates the chat's one plan; a subagent's is a car
     assert.equal(c.state.plan, null, "the next message clears a finished plan");
     assert.equal(markers(c.items).length, 2);
     again.artifact("codex-plans-resumed");
+  } finally {
+    await again.stop();
+  }
+});
+
+const STEERED = {
+  rejectPrompts: "^nope",
+  prompts: [
+    {
+      match: "^plan the greeting",
+      steps: [{ todo: { plan: [{ step: "Pick a word", status: "inProgress" }, { step: "Say it", status: "pending" }] } }, { waitFor: "steer", timeout: 5000 }, { text: "Planned." }],
+    },
+    { match: "^finish it", steps: [{ todo: { plan: [{ step: "Pick a word", status: "completed" }, { step: "Say it", status: "completed" }] } }, { text: "Finished." }] },
+    { match: "^start over", steps: [{ todo: { plan: [{ step: "Wave", status: "inProgress" }] } }, { todo: { plan: [] } }, { text: "Dropped." }] },
+    { match: "^wave", steps: [{ todo: { plan: [{ step: "Wave", status: "inProgress" }] } }, { text: "Waving." }] },
+    { match: "^drop it", steps: [{ todo: { plan: [] } }, { text: "Dropped again." }] },
+  ],
+};
+
+test("codex: a plan finished by a steer, a rejected message, and plans cleared with an empty update come back the same from the rollout", async () => {
+  const h = await codexHost({ name: "cx-plan-steer", scenario: STEERED, speed: 2 });
+  let live: { plan: unknown; markers: string[] };
+  try {
+    const c = h.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "plan the greeting" });
+    await c.waitFor((x) => strip(x) !== null, 5000, "the plan");
+    assert.equal((await c.req("send", { text: "finish it" })).disposition, "queued", "sent as a steer");
+    await c.waitFor(answered(/^Planned\./), 10_000);
+    assert.deepEqual(strip(c), [["Pick a word", "completed"], ["Say it", "completed"]], "the steer's turn finished it; done stays until the next message");
+    assert.deepEqual(markers(c.items), ["Plan created · 2 steps"]);
+    live = { plan: structuredClone(c.state.plan), markers: markers(c.items) };
+  } finally {
+    await h.stop();
+  }
+
+  const again = await codexHost({ name: "cx-plan-steer-resumed", scenario: STEERED, speed: 2, dir: h.dir });
+  try {
+    const c = again.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Planned."), 10_000, "history");
+    assert.deepEqual(c.state.plan, live.plan, "the plan after the steer is placed after the steer, so it isn't cleared by it");
+    assert.deepEqual(markers(c.items), live.markers);
+
+    await assert.rejects(c.req("send", { text: "nope, not this" }), /Rejected/);
+    await c.waitFor((x) => x.items.some((i) => i.kind === "notice" && /rejected the message/.test(i.text)), 3000, "the error notice");
+    assert.deepEqual(c.state.plan, live.plan, "a message Codex rejected is no next message: the finished plan stays");
+
+    await c.req("send", { text: "start over" });
+    await c.waitFor(answered(/^Dropped\./), 5000);
+    assert.equal(c.state.plan, null, "an empty update clears the plan");
+    assert.deepEqual(markers(c.items), ["Plan created · 2 steps", "Plan cleared"], "the turn's one row says how it ended");
+    await c.req("send", { text: "wave" });
+    await c.waitFor(answered(/^Waving\./), 5000);
+    await c.req("send", { text: "drop it" });
+    await c.waitFor(answered(/^Dropped again\./), 5000);
+    assert.equal(c.state.plan, null);
+    assert.deepEqual(markers(c.items), ["Plan created · 2 steps", "Plan cleared", "Plan created · 1 step", "Plan cleared"], "clearing a plan from an earlier turn has its own row");
+    live = { plan: c.state.plan, markers: markers(c.items) };
+    again.artifact("codex-plan-steer-cleared");
+  } finally {
+    await again.stop();
+  }
+
+  const third = await codexHost({ name: "cx-plan-steer-resumed-2", scenario: STEERED, speed: 2, dir: h.dir });
+  try {
+    const c = third.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Dropped again."), 10_000, "history");
+    assert.equal(c.state.plan, null);
+    assert.deepEqual(markers(c.items), live.markers, "the empty updates in the rollout clear it the same way");
+  } finally {
+    await third.stop();
+  }
+});
+
+test("codex: a fork keeps the plan of the turns it keeps, from its source's rollout, and after a restart", async () => {
+  const h = await codexHost({ name: "cx-plan-fork", scenario: PLANS });
+  let forked: unknown;
+  try {
+    const c = h.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "make a plan" });
+    await c.waitFor(answered(/^Picked\./), 5000);
+    const turnOne = structuredClone(c.state.plan);
+    await c.req("send", { text: "add a step" });
+    await c.waitFor(answered(/^Waving\./), 5000);
+    assert.equal(c.state.plan.steps.length, 3);
+    const { points } = await c.req("fork_points", {});
+    await c.req("fork", { point: points.find((p: any) => p.text === "add a step").id });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Picked.") && !x.items.some((i) => i.text === "Waving."), 10_000, "the fork's history");
+    assert.deepEqual(c.state.plan, turnOne, "the fork's history is its source's first turn, with that turn's plan");
+    assert.deepEqual(markers(c.items), ["Plan created · 2 steps"]);
+    forked = c.state.plan;
+    h.artifact("codex-plan-fork");
+  } finally {
+    await h.stop();
+  }
+
+  const again = await codexHost({ name: "cx-plan-fork-resumed", scenario: PLANS, dir: h.dir });
+  try {
+    const c = again.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Picked."), 10_000, "history");
+    assert.ok(!c.items.some((i) => i.text === "Waving."), "the forked thread resumed");
+    assert.deepEqual(c.state.plan, forked, "the resumed fork reads the plan from its source's rollout");
+    again.artifact("codex-plan-fork-resumed");
   } finally {
     await again.stop();
   }
