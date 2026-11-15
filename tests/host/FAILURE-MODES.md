@@ -64,6 +64,20 @@ the test that has to catch it; "not covered" rows are known gaps
 | Abort while a dialog is open hangs Pi | `steer-abort.test.ts` "Esc while a dialog is open" |
 | A steer shows up twice (queue strip and timeline) or never | `steer-abort.test.ts` "steer during a tool": queue strip while queued, then one `queued` user item |
 
+## Composer images (`attachments.test.ts`; E2E `thumb`)
+
+| Failure | Test |
+|---|---|
+| A pasted or dropped image the chat can't show before it's sent (the app shows only files under its home) | `attach_image` answers a path under `<stateDir>/attachments/<chat>`, a copy of the file; E2E `thumb`: the chip draws it, a click enlarges it |
+| `clipboard_image` saving a paste outside the chat's attachments | not covered: a test machine's clipboard holds no image |
+| A dropped file that isn't an image (or can't be read) staged anyway, or refused without a word | `attach_image` rejects a `.txt`, a `.png` that isn't one, a missing file, with `send`'s messages; E2E `thumb`: the drop shows the reason at once and makes no chip |
+| A dropped file whose name is too long for the copy's prefix | `attach_image` shortens the name and keeps its extension |
+| A drop, then Enter before the copy is made: the message goes without the image, which lands in the next one | E2E `thumb`: with the host paused, drop then send: the message carries the image, the composer stays empty |
+| ✕ deleting the person's own file | `detach_image` on the dropped file leaves it; E2E `thumb` checks the dropped file after ✕ |
+| ✕ deleting a file a held follow-up or a queued steer still sends | both keep their images through `detach_image`; after `queue_edit` takes the follow-up back, ✕ removes it |
+| A host that ends while the chat stays open deleting the composer's images (a take-over's `shutdown`, a restart that falls back to a kill) | `take_over` from another chat, then SIGTERM: the files stay, and the next host has them; E2E `thumb`: `hc kill` on the host, Restart, the chip's image is sent |
+| Attachments left behind when the chat closes | E2E `thumb`: closing the pane of a chat with a live host removes its folder at once; a chat whose host was killed, then its pane closed: another chat's host removes the folder (`sweep_attachments`, from that chat's orphan sweep), and keeps its own |
+
 ## Crashes and lifecycle
 
 | Failure | Test |

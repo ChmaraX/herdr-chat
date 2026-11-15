@@ -1,14 +1,13 @@
-// The clipboard image → a temp PNG, and image files → ImageContent (base64 + MIME type).
+// The clipboard image → a PNG file, and image files → ImageContent (base64 + MIME type).
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
-export function clipboardImage(dir = join(tmpdir(), "herdr-chat-images")): Promise<string | null> {
+/** Saves the clipboard's image as `path` (its folder must exist): `path`, or null when it holds none. */
+export function clipboardImage(path: string): Promise<string | null> {
   if (process.platform !== "darwin") return Promise.resolve(null);
-  mkdirSync(dir, { recursive: true });
-  const path = join(dir, `paste-${Date.now()}-${randomBytes(3).toString("hex")}.png`);
   const script = [
     "set png to (the clipboard as «class PNGf»)",
     `set f to open for access (POSIX file ${JSON.stringify(path)}) with write permission`,
@@ -84,28 +83,31 @@ export async function downscale(path: string, bytes: Buffer, mime: string): Prom
 
 const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
 
-/**
- * Reads and checks image files (Orca's checks), downscaling large ones first.
- * The caps apply to what is sent. Throws with a user-facing message.
- */
+/** An image file's bytes and MIME type, checked (Orca's checks). Throws with a user-facing message. */
+export function readImage(p: string): { bytes: Buffer; mime: string } {
+  if (/^[a-z]+:\/\//i.test(p)) throw new Error("Image URLs aren't supported: save the image and attach the file");
+  const mime = MIME[extname(p).toLowerCase()];
+  if (!mime) throw new Error(`Unsupported image type: ${p}`);
+  let bytes: Buffer;
+  try {
+    if (statSync(p).size > MAX_SOURCE_BYTES) throw new Error("too big");
+    bytes = readFileSync(p);
+  } catch {
+    throw new Error(`Could not read image (or larger than 64 MiB): ${p}`);
+  }
+  if (!bytes.length) throw new Error(`Image is empty: ${p}`);
+  if (sniff(bytes) !== mime) throw new Error(`Not a valid ${mime.slice(6).toUpperCase()} file: ${p}`);
+  return { bytes, mime };
+}
+
+/** Reads and checks image files, downscaling large ones first. The caps apply to what is sent. */
 export async function loadImages(paths: string[]): Promise<ImageContent[]> {
   if (paths.length > IMAGE_LIMITS.count) throw new Error(`Too many images (at most ${IMAGE_LIMITS.count})`);
   let total = 0;
   const out: ImageContent[] = [];
   for (const p of paths) {
-    if (/^[a-z]+:\/\//i.test(p)) throw new Error("Image URLs aren't supported: save the image and attach the file");
-    const mime = MIME[extname(p).toLowerCase()];
-    if (!mime) throw new Error(`Unsupported image type: ${p}`);
-    let bytes: Buffer;
-    try {
-      if (statSync(p).size > MAX_SOURCE_BYTES) throw new Error("too big");
-      bytes = readFileSync(p);
-    } catch {
-      throw new Error(`Could not read image (or larger than 64 MiB): ${p}`);
-    }
-    if (!bytes.length) throw new Error(`Image is empty: ${p}`);
-    if (sniff(bytes) !== mime) throw new Error(`Not a valid ${mime.slice(6).toUpperCase()} file: ${p}`);
-    bytes = await downscale(p, bytes, mime);
+    const { mime, bytes: raw } = readImage(p);
+    const bytes = await downscale(p, raw, mime);
     if (bytes.length > IMAGE_LIMITS.bytes) throw new Error(`Image is larger than 5 MiB: ${p}`);
     total += bytes.length;
     if (total > IMAGE_LIMITS.total) throw new Error("Images are larger than 20 MiB in total");

@@ -2,7 +2,7 @@
 
 import { div, image, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { settings } from "herdr";
+import { appHome, settings } from "herdr";
 
 export const MOD = "chat"; // the folder: mods/chat (also the pane title)
 export const icon = (name, size = 14) => svg(`mods/${MOD}/icons/${name}.svg`).size(size).flex_none();
@@ -156,6 +156,22 @@ export const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many
 export function homeRel(p, appHomeDir) {
   const home = appHomeDir.replace(/\/$/, "") + "/";
   return p?.startsWith(home) ? p.slice(home.length) : null;
+}
+
+// An image file as a w×h thumbnail that enlarges on click (`c`: the render context), or null when
+// image() can't show it: it takes only app-home-relative paths.
+export function thumbnail(id, path, w, h, c) {
+  const rel = homeRel(path, appHome());
+  if (!rel) return null;
+  return h_flex().id(id).flex_none().cursor_pointer().rounded(10).overflow_hidden().border_1().border_color(c.t.border)
+    .on_click((_e, cx) => c.enlarge(path, c.svgSize(path), cx))
+    .child(image(rel).w(w).h(h));
+}
+
+// An image file image() can't show: its icon and name.
+export function fileChip(id, label, t) {
+  return h_flex().id(id).flex_none().h(26).px(8).gap(6).items_center().rounded(6).border_1().border_color(t.border)
+    .text_size(11.5).text_color(t.muted).child(icon("image", 12)).child(div().max_w(220).truncate().child(label));
 }
 
 export function shortPath(p, cwd) {

@@ -8,10 +8,9 @@
 // (toggle, more, copy, copied, enlarge, svgSize, openFile, editResend,
 // hover, setHover, svgHover, setSvgHover, groupOpen, modelName, now).
 
-import { div, image } from "gpui-kit";
-import { appHome } from "herdr";
+import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { absTime, alpha, count, duration, homeRel, icon, money, plural, relTime, shortPath, spinner, typedText, unwrapHc } from "./util.js";
+import { absTime, alpha, count, duration, fileChip, icon, money, plural, relTime, shortPath, spinner, thumbnail, typedText, unwrapHc } from "./util.js";
 import { blocks, copyButton, diffView, outputBox, prose, textDiff } from "./rich.js";
 import { cardLive, defaultOpen, groupCards, groupSummary } from "./rows.js";
 import { SPACE } from "./space.js";
@@ -55,20 +54,16 @@ export function item(it, c, footer, slot = true) {
   }
 }
 
-// Thumbnails of image files (rounded, ≤ 320 px wide); a click enlarges.
-// image() takes app-home-relative paths: a file elsewhere is a named chip.
+// Thumbnails of image files (≤ 320 px wide); a click enlarges. A file
+// image() can't show (outside the app home) is a named chip.
 function images(paths, owner, c) {
   if (!paths?.length) return null;
-  const t = c.t;
   return h_flex().gap(8).flex_wrap().children(paths.map((p, i) => {
-    const rel = homeRel(p, appHome());
-    const el = h_flex().id(`img-${owner}-${i}`).cursor_pointer().rounded(10).overflow_hidden().border_1().border_color(t.border)
-      .on_click((_e, cx) => c.enlarge(p, c.svgSize(p), cx, `img:${owner}:${i}`));
-    if (!rel) return el.h(26).px(8).gap(6).items_center().text_size(11.5).text_color(t.muted).child(icon("image", 12)).child(p.split("/").pop());
     const sz = c.svgSize(p);
     const w = Math.min(320, c.colW * 0.6, sz?.w ?? 320);
     const h = sz ? Math.round((w * sz.h) / sz.w) : 200;
-    return el.child(image(rel).w(w).h(Math.min(h, 320)));
+    return thumbnail(`img-${owner}-${i}`, p, w, Math.min(h, 320), c)
+      ?? fileChip(`img-${owner}-${i}`, p.split("/").pop(), c.t).cursor_pointer().on_click((_e, cx) => c.enlarge(p, sz, cx));
   }));
 }
 

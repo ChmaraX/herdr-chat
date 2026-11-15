@@ -18,7 +18,8 @@ import { ChatClient } from "./client.ts";
 import { FileIndex } from "./files.ts";
 import { GitWatch } from "./git.ts";
 import type { GitState } from "./git.ts";
-import { clipboardImage, loadImages } from "./clipboard.ts";
+import { loadImages } from "./clipboard.ts";
+import type { Attachments } from "./attachments.ts";
 import { Renderer, diffLines } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
@@ -118,6 +119,8 @@ export type ChatOptions = {
   terminal: string | null;
   /** Where images from tool results and user messages are saved (<stateDir>/images/<chat>). */
   imageDir?: string | null;
+  /** The composer's pasted and dropped images (<stateDir>/attachments/<chat>). The folder outlives this host: main.ts removes it once the chat's pane is gone. */
+  attachments: Attachments;
   /** The state dir: other chats' registries (take_over) and the hand-off file (<stateDir>/handoff/<chat>.json). */
   stateDir?: string | null;
   /** The `hc` binary that watches the hand-off's terminal. */
@@ -1418,7 +1421,26 @@ export class Chat {
   }
 
   async clipboardImage(): Promise<{ path: string | null }> {
-    return { path: await clipboardImage() };
+    return { path: await this.opts.attachments.fromClipboard() };
+  }
+
+  /** detach_image: the chip's ✕. A held or queued message that lists the image keeps it (a guard for other clients: protocol.md "Attachments"). */
+  detachImage(path: string): Record<string, never> {
+    if (![...this.held, ...this.unconfirmed.values()].some((m) => m.images.includes(path))) this.opts.attachments.remove(path);
+    return {};
+  }
+
+  /** sweep_attachments: `open`, the chats with a pane in the app's layout (the mod's orphan sweep). */
+  sweepAttachments(open: unknown): { removed: string[] } {
+    if (!Array.isArray(open)) throw new Error("sweep_attachments needs open: the chats with a pane");
+    const stateDir = this.opts.stateDir;
+    const live = (chat: string) => {
+      const r = stateDir ? readRegistry(stateDir, chat) : null;
+      return Boolean(r?.pid && pidAlive(r.pid));
+    };
+    const removed = this.opts.attachments.sweepClosed(new Set(open.map(String)), live);
+    if (removed.length) this.opts.log(`removed the attachments of closed chats: ${removed.join(", ")}`);
+    return { removed };
   }
 
   history(before: string, limit?: number): { items: Item[]; hasOlder: boolean } {
@@ -1684,6 +1706,12 @@ export class Chat {
         return this.filesOp(a.query, a.limit);
       case "clipboard_image":
         return this.clipboardImage();
+      case "attach_image":
+        return { path: this.opts.attachments.fromFile(String(a.path ?? "")) };
+      case "detach_image":
+        return this.detachImage(String(a.path ?? ""));
+      case "sweep_attachments":
+        return this.sweepAttachments(a.open);
       case "history":
         return this.history(a.before, a.limit);
       case "tool_output":
