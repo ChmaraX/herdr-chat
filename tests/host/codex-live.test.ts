@@ -1,4 +1,4 @@
-// One smoke test against the real `codex app-server` (the user's login and config). Runs only with LIVE=1.
+// Smoke tests against the real `codex app-server` (the user's login and config). Run only with LIVE=1.
 // gpt-5.6-luna at effort low, a temp cwd, the "Ask first" preset so the command needs approval.
 // Run it under `hc exec` if Codex's code-mode host can't start from the calling shell.
 import { test } from "node:test";
