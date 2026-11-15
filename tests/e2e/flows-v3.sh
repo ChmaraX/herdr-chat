@@ -33,6 +33,25 @@ for f in glob.glob(sys.argv[1] + "/c-*.json"):
     if d.get("provider") == sys.argv[2]: L.append((os.path.getctime(f), d["chat"]))
 print(max(L)[1] if L else "")' "$STATE/debug" "$1"; }
 last_tool() { d "[i['$1'] for i in d['items'] if i['kind']=='tool' and not i.get('parent')][-1]"; }
+# The plan strip as the mod has it: [done, total, the current step], or null.
+strip() { d "[d['plan']['done'], d['plan']['total'], d['plan']['current']] if d['plan'] else None"; }
+plan_markers() { d "' | '.join(i['text'] for i in d['items'] if i['kind']=='notice' and i.get('source')=='plan')"; }
+# Opens the strip's steps, takes shot $1, closes them.
+plan_open_shot() {
+  cmd click:plan
+  expect '[ "$(d "d[\"plan\"][\"open\"]")" = true ]' "a click on the strip opens its steps" 5
+  shot "$1" 0.5
+  cmd click:plan
+  expect '[ "$(d "d[\"plan\"][\"open\"]")" = false ]' "another click closes them" 5
+}
+# A plan's last turn: every step done → "N/N done", gone at the next message.
+plan_done() {
+  send_text "wrap up the todos"
+  expect '[ "$(phase)" = idle ] && [ "$(strip)" = "[3, 3, null]" ]' "every step done: the strip says 3/3 done" 15
+  shot "$1" 0.5
+  send_text "thanks"
+  expect '[ "$(phase)" = idle ] && [ "$(strip)" = null ]' "the next message clears the finished plan" 15
+}
 open_dialog() { expect '[ "$(d "d[\"dialog\"][\"method\"]")" = '"$1"' ]' "${2:-a $1 card}" 10; }
 # The mode picker, then ↓/↑ to the mode $1 and Enter (else the picker's own code: by_command).
 pick_mode() {
@@ -221,7 +240,7 @@ if want v3 || want claude; then
   expect '[ "$(phase)" = idle ] && [ "$(d "d[\"permissionMode\"]")" = acceptEdits ]' "approved: the mode chip follows (acceptEdits)" 15
   pick_mode default
 
-  step "claude: a subagent's steps nested in its card; the todo list as a plan card"
+  step "claude: a subagent's steps nested in its card; the todo list as the plan strip"
   send_text "use an agent"
   expect '[ "$(phase)" = idle ]' "the agent run settles" 20
   AG=$(d "[i['id'] for i in d['items'] if i['kind']=='tool' and i.get('name') in ('Agent','Task')][-1]")
@@ -229,7 +248,11 @@ if want v3 || want claude; then
   NESTED=$(d "len([i for i in d['items'] if i.get('parent') == '$AG'])")
   ROWS=$(d "len([r for r in d['rows'] if r['kind']=='item' and r['id'] in [i['id'] for i in d['items'] if i.get('parent')]])")
   [ "$NESTED" -ge 1 ] && [ "$ROWS" = 0 ] && ok "$NESTED nested items, none a row of its own" || fail "nested $NESTED rows $ROWS"
-  [ "$(count_kind plan)" -ge 1 ] && ok "TodoWrite → a plan card" || fail "no plan item"
+  [ "$(count_kind plan)" = 0 ] && ok "no plan card in the transcript" || fail "$(count_kind plan) plan cards"
+  expect '[ "$(strip)" = "[1, 3, \"Use fake timers\"]" ]' "TodoWrite → the strip: 1/3, on the step in progress ($(strip))" 5
+  [ "$(plan_markers)" = "Plan created · 3 steps" ] && ok "one marker row: $(plan_markers)" || fail "markers: $(plan_markers)"
+  shot strip-claude-collapsed 0.5
+  plan_open_shot strip-claude-open
   G=$(d "[r['id'] for r in d['rows'] if r['kind']=='group'][-1]" 2>/dev/null || true)
   [ -z "$G" ] || cmd "toggle:$G"
   cmd "toggle:kids:$AG"
@@ -280,7 +303,11 @@ if want v3 || want claude; then
   expect connected "restarted" 25
   expect '[ "$(d "d[\"hostHidden\"]")" = true ] && [ "$(d "d[\"hostNodePane\"]")" = "$(d "d[\"hostPane\"]")" ]' "the new host's pane is hidden too" 15
   expect '[ "$(phase)" = idle ] && [ "$(d "len([i for i in d[\"items\"] if i[\"kind\"] in (\"user\",\"assistant\",\"tool\")])")" -ge "$BEFORE" ]' "the timeline came back from Claude's transcript ($BEFORE items)" 20
+  expect '[ "$(strip)" = "[1, 3, \"Use fake timers\"]" ]' "the strip came back from the transcript ($(strip))" 10
   shot v3-6-claude-resumed 0.4
+
+  step "claude: a finished plan, then the next message"
+  plan_done strip-claude-done
 fi
 
 # --- Codex (real host, fake-codex) ---------------------------------------------------------
@@ -387,11 +414,14 @@ if want v3 || want codex; then
   ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter accepts it"
   expect '[ "$(phase)" = idle ] && host | grep -q "Figma went on"' "the MCP server got accept" 15
 
-  step "codex: a todo list (plan card) and a plan; a subagent nested in its card"
+  step "codex: a todo list (the plan strip) and a plan; a subagent nested in its card"
   send_text "make a plan"
   expect '[ "$(phase)" = idle ]' "done" 15
-  [ "$(count_kind plan)" -ge 1 ] && ok "turn/plan/updated → a plan card" || fail "no plan card"
+  [ "$(count_kind plan)" = 0 ] && ok "no plan card in the transcript" || fail "$(count_kind plan) plan cards"
+  expect '[ "$(strip)" = "[1, 3, \"Fix the trimming\"]" ]' "turn/plan/updated → the strip: 1/3, on the step in progress ($(strip))" 5
   shot v3-4-codex-plan 0.4
+  shot strip-codex-collapsed 0.1
+  plan_open_shot strip-codex-open
   send_text "use an agent"
   expect '[ "$(phase)" = idle ]' "the agent run settles" 20
   AG=$(d "[i['id'] for i in d['items'] if i['kind']=='tool' and (i.get('name') or '').lower().find('agent') >= 0 or i.get('title','').lower().startswith('agent')][-1]" 2>/dev/null || true)
@@ -502,6 +532,10 @@ PY
   expect connected "restarted" 25
   expect '[ "$(d "d[\"hostHidden\"]")" = true ] && [ "$(d "d[\"hostNodePane\"]")" = "$(d "d[\"hostPane\"]")" ]' "the new host's pane is hidden too" 15
   expect '[ "$(phase)" = idle ] && [ "$(d "len([i for i in d[\"items\"] if i[\"kind\"] in (\"user\",\"assistant\",\"tool\")])")" -ge "$BEFORE" ]' "the thread came back ($BEFORE items)" 20
+  expect '[ "$(strip)" = "[1, 3, \"Fix the trimming\"]" ]' "the strip came back from the rollout ($(strip))" 10
+
+  step "codex: a finished plan, then the next message"
+  plan_done strip-codex-done
 fi
 
 # --- LIVE=1 PROVIDER=claude|codex: the real agent, through the launcher --------------------

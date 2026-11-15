@@ -255,6 +255,34 @@
      "hang": true
     }
    ]
+  },
+  {
+   "match": "wrap up the todos",
+   "once": false,
+   "steps": [
+    {
+     "todos": [
+      {
+       "content": "Find the flaky test",
+       "status": "completed",
+       "activeForm": "Finding"
+      },
+      {
+       "content": "Use fake timers",
+       "status": "completed",
+       "activeForm": "Switching"
+      },
+      {
+       "content": "Run the suite",
+       "status": "completed",
+       "activeForm": "Running"
+      }
+     ]
+    },
+    {
+     "text": "Every step is done."
+    }
+   ]
   }
  ],
  "default": [

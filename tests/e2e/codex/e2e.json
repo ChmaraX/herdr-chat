@@ -348,6 +348,33 @@
      "every": 300
     }
    ]
+  },
+  {
+   "match": "wrap up the todos",
+   "once": false,
+   "steps": [
+    {
+     "todo": {
+      "plan": [
+       {
+        "step": "Read the parser",
+        "status": "completed"
+       },
+       {
+        "step": "Fix the trimming",
+        "status": "completed"
+       },
+       {
+        "step": "Run the tests",
+        "status": "completed"
+       }
+      ]
+     }
+    },
+    {
+     "text": "Every step is done."
+    }
+   ]
   }
  ],
  "default": [
