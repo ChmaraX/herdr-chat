@@ -5,6 +5,7 @@ import { stripAnsi, toSpans } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 import { presentTool, applyResult, prettyArgs, NO_TOOLS, type ToolMap } from "./tools.ts";
 import type { NormalizedEvent, EventOf, ImageBlock, AssistantBlock, SkillRef } from "./providers/types.ts";
+import { imageSize, type ImageFile, type ImageSize } from "./imagesize.ts";
 
 export type { ImageBlock, SkillRef };
 
@@ -32,7 +33,10 @@ export type ToolDetail =
 /** Every item may carry `parent`: the id of the tool item (a subagent) whose run produced it. */
 type Nested = { parent?: string };
 /** `skill`: the skill the message invokes, drawn as a pill; `text` is then what the person wrote after it. */
-export type UserItem = Nested & { id: string; kind: "user"; ts: number; text: string; images: number; imagePaths?: string[]; source: UserSource; from?: string; skill?: SkillRef };
+export type UserItem = Nested & {
+  id: string; kind: "user"; ts: number; text: string; images: number; imageFiles?: ImageFile[];
+  source: UserSource; from?: string; skill?: SkillRef;
+};
 export type DiffLine = { kind: "hunk" | "add" | "del" | "ctx" | "meta"; old?: number; new?: number; spans: Span[] };
 export type Block =
   | { type: "markdown"; text: string }
@@ -47,7 +51,7 @@ export type ThinkingItem = Nested & { id: string; kind: "thinking"; ts: number; 
 export type ToolItem = Nested & {
   id: string; kind: "tool"; ts: number; toolCallId: string; name: string; title: string;
   status: "pending" | "running" | "done" | "error" | "declined"; args: string; output: string; outputTruncated: boolean;
-  durationMs?: number; images?: string[]; outputLines?: Span[][]; detail: ToolDetail;
+  durationMs?: number; imageFiles?: ImageFile[]; outputLines?: Span[][]; detail: ToolDetail;
 };
 export type NoticeItem = Nested & { id: string; kind: "notice"; ts: number; level: "info" | "warning" | "error"; source: "notify" | "retry" | "compaction" | "extension_error" | "host" | "queue" | "plan"; text: string; spans?: Span[] };
 export type CustomItem = Nested & { id: string; kind: "custom"; ts: number; customType: string; text: string };
@@ -57,6 +61,30 @@ export type Plan = { explanation?: string; steps: PlanStep[] };
 /** A subagent's plan: a card in its group. */
 export type PlanItem = Nested & { id: string; kind: "plan"; ts: number } & Plan;
 export type Item = UserItem | AssistantItem | ThinkingItem | ToolItem | NoticeItem | CustomItem | PlanItem;
+
+/**
+ * An item as the wire carries it. Saved images go as parallel arrays, paths
+ * (`imagePaths` on user items, `images` on tool items) and `imageSizes` (v3.7),
+ * so a mod older than the sizes still finds its paths.
+ */
+type WireImages<K extends string> = { [P in K]?: string[] } & { imageSizes?: (ImageSize | null)[] };
+export type WireItem =
+  | Exclude<Item, UserItem | ToolItem>
+  | (Omit<UserItem, "imageFiles"> & WireImages<"imagePaths">)
+  | (Omit<ToolItem, "imageFiles"> & WireImages<"images">);
+
+export function toWire(item: Item): WireItem {
+  const it = structuredClone(item);
+  if (it.kind === "user") {
+    const { imageFiles, ...rest } = it;
+    return imageFiles ? { ...rest, imagePaths: imageFiles.map((f) => f.path), imageSizes: imageFiles.map((f) => f.size) } : rest;
+  }
+  if (it.kind === "tool") {
+    const { imageFiles, ...rest } = it;
+    return imageFiles ? { ...rest, images: imageFiles.map((f) => f.path), imageSizes: imageFiles.map((f) => f.size) } : rest;
+  }
+  return it;
+}
 
 let idCounter = 0;
 export function newId(prefix = "i"): string {
@@ -68,8 +96,8 @@ function bounded(text: string, max = LIMITS.text): string {
   return text.slice(0, max) + "\n\n… [truncated]";
 }
 
-/** Writes one image for an item; returns its absolute path, or null. Injected so the timeline stays pure. */
-export type ImageSaver = (itemId: string, n: number, img: ImageBlock) => string | null;
+/** Writes an item's `n`th image; returns its absolute path, or null. Injected so the timeline stays pure. */
+export type ImageSaver = (img: { itemId: string; n: number; bytes: Buffer; mimeType: string }) => string | null;
 
 type MsgCtx = { blocks: Map<number, string>; thinkingStart: Map<number, number>; toolArgsText: Map<number, string>; autonomous: boolean; startedAt?: number };
 
@@ -136,14 +164,15 @@ export class Timeline {
     this.tools = tools;
   }
 
-  private saveImages(itemId: string, blocks: ImageBlock[]): string[] {
-    if (!this.saveImage) return [];
-    const out: string[] = [];
+  private attachImages(item: UserItem | ToolItem, blocks: ImageBlock[]): void {
+    if (!this.saveImage) return;
+    const files: ImageFile[] = [];
     for (const img of blocks.slice(0, LIMITS.imagesPerItem)) {
-      const p = this.saveImage(itemId, out.length + 1, img);
-      if (p) out.push(p);
+      const bytes = Buffer.from(img.data, "base64");
+      const path = this.saveImage({ itemId: item.id, n: files.length + 1, bytes, mimeType: img.mimeType });
+      if (path) files.push({ path, size: imageSize(bytes) });
     }
-    return out;
+    if (files.length) item.imageFiles = files;
   }
 
   private add<T extends Item>(item: T): T {
@@ -171,8 +200,7 @@ export class Timeline {
       this.turnMarker = null;
       if (this.plan && planDone(this.plan)) this.replacePlan(null);
     }
-    const paths = this.saveImages(item.id, blocks);
-    if (paths.length) item.imagePaths = paths;
+    this.attachImages(item, blocks);
     return item;
   }
 
@@ -185,10 +213,9 @@ export class Timeline {
       item.text = bounded(text);
       delete item.skill;
     }
-    if (blocks.length && !item.imagePaths?.length) {
+    if (blocks.length && !item.imageFiles) {
       item.images = Math.max(item.images, blocks.length);
-      const paths = this.saveImages(item.id, blocks);
-      if (paths.length) item.imagePaths = paths;
+      this.attachImages(item, blocks);
     }
     if (ts !== undefined) item.ts = ts;
     this.dirty.add(item.id);
@@ -460,10 +487,7 @@ export class Timeline {
     const text = ev.lostBytes ? `[output too large to show: ${(ev.lostBytes / 1048576).toFixed(1)} MiB]` : ev.output;
     this.setToolOutput(t, text);
     if (ev.lostBytes) t.outputTruncated = true;
-    if (!t.images && ev.images?.length) {
-      const paths = this.saveImages(t.id, ev.images);
-      if (paths.length) t.images = paths;
-    }
+    if (!t.imageFiles && ev.images?.length) this.attachImages(t, ev.images);
     const ran = t.status !== "pending";
     t.status = ev.declined ? "declined" : ev.isError ? "error" : "done";
     if (ev.durationMs !== undefined) t.durationMs = ev.durationMs;

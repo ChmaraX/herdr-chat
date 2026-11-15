@@ -1,7 +1,7 @@
 // The host's own terminal: OSC 7501 status, `hc send` input (bracketed paste
 // on stdin), and an append-only plain transcript for `hc read`.
 import type { Readable, Writable } from "node:stream";
-import type { Item } from "./timeline.ts";
+import type { WireItem } from "./timeline.ts";
 import { typedText } from "./skill.ts";
 
 export type TermState = "working" | "blocked" | "done" | "error" | "idle";
@@ -204,7 +204,7 @@ export class Terminal {
   }
 
   /** Prints each item once it's final (and again if a final notice's text changes). */
-  observe(items: Item[]): void {
+  observe(items: WireItem[]): void {
     for (const it of items) {
       const own = this.render(it);
       if (own === null) continue;
@@ -221,7 +221,7 @@ export class Terminal {
     this.line("── new timeline ──");
   }
 
-  private render(it: Item): string | null {
+  private render(it: WireItem): string | null {
     switch (it.kind) {
       case "user": {
         const from = it.from ? `[${it.from}] ` : "";

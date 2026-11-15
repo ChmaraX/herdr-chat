@@ -1,10 +1,11 @@
 // The composer's images (protocol.md "Attachments"): a pasted or dropped image
 // is a file of the chat's own, so the chat can show it before it's sent (the
 // app shows only files under its home). They live with the chat, not one host.
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { clipboardImage, readImage } from "./clipboard.ts";
+import { imageSize, type ImageFile } from "./imagesize.ts";
 
 // A copy's name is `<ms>-<hex>-<name>`: room for the prefix under the usual 255-byte limit.
 const MAX_NAME_BYTES = 200;
@@ -30,16 +31,17 @@ export class Attachments {
   }
 
   /** The clipboard's image; null when it holds none. */
-  fromClipboard(): Promise<string | null> {
-    return clipboardImage(this.newPath("paste.png"));
+  async fromClipboard(): Promise<ImageFile | null> {
+    const path = await clipboardImage(this.newPath("paste.png"));
+    return path ? { path, size: imageSize(readFileSync(path)) } : null;
   }
 
   /** A copy of an image file. Throws with a user-facing message. */
-  fromFile(path: string): string {
+  fromFile(path: string): ImageFile {
     const { bytes } = readImage(path);
     const out = this.newPath(basename(path));
     writeFileSync(out, bytes, { mode: 0o600 });
-    return out;
+    return { path: out, size: imageSize(bytes) };
   }
 
   /** Removes one. Any other path (the person's own file) is left alone. */
