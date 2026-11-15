@@ -37,10 +37,10 @@ import { keepKeys } from "./keymap.js";
 import { Connection, hostTerminal, readConfig, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
-import { lineOf, row } from "./cards.js";
+import { lineOf, planProgress, row, samePlan } from "./cards.js";
 import { buildRows, cardLive, defaultOpen, groupCards } from "./rows.js";
 import { space } from "./space.js";
-import { branchChip, emptyState, footerControls, planProgress, planStrip, queueChips, queueLabels, widgetTray } from "./chrome.js";
+import { branchChip, emptyState, footerControls, planStrip, queueChips, queueLabels, widgetTray } from "./chrome.js";
 import { openFile } from "./files.js";
 import { Composer } from "./composer.js";
 import { Picker, menuView, slashItems, wheel as wheelMenu } from "./menus.js";
@@ -774,6 +774,9 @@ export default class HerdrChat extends View {
       this.req("ack_editor_text", {}, cx);
     } else if (s.editorText == null) this.editorAcked = null;
     if (this.composer.menu?.kind === "slash") this.updateMenu(cx);
+    // The strip's steps stay open while the same plan is on, not for the next one.
+    if (!samePlan(this.planShown, s.plan)) this.planOpen = false;
+    this.planShown = s.plan;
   }
 
   // ---- ops ------------------------------------------------------------------------

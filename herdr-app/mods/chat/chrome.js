@@ -8,7 +8,7 @@ import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover } from "gpui-base";
 import { MOD, alpha, count, icon, money, providerIcon, spans, spansText, unwrapHc } from "./util.js";
 import { withKey } from "./shortcuts.js";
-import { planSteps } from "./cards.js";
+import { planProgress, planSteps } from "./cards.js";
 
 const STATUS_MAX = 28;
 const STATUS_W = (text) => Math.min(STATUS_MAX, [...text].length) * 6.3 + 18;
@@ -236,15 +236,6 @@ export function queueChips(v, s, t) {
   const follow = lane("followUp", q.followUp, q.followUpIds, q.followUpRemovable, q.followUpFrom, t.ansi3, "clock", "Follow-up: after this run");
   if (!steer && !follow) return null;
   return v_flex().w_full().gap(6).children([steer, follow].filter(Boolean));
-}
-
-// The agent's plan (state.plan, protocol v3.6): how many steps are done, and
-// the step it's on (in progress, else the first pending one).
-export function planProgress(plan) {
-  const steps = plan.steps;
-  const done = steps.filter((x) => x.status === "completed").length;
-  const current = steps.find((x) => x.status === "in_progress") ?? steps.find((x) => x.status === "pending") ?? null;
-  return { done, total: steps.length, current: current?.text ?? null };
 }
 
 // The plan strip, right above the composer: "2/5", a progress bar and the
