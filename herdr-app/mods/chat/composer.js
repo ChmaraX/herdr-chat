@@ -81,7 +81,7 @@ export class Composer {
     this.onRemoveChip = onRemoveChip;
     this.value = "";
     this.cursor = 0; // where the last edit ended: the state has no getter for it
-    this.chips = []; // {path, label, pending}
+    this.chips = []; // {path, size, label, pending}: `size` as the host reads it (protocol.md v3.7), else null
     this.menu = null; // {kind: "slash"|"files", query, items, sel, start}
     this.history = null; // {list, i, text}
     this.focused = false;
@@ -175,8 +175,8 @@ export class Composer {
   }
 
   // `pending`: a dropped file the host is still copying (main.js attachImage); it gets the thumbnail's box.
-  addChip(path, { pending = false } = {}) {
-    const chip = { path, label: path.split("/").pop(), pending };
+  addChip(path, { pending = false, size = null } = {}) {
+    const chip = { path, size, label: path.split("/").pop(), pending };
     this.chips.push(chip);
     return chip;
   }
@@ -265,7 +265,7 @@ export class Composer {
       const thumb = ch.pending
         ? h_flex().id(`chip-${i}`).flex_none().rounded(10).border_1().border_color(t.border)
           .child(h_flex().w(THUMB.w).h(THUMB.h).items_center().justify_center().text_color(t.muted).child(icon("image", 16)))
-        : thumbnail(`chip-${i}`, ch.path, THUMB.w, THUMB.h, c);
+        : thumbnail(`chip-${i}`, ch, THUMB.w, THUMB.h, c);
       if (thumb) {
         return div().relative().flex_none().child(thumb.tooltip(ch.label))
           .child(x.absolute().top(4).right(4).p(1).bg(t.raised).border_1().border_color(t.border).text_color(t.muted));

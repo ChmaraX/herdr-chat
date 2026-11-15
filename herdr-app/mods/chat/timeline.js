@@ -5,6 +5,8 @@
 // estimate. While sticky, the last row's bottom is pinned to the viewport's
 // bottom (absolute bottom 0), so a growing streamed answer needs no second
 // layout pass. Scrolling up unsticks; reaching the bottom sticks again.
+// A new row is drawn in the frame that makes room for it, with no fade: the
+// rows above move at once, so a fade would show a blank hole first (#16).
 
 import { div } from "gpui-kit";
 import { v_flex } from "gpui-base";
@@ -55,9 +57,8 @@ export class Timeline {
   }
 
   // items: the rows (rows.js); row(r): its element; onNearTop(): page older
-  // items; fresh(r): it just arrived (fades in once measured); thumb: the
-  // scrollbar's color (drawn at the pane's edge while scrolled up).
-  view(items, row, { onNearTop, fresh, thumb } = {}) {
+  // items; thumb: the scrollbar's color (drawn at the pane's edge while scrolled up).
+  view(items, row, { onNearTop, thumb } = {}) {
     let total = 0;
     const offs = new Array(items.length);
     for (let i = 0; i < items.length; i++) {
@@ -87,7 +88,6 @@ export class Timeline {
     if (this.top < 300 && onNearTop && !this.sticky) onNearTop();
     else if (this.sticky && total < this.viewH && onNearTop) onNearTop();
     const measured = (it) => div().id(`row-${it.id}`).w_full()
-      .opacity(fresh?.(it) && !this.heights.has(it.id) ? 0 : 1).transition("opacity", { duration: 120, easing: "ease-out" })
       .child(row(it)).on_size_change((s, cx) => {
       const old = this.heights.get(it.id);
       if (old === s.height) return;

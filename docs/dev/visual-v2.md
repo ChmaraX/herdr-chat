@@ -64,7 +64,7 @@ composer becomes a single rounded card:
 - **Diffs (edit tool):** line-number gutter, +/− tints, syntax highlighting inside lines, hunk headers dim. Collapsed cards show `Edit src/x.ts  +3 −1`.
 - **read tool:** the expanded card shows the file excerpt highlighted by extension, with line numbers.
 - **bash:** the command in mono with a `$` prompt. Output keeps its **ANSI colors** (host spans), with the exit code as a chip, red when non-zero.
-- **Images:** inline thumbnails with rounded corners, max 320 px wide, click to enlarge.
+- **Images:** inline thumbnails with rounded corners at the image's aspect ratio, within 320 × 320 px and 60 % of the column, never enlarged (the host sends each size: protocol.md v3.7), click to enlarge.
 
 ## 4. Extension status: generic and quiet
 
@@ -109,7 +109,7 @@ keyed, ANSI-to-theme, compact, and never in the way.
 - **Spacing and type:** prose 14 px on a 22 px line, UI chrome 12–13 px, code 12.5 px in the terminal font. One radius scale: 6, 10 and 14 px (the user's bubble: 16).
   - Spacing is on one scale (4, 6, 8, 12, 16, 20, 28), in one place (`herdr-app/mods/chat/space.js`): 28 px above a user message, 16 px after it; 12 px between an answer's paragraphs, lists, code, tables and diagrams; headings 20 px above, 6 px below; 8 px between tool rows or groups and the prose around them; 6 px between cards in a group.
   - The hover actions and the run's footer sit in a 20 px row inside the 28 px turn gap, so a turn has the same spacing with or without them. On an answer in the middle of a run they show over its last line instead.
-- **Motion:** new items fade in (120 ms). Group expand and collapse animate height (`.transition`). The stick-to-bottom scroll stays instant.
+- **Motion:** new items appear at once, in the frame that makes room for them. A fade-in would leave a blank space first, because the rows above move at once (#16). Group expand and collapse animate height (`.transition`). The stick-to-bottom scroll stays instant.
 
 ## Out of scope for v2
 

@@ -19,7 +19,6 @@ export class Store {
     this.version = 0; // bumps on every change
     this.snapshots = 0;
     this.loaded = false;
-    this.fresh = new Set(); // ids that arrived live (patches), for the fade-in
   }
 
   reindex() {
@@ -32,7 +31,6 @@ export class Store {
     this.hasOlder = Boolean(rec.hasOlder);
     this.seq = rec.seq ?? null;
     this.reindex();
-    this.fresh.clear();
     this.snapshots++;
     this.loaded = true;
     this.version++;
@@ -52,7 +50,6 @@ export class Store {
       if (i === undefined) {
         this.index.set(it.id, this.items.length);
         this.items.push(it);
-        this.fresh.add(it.id);
       } else this.items[i] = it;
     }
     if (rec.remove?.length) {

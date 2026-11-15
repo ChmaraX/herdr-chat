@@ -48,7 +48,7 @@ import { DialogCard } from "./dialogs.js";
 import { Debug } from "./debug.js";
 import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
-import { Viewer, readImageSize } from "./viewer.js";
+import { Viewer, readSvgSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
 import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, spansText, spinner, typedText, unwrapHc } from "./util.js";
 
@@ -898,7 +898,7 @@ export default class HerdrChat extends View {
 
   pasteImage(cx) {
     this.fire("clipboard_image", {}, cx, (d, cx) => {
-      if (d?.path) this.composer.addChip(d.path);
+      if (d?.path) this.composer.addChip(d.path, { size: d.size ?? null });
       else this.flash("The clipboard has no image", cx);
       this.debug.mark();
     });
@@ -927,8 +927,8 @@ export default class HerdrChat extends View {
   attachImage(chip, cx) {
     cx.spawn(async (cx) => {
       try {
-        const { path } = await this.req("attach_image", { path: chip.path }, cx);
-        if (this.composer.chips.includes(chip)) chip.path = path;
+        const { path, size } = await this.req("attach_image", { path: chip.path }, cx);
+        if (this.composer.chips.includes(chip)) Object.assign(chip, { path, size: size ?? null });
         else this.req("detach_image", { path }).catch(() => {});
       } catch (e) {
         const i = this.composer.chips.indexOf(chip);
@@ -1434,12 +1434,13 @@ export default class HerdrChat extends View {
     this.debug.mark();
   }
 
-  // An image's natural size: SVGs from their viewBox / width / height (read
-  // once, off render), raster images unknown (a 16:10 guess).
+  // An SVG's natural size, from its viewBox / width / height (read once, off
+  // render). Raster images come with theirs (items' `imageSizes`): the mod
+  // can't read them (no fs.read grant), and a size read late would resize a drawn row.
   svgSize(path) {
     if (!path) return null;
     if (this.svgSizes.has(path)) return this.svgSizes.get(path);
-    if (/\.(svg|png|gif|jpe?g)$/i.test(path)) (this.svgWanted ??= new Set()).add(path);
+    if (/\.svg$/i.test(path)) (this.svgWanted ??= new Set()).add(path);
     return null;
   }
 
@@ -1450,7 +1451,7 @@ export default class HerdrChat extends View {
     cx.spawn(async (cx) => {
       for (const p of want) {
         try {
-          const sz = await readImageSize(p);
+          const sz = await readSvgSize(p);
           if (sz) this.svgSizes.set(p, sz);
         } catch {}
       }
@@ -1565,7 +1566,7 @@ export default class HerdrChat extends View {
         }
         if (what.startsWith("enlarge:chip:")) {
           const ch = this.composer.chips[Number(what.slice(13))];
-          if (ch) this.enlarge(ch.path, this.svgSize(ch.path), cx);
+          if (ch) this.enlarge(ch.path, ch.size, cx);
           break;
         }
         if (what.startsWith("chip-x:")) {
@@ -1574,9 +1575,10 @@ export default class HerdrChat extends View {
         }
         if (what.startsWith("enlarge:")) {
           const [, id, k] = what.split(":");
-          const b = this.store.get(id)?.blocks?.[Number(k)];
-          const img = b?.svg ?? this.store.get(id)?.images?.[Number(k)] ?? this.store.get(id)?.imagePaths?.[Number(k)];
-          if (img) this.enlarge(img, this.svgSize(img), cx);
+          const it = this.store.get(id);
+          const svg = it?.blocks?.[Number(k)]?.svg;
+          const img = svg ?? it?.images?.[Number(k)] ?? it?.imagePaths?.[Number(k)];
+          if (img) this.enlarge(img, svg ? this.svgSize(svg) : it.imageSizes?.[Number(k)] ?? null, cx);
           break;
         }
         if (what.startsWith("open:")) {
@@ -2167,7 +2169,6 @@ export default class HerdrChat extends View {
     }
     const timeline = this.timeline.view(rows, (r) => this.column(row(r, c)), {
       onNearTop: () => this.wantOlder(),
-      fresh: (r) => (r.kind === "item" && this.store.fresh.has(r.item.id)) || r.kind === "activity",
       thumb: alpha(t.muted, 0.35),
     });
     return this.hud(root
