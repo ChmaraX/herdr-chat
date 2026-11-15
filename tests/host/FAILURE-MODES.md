@@ -69,6 +69,7 @@ the test that has to catch it; "not covered" rows are known gaps
 | Failure | Test |
 |---|---|
 | A pasted or dropped image the chat can't show before it's sent (the app shows only files under its home) | `attach_image` answers a path under `<stateDir>/attachments/<chat>`, a copy of the file; E2E `thumb`: the chip draws it, a click enlarges it |
+| An enlarged chip opening at a guessed size (the mod can't read raster files) | `attach_image` answers the copy's pixel size; E2E `misc`: the chips of a 600×200 and a 400×900 drop carry their sizes |
 | `clipboard_image` saving a paste outside the chat's attachments | not covered: a test machine's clipboard holds no image |
 | A dropped file that isn't an image (or can't be read) staged anyway, or refused without a word | `attach_image` rejects a `.txt`, a `.png` that isn't one, a missing file, with `send`'s messages; E2E `thumb`: the drop shows the reason at once and makes no chip |
 | A dropped file whose name is too long for the copy's prefix | `attach_image` shortens the name and keeps its extension |

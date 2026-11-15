@@ -24,3 +24,7 @@ through the real host.
 | `resume` | `--session` on an existing session: `get_messages` history, then a new turn |
 
 Re-record when Pi changes: `node tests/fixtures/record.ts [name …]`.
+
+# Image fixtures
+
+`images/`: one small real file per image format and header shape the host reads sizes from (`host/imagesize.ts`), for `tests/host/images.test.ts`. Each one's size and shape is in `images/make.py`, which writes them (needs Pillow): `python3 tests/fixtures/images/make.py`.

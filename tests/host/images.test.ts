@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { deflateSync, crc32 } from "node:zlib";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { startHost, idle, Host } from "./harness.ts";
 
 /** A w×h grayscale PNG, no dependencies. */
@@ -45,9 +46,10 @@ const scenario = {
   ],
 };
 
-test("images: prompts downscaled to 2000 px, tool-result and user images saved as files, again on resume", async () => {
+test("images: prompts downscaled to 2000 px, tool-result and user images saved as files with their sizes, again on resume", async () => {
   const h = await startHost({ name: "image-files", speed: 4, scenario });
   let toolImage: string;
+  let userSizes: unknown;
   try {
     const c = h.client;
     await c.waitFor(idle, 10_000);
@@ -70,6 +72,10 @@ test("images: prompts downscaled to 2000 px, tool-result and user images saved a
     const userImage = user.imagePaths[0];
     assert.equal(userImage, join(h.stateDir, "images", "c-test", `${user.id}-1.png`));
     assert.deepEqual(readFileSync(userImage), sent, "the user item shows what Pi got");
+    const [size] = user.imageSizes;
+    if (process.platform === "darwin") assert.ok(size.w === 2000 && (size.h === 26 || size.h === 27), `the user item has the sent image's size: ${JSON.stringify(size)}`);
+    else assert.deepEqual(size, { w: 3000, h: 40 }, "the user item has the sent image's size");
+    userSizes = user.imageSizes;
 
     const tool = c.items.find((i) => i.kind === "tool");
     assert.equal(tool.title, "Read shot.png");
@@ -78,6 +84,7 @@ test("images: prompts downscaled to 2000 px, tool-result and user images saved a
     toolImage = tool.images[0];
     assert.equal(toolImage, join(h.stateDir, "images", "c-test", `${tool.id}-1.png`));
     assert.deepEqual(readFileSync(toolImage), SHOT);
+    assert.deepEqual(tool.imageSizes, [{ w: 64, h: 32 }]);
     assert.ok(!JSON.stringify(c.records).includes(SHOT.toString("base64").slice(0, 200)), "no base64 on the wire");
     h.artifact("image-files");
   } finally {
@@ -93,8 +100,10 @@ test("images: prompts downscaled to 2000 px, tool-result and user images saved a
     const user = c.items.find((i) => i.kind === "user");
     assert.equal(tool.images.length, 1);
     assert.deepEqual(readFileSync(tool.images[0]), SHOT);
+    assert.deepEqual(tool.imageSizes, [{ w: 64, h: 32 }]);
     assert.equal(user.imagePaths.length, 1);
     assert.ok(existsSync(user.imagePaths[0]));
+    assert.deepEqual(user.imageSizes, userSizes);
     assert.ok(!existsSync(toolImage!) || toolImage === tool.images[0], "stale files from the last run are removed");
     const files = readdirSync(join(again.stateDir, "images", "c-test")).sort();
     assert.deepEqual(files, [`${tool.id}-1.png`, `${user.id}-1.png`].sort());
@@ -124,6 +133,54 @@ test("at most 8 images per tool item", async () => {
     assert.equal(tool.images.length, 8);
     assert.ok(tool.images.every((p: string, n: number) => p.endsWith(`${tool.id}-${n + 1}.png`) && existsSync(p)));
     h.artifact("image-cap");
+  } finally {
+    await h.stop();
+  }
+});
+
+const FIXTURES = fileURLToPath(new URL("../fixtures/images/", import.meta.url));
+const block = (file: string, mimeType: string) => ({ type: "image", data: readFileSync(join(FIXTURES, file)).toString("base64"), mimeType });
+
+test("image sizes: every format the host saves, read from the file's header; an unreadable header gives null", async () => {
+  const h = await startHost({
+    name: "image-sizes",
+    speed: 4,
+    scenario: { prompts: [{ match: ".", steps: [
+      { assistant: { text: "Looking.", tools: [{ id: "call_jpeg", name: "read", args: { path: "a.jpg" } }, { id: "call_more", name: "read", args: { path: "b.webp" } }] } },
+      { tool: { id: "call_jpeg", content: [
+        block("exif.jpg", "image/jpeg"), block("rot6.jpg", "image/jpeg"), block("progressive.jpg", "image/jpeg"),
+        block("fill.jpg", "image/jpeg"), block("truncated.jpg", "image/jpeg"),
+      ] } },
+      { tool: { id: "call_more", content: [
+        block("anim.gif", "image/gif"), block("lossy.webp", "image/webp"), block("lossless.webp", "image/webp"),
+        block("alpha.webp", "image/webp"), block("cgbi.png", "image/png"),
+      ] } },
+      { assistant: { text: "ok" } },
+    ] }] },
+  });
+  try {
+    const c = h.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "look" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "assistant" && i.text === "ok"), 10_000);
+    const [jpegs, more] = ["call_jpeg", "call_more"].map((id) => c.items.find((i) => i.kind === "tool" && i.toolCallId === id));
+    assert.equal(jpegs.images.length, 5);
+    assert.deepEqual(jpegs.imageSizes, [
+      { w: 270, h: 11 }, // EXIF (APP1) before the frame header
+      { w: 12, h: 300 }, // stored 300×12, EXIF orientation 6: drawn turned a quarter, so it's that tall
+      { w: 48, h: 260 }, // progressive (SOF2)
+      { w: 33, h: 17 }, // fill bytes (0xFF runs) before each marker
+      null, // cut off before its frame header
+    ]);
+    assert.equal(more.images.length, 5);
+    assert.deepEqual(more.imageSizes, [
+      { w: 21, h: 300 }, // GIF
+      { w: 260, h: 10 }, // WebP lossy (VP8)
+      { w: 300, h: 7 }, // WebP lossless (VP8L)
+      { w: 513, h: 9 }, // WebP extended (VP8X, with alpha)
+      null, // Apple's CgBI PNG: no IHDR first
+    ]);
+    h.artifact("image-sizes");
   } finally {
     await h.stop();
   }
