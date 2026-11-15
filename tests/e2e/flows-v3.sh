@@ -281,6 +281,65 @@ if want v3 || want codex; then
   [ -z "$G" ] || cmd "toggle:$G"
   sleep 0.4; shot v3-5-codex-agent 0.4
 
+  step "codex: a thinking counts its seconds in one place at any depth: its row, or the live row of the folded card it's in"
+  # A streaming thinking at depth $1 (0: top level, 1: a subagent's, 2: a nested subagent's): its id.
+  thinking_at() { d "(lambda pa: next((i['id'] for i in d['items'] if i['kind']=='thinking' and i.get('streaming') and $1 == (0 if not i.get('parent') else 1 if not pa.get(i['parent']) else 2)), ''))({i['id']: i.get('parent') for i in d['items']})"; }
+  parent_of() { d "next(i.get('parent') or '' for i in d['items'] if i['id']=='$1')"; }
+  group_of() { d "next((r['id'] for r in d['rows'] if r['kind']=='group' and '$1' in r['items']), '')"; }
+  # The open state of group $1 and of agent card $2, as "<true|false> <true|false>".
+  opened() { d "str(next(r['open'] for r in d['rows'] if r['id']=='$1')).lower() + ' ' + str('kids:$2' in d['expanded']).lower()"; }
+  # The activity line: "<text> <· Ns, or - for no timer>".
+  line() { d "(lambda a: a['text'] + ' ' + ('-' if a.get('since') is None else 'Ns'))(d['activity'] or {'text': 'none'})"; }
+  # Where item $1 is drawn, from the dump's rows: "row" (a row, or a card its group shows), "open card <parent>"
+  # (inside its open agent cards), "live row of <card>" (the live row of the nearest folded card), or "nowhere".
+  shown() { python3 - "$STATE/debug/$CHAT.json" "$1" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+items = {i["id"]: i for i in d["items"]}
+def where(x):
+    p = items[x].get("parent")
+    if not p:
+        return "row" if any(r["id"] == x or x in r.get("cards", []) for r in d["rows"]) else "nowhere"
+    a = p
+    while a and f"kids:{a}" in d["expanded"]:
+        a = items[a].get("parent")
+    if a is None:
+        root = p
+        while items[root].get("parent"):
+            root = items[root]["parent"]
+        return f"open card {p}" if where(root) != "nowhere" else "nowhere"
+    return f"live row of {a}" if x in items[a].get("live", []) and where(a) != "nowhere" else "nowhere"
+print(where(sys.argv[2]))
+PY
+  }
+  # Thinking $T shows as $1 and the activity line says Working with no timer: one counter on screen.
+  counts_once() { local want=$1; until_ '[ "$(shown $T)" = "$want" ] && [ "$(line)" = "Working -" ]' 3 && ok "$2" || fail "$2: $T $(shown $T), the line $(line)"; }
+  send_text "think it over"
+  until_ 'T=$(thinking_at 0); [ -n "$T" ]' 10 || fail "no top-level thinking streamed"
+  counts_once row "top level: its row is on screen; the activity line says Working, no timer"
+  shot v3-6-codex-thinking 0.2
+  until_ 'T=$(thinking_at 1); [ -n "$T" ]' 15 || fail "no subagent thinking streamed"
+  P=$(parent_of "$T"); G=$(group_of "$P")
+  [ -n "$G" ] || fail "the subagent's card isn't in a work group"
+  counts_once "live row of $P" "a subagent's thinking, its card folded in a closed group: the card's live row counts, the line says Working"
+  shot v3-6-codex-thinking-folded-agent 0.2
+  cmd "toggle:$G"; cmd "toggle:kids:$P"
+  until_ '[ "$(opened $G $P)" = "true true" ]' 3 || fail "the group and the card didn't open: $(opened $G $P)"
+  counts_once "open card $P" "the group and the card opened: its row in the card counts, the line says Working"
+  cmd "toggle:$G"
+  until_ '[ "$(opened $G $P)" = "false true" ]' 3 || fail "the group didn't close: $(opened $G $P)"
+  counts_once "open card $P" "the group closed, the card left open: the group still shows the card, its row counts"
+  shot v3-6-codex-thinking-open-card-closed-group 0.2
+  cmd "toggle:kids:$P"
+  until_ 'T=$(thinking_at 2); [ -n "$T" ]' 20 || fail "no nested subagent thinking streamed"
+  P2=$(parent_of "$T")
+  cmd "toggle:kids:$P2"
+  until_ '[ "$(opened $G $P)" = "false false" ] && [ "$(opened $G $P2)" = "false true" ]' 3 || fail "the outer card didn't fold, or the inner one open: $(opened $G $P), $(opened $G $P2)"
+  counts_once "live row of $P" "a nested subagent's thinking, its card open in a folded card: the outer card's live row counts"
+  shot v3-6-codex-thinking-nested 0.2
+  cmd "toggle:kids:$P2"
+  expect '[ "$(phase)" = idle ]' "the run settles" 30
+
   step "codex: a steer mid-run, an interrupt"
   send_text "run the long job"
   expect '[ "$(phase)" = working ]' "working" 5

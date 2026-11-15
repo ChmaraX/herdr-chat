@@ -13,10 +13,12 @@ import { appHome } from "herdr";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { absTime, alpha, count, duration, homeRel, icon, money, plural, relTime, shortPath, spinner, typedText, unwrapHc } from "./util.js";
 import { blocks, copyButton, diffView, outputBox, prose, textDiff } from "./rich.js";
-import { groupSummary } from "./rows.js";
+import { cardLive, defaultOpen, groupCards, groupSummary } from "./rows.js";
 import { SPACE } from "./space.js";
 
 const MAX_LINES = 400;
+
+const secsSince = (ts, c) => Math.max(0, Math.floor((c.now - ts) / 1000));
 
 function mono(text, c, color, size = 12) {
   return div().font_family(c.mono).text_size(size).line_height("18px").text_color(color ?? c.t.muted).child(text);
@@ -199,7 +201,7 @@ function assistant(it, c, footer, slot) {
 export function thinking(it, c) {
   const t = c.t;
   const open = c.expanded.has(it.id);
-  const secs = it.streaming ? Math.max(0, Math.floor((c.now - it.ts) / 1000)) : null;
+  const secs = it.streaming ? secsSince(it.ts, c) : null;
   const label = it.streaming ? "Thinking…" : it.durationMs != null ? `Thought for ${duration(Math.max(1000, it.durationMs)).replace(/\.\d+s$/, "s")}` : "Thought";
   return v_flex()
     .child(h_flex().id(`think-${it.id}`).h(28).gap(6).items_center().rounded(6).px(4).cursor_pointer().text_size(12.5).text_color(t.dim)
@@ -323,10 +325,8 @@ function toolBody(it, d, c) {
 function group(r, c) {
   const t = c.t;
   const s = groupSummary(r.items);
-  const want = c.groupOpen(r.id);
-  const open = want ?? (s.failed || s.declined);
-  const live = !open && s.running ? r.items.filter((x) => x.status === "running" || x.status === "pending" || x.streaming) : [];
-  const members = open ? r.items : live;
+  const open = c.groupOpen(r.id) ?? defaultOpen(r);
+  const members = groupCards(r, open, c.children);
   const head = h_flex().id(`grp-${r.id}`).h(30).px(6).gap(7).items_center().rounded(8).cursor_pointer()
     .text_size(12.5).text_color(t.muted).hover((x) => x.bg(t.hover).text_color(t.foreground))
     .on_click((_e, cx) => c.toggle(r.id, cx))
@@ -362,7 +362,7 @@ function activity(c) {
       ? div().flex_none().w(8).h(8).rounded_full().bg(t.blocked).loop("opacity", { from: 0.35, to: 1, period: 1200 })
       : spinner(12, t.working))
     .child(div().flex_none().child(a.text))
-    .when(a.since != null, (e) => e.child(div().flex_none().text_color(t.dim).child(`· ${Math.max(0, Math.floor((c.now - a.since) / 1000))}s`)));
+    .when(a.since != null, (e) => e.child(div().flex_none().text_color(t.dim).child(`· ${secsSince(a.since, c)}s`)));
 }
 
 function notice(it, c) {
@@ -391,8 +391,7 @@ function agentCard(it, d, c) {
   const t = c.t;
   const kids = (c.children?.get(it.id) ?? []).filter((k) => k.kind !== "assistant" || k.text?.trim());
   const open = c.expanded.has(`kids:${it.id}`);
-  const running = it.status === "running" || it.status === "pending";
-  const live = !open && running ? kids.filter((k) => k.kind === "tool").slice(-1)[0] : null;
+  const live = open ? [] : cardLive(it, c.children);
   const head = h_flex().id(`agent-${it.id}`).h(34).px(10).gap(8).items_center().cursor_pointer()
     .hover((s) => s.bg(t.hover)).on_click((_e, cx) => c.toggle(`kids:${it.id}`, cx))
     .child(icon("bot", 13).text_color(t.dim))
@@ -408,12 +407,19 @@ function agentCard(it, d, c) {
     body = v_flex().border_t_1().border_color(c.line).pl(12).pr(8).py(8).gap(6)
       .children(kids.map((k) => (k.kind === "tool" ? tool(k, c) : k.kind === "thinking" ? thinking(k, c)
         : k.kind === "assistant" ? div().px(2).text_size(13.5).line_height("20px").child(blocks(k, c)) : item(k, c))));
-  } else if (live) {
-    body = h_flex().border_t_1().border_color(c.line).px(10).py(6).gap(8).items_center().text_size(12).text_color(t.dim)
-      .child(spinner(11, t.working)).child(div().flex_1().min_w(0).truncate().font_family(c.mono).child(live.title || live.name));
+  } else if (live.length) {
+    body = v_flex().border_t_1().border_color(c.line).px(10).py(6).gap(4).children(live.map((k) => liveRow(k, c)));
   }
   return v_flex().rounded(10).overflow_hidden().border_1().border_color(it.status === "error" ? alpha(t.ansi1, 0.45) : t.border).bg(t.surface)
     .child(head).children(body ? [body] : []);
+}
+
+// A step at work inside a folded agent card: a tool's title, or a thinking's seconds.
+function liveRow(k, c) {
+  const t = c.t;
+  const row = h_flex().gap(8).items_center().text_size(12).text_color(t.dim).child(spinner(11, t.working));
+  if (k.kind === "thinking") return row.child(div().flex_none().text_color(t.muted).child("Thinking…")).child(div().flex_none().child(`${secsSince(k.ts, c)}s`));
+  return row.child(div().flex_1().min_w(0).truncate().font_family(c.mono).child(k.title || k.name));
 }
 
 // A plan / todo list (item kind "plan"), replaced in place as it changes.
