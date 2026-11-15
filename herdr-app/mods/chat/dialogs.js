@@ -1,6 +1,6 @@
 // The open extension dialog (state.dialog), drawn as a card above the
 // composer: select → option buttons, confirm → Yes / No, input / editor →
-// a field and Submit. Esc cancels (main.js). Fields are made when the dialog
+// a field and Submit, questions → a QuestionsForm (questions.js). Esc cancels (main.js). Fields are made when the dialog
 // first arrives (not in render): `DialogCard.sync` from the record handler.
 
 import { div } from "gpui-kit";
@@ -9,44 +9,44 @@ import { alpha, icon } from "./util.js";
 import { SPACE } from "./space.js";
 import { toolIcon, toolTitle } from "./cards.js";
 import { diffView } from "./rich.js";
+import { QuestionsForm } from "./questions.js";
 
 export class DialogCard {
-  constructor(onChange) {
+  constructor(onChange, focusComposer) {
     this.onChange = onChange; // the field's text changed (the debug dump shows it)
+    this.focusComposer = focusComposer;
     this.id = null;
     this.field = null;
+    this.form = null;
+    this.textDialog = false;
     this.sel = 0;
   }
 
   // Called with the current dialog whenever state changes (task/event context).
   sync(dialog) {
     if ((dialog?.id ?? null) === this.id) return false;
+    const hadKeyboard = this.textDialog || this.form?.otherFocus != null;
     this.field?.release?.();
     this.field = null;
+    this.form?.release();
+    this.form = null;
     this.id = dialog?.id ?? null;
     this.sel = 0;
-    this.picked = new Map(); // questions: question id → Set of option labels
-    this.others = new Map(); // questions: question id → InputState ("Other")
-    this.q = 0; // questions: the one the number keys answer
     if (dialog?.method === "permission" && dialog.choices?.some((x) => x.kind === "deny")) {
       this.field = InputState.new({ placeholder: "Why not? (optional, sent with Deny)" });
     }
     if (dialog?.method === "questions") {
-      for (const q of dialog.questions ?? []) {
-        this.picked.set(q.id, new Set());
-        if (q.allowOther) {
-          const f = InputState.new({ placeholder: "Other…" });
-          f.on("change", () => this.onChange?.());
-          this.others.set(q.id, f);
-        }
-      }
+      this.form = new QuestionsForm(dialog.questions ?? [], { onChange: this.onChange, focusComposer: this.focusComposer });
     }
     if (dialog?.method === "input") this.field = InputState.new({ placeholder: dialog.placeholder ?? "", value: dialog.prefill ?? "" });
     if (dialog?.method === "editor") {
       this.field = TextareaState.new({ placeholder: dialog.placeholder ?? "", value: dialog.prefill ?? "" });
       this.field.set_auto_grow(3, 12);
     }
-    this.field?.on?.("change", () => this.onChange?.());
+    this.field?.on?.("change", (_e, cx) => this.onChange?.(cx));
+    this.textDialog = dialog?.method === "input" || dialog?.method === "editor";
+    if (this.textDialog) this.field.focus();
+    else if (hadKeyboard) this.focusComposer();
     return true;
   }
 
@@ -71,33 +71,6 @@ export class DialogCard {
     return { choice: ch.id, ...(reason ? { message: reason } : {}) };
   }
 
-  // questions: pick (or toggle, multi-select) option n of question qi.
-  pick(d, qi, n) {
-    const q = d.questions?.[qi];
-    const o = q?.options?.[n];
-    if (!o) return false;
-    const set = this.picked.get(q.id);
-    if (q.multiSelect) { if (set.has(o.label)) set.delete(o.label); else set.add(o.label); }
-    else { set.clear(); set.add(o.label); }
-    // Single-select answered: the number keys move on to the next question.
-    if (!q.multiSelect && qi === this.q && qi < d.questions.length - 1) this.q = qi + 1;
-    this.onChange?.();
-    return true;
-  }
-
-  // questions: {questionId: label | [labels]}, or null while one is unanswered.
-  answers(d) {
-    const out = {};
-    for (const q of d.questions ?? []) {
-      const set = [...(this.picked.get(q.id) ?? [])];
-      const other = this.others.get(q.id)?.value().trim();
-      if (other) set.push(other);
-      if (!set.length) return null;
-      out[q.id] = q.multiSelect ? set : other || set[0];
-    }
-    return out;
-  }
-
   // answer(kind, value, cx): kind "value" | "confirm" | "cancel" | "submit"
   view(d, pending, t, answer, c) {
     const btn = (id, label, primary, fn) => h_flex().id(id).h(28).px(12).items_center().rounded(7).cursor_pointer()
@@ -106,7 +79,7 @@ export class DialogCard {
       .hover((s) => s.opacity(0.88)).on_click(fn).child(label);
     let body;
     if (d.method === "permission") return this.permissionView(d, pending, t, answer, c, btn);
-    if (d.method === "questions") return this.questionsView(d, pending, t, answer, c, btn);
+    if (d.method === "questions") return this.frame(d, pending, t, answer, "help", "cancel").children(this.form.view(t, answer));
     if (d.method === "select") {
       body = v_flex().gap(4).children((d.options ?? []).map((o, i) => h_flex().id(`dlg-opt-${i}`).min_h(30).px(10).py(5).gap(8).items_center()
         .rounded(7).border_1().border_color(i === this.sel ? t.accent : t.border).bg(t.background).cursor_pointer()
@@ -196,48 +169,5 @@ export class DialogCard {
       .child(h_flex().gap(8).flex_wrap().children(choices.map(button)))
       .children(wrap ? [wrap] : [])
       .child(div().text_size(11).text_color(t.dim).child(`1–${choices.length} choose · Enter ${choices.find((x) => x.kind === "allow")?.label ?? "the first"}${hasDeny ? " · Esc deny" : ""} (with the composer empty)`));
-  }
-
-  // The agent asks the person: each question with its options (toggles when
-  // multi-select), an "Other" field when allowed, then Submit.
-  questionsView(d, pending, t, answer, c, btn) {
-    const qs = d.questions ?? [];
-    const ready = this.answers(d) != null;
-    const blocks = qs.map((q, qi) => {
-      const set = this.picked.get(q.id) ?? new Set();
-      const current = qi === this.q && qs.length > 1;
-      return v_flex().gap(6)
-        .child(h_flex().gap(8).items_center()
-          .when(Boolean(q.header), (e) => e.child(div().flex_none().h(18).px(6).rounded(6).flex().items_center().text_size(10.5)
-            .text_color(current ? t.accent : t.dim).bg(alpha(current ? t.accent : t.muted, 0.14)).child(q.header)))
-          .child(div().flex_1().min_w(0).text_size(13).text_color(t.foreground).child(q.question))
-          .when(q.multiSelect, (e) => e.child(div().text_size(11).text_color(t.dim).child("choose any"))))
-        .child(v_flex().gap(4).children((q.options ?? []).map((o, i) => {
-          const on = set.has(o.label);
-          const mark = q.multiSelect
-            ? div().flex_none().w(14).h(14).rounded(4).border_1().border_color(on ? t.accent : t.input).bg(on ? t.accent : alpha(t.background, 0))
-              .flex().items_center().justify_center().child(on ? icon("check", 10).text_color(t.accent_foreground ?? t.background) : div())
-            : div().flex_none().w(14).h(14).rounded_full().border_1().border_color(on ? t.accent : t.input)
-              .flex().items_center().justify_center().child(on ? div().w(6).h(6).rounded_full().bg(t.accent) : div());
-          return h_flex().id(`dlg-q-${q.id}-${i}`).min_h(32).px(10).py(5).gap(10).items_center().rounded(10)
-            .border_1().border_color(on ? alpha(t.accent, 0.7) : t.border).bg(on ? alpha(t.accent, 0.08) : t.background).cursor_pointer()
-            .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.pick(d, qi, i); cx.notify(); })
-            .child(mark)
-            .child(v_flex().flex_1().min_w(0)
-              .child(div().text_size(12.5).text_color(t.foreground).child(o.label))
-              .when(Boolean(o.description), (e) => e.child(div().text_size(11.5).text_color(t.dim).child(o.description))))
-            .when(current || qs.length === 1, (e) => e.child(div().flex_none().text_size(10.5).text_color(t.dim).child(i < 9 ? String(i + 1) : "")));
-        })))
-        .when(this.others.has(q.id), (e) => e.child(Input.new(this.others.get(q.id)).h(30).px(10).rounded(8).border_1().border_color(t.input)
-          .bg(t.background).text_size(12.5)));
-    });
-    return this.frame(d, pending, t, answer, "help", "cancel")
-      .child(v_flex().gap(SPACE.block).children(blocks))
-      .child(h_flex().gap(10).items_center()
-        .child(h_flex().id("dlg-submit").h(30).px(14).items_center().rounded(10).cursor_pointer()
-          .bg(ready ? t.solid : t.raised).text_color(ready ? t.solid_foreground : t.dim).text_size(12.5).font_medium()
-          .hover((s) => s.opacity(0.88)).on_click((_e, cx) => { const a = this.answers(d); if (a) answer("answers", a, cx); })
-          .child("Submit"))
-        .child(div().text_size(11).text_color(t.dim).child(ready ? "Enter submits · Esc cancels" : "1–9 choose · Esc cancels")));
   }
 }

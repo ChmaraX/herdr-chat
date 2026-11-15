@@ -73,7 +73,7 @@ test("claude: questions (AskUserQuestion), plan approval (ExitPlanMode), and an 
           match: "drink",
           steps: [
             { question: { questions: [
-              { question: "Tea or coffee?", header: "Drink", options: [{ label: "Tea", description: "Hot leaves" }, { label: "Coffee", description: "Beans" }], multiSelect: false },
+              { question: "Tea or coffee?", header: "Drink", options: [{ label: "Tea", description: "Hot leaves" }, { label: "Coffee (recommended)", description: "Beans" }], multiSelect: false },
               { question: "Which snacks?", header: "Snacks", options: [{ label: "Biscuits" }, { label: "Fruit" }, { label: "Nuts" }], multiSelect: true },
             ] } },
             { text: "Noted." },
@@ -92,10 +92,11 @@ test("claude: questions (AskUserQuestion), plan approval (ExitPlanMode), and an 
     const q = c.state.dialog;
     assert.equal(q.title, "Claude Code has some questions");
     assert.deepEqual(q.questions.map((x: any) => [x.id, x.header, x.question, x.options.map((o: any) => o.label), x.multiSelect, x.allowOther]), [
-      ["q0", "Drink", "Tea or coffee?", ["Tea", "Coffee"], false, true],
+      ["q0", "Drink", "Tea or coffee?", ["Tea", "Coffee (recommended)"], false, true],
       ["q1", "Snacks", "Which snacks?", ["Biscuits", "Fruit", "Nuts"], true, true],
     ]);
     assert.equal(q.questions[0].options[0].description, "Hot leaves");
+    assert.deepEqual(q.questions.map((x: any) => x.options.map((o: any) => o.recommended === true)), [[false, true], [false, false, false]], "Claude's \"(Recommended)\" suffix, any case, is the recommended flag");
     await assert.rejects(c.req("dialog_answer", { dialog: q.id, answers: { q0: 3 } }), /must be a string/);
     await c.req("dialog_answer", { dialog: q.id, answers: { q0: "Tea", q1: ["Biscuits", "Nuts"] } });
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Noted."), 5000);

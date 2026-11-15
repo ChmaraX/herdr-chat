@@ -83,7 +83,7 @@ export default class HerdrChat extends View {
     this.timeline = new Timeline("herdr-chat-timeline");
     this.expanded = new Set();
     this.full = new Map();
-    this.dialog = new DialogCard(() => this.debug?.mark());
+    this.dialog = new DialogCard((cx) => { this.debug?.mark(); cx?.notify(); }, () => this.composer.focus());
     this.picker = null;
     this.handoff = null;
     this.transcript = false;
@@ -756,14 +756,11 @@ export default class HerdrChat extends View {
 
   afterState(cx) {
     const s = this.store.state;
-    // A text dialog takes the keyboard; a permission or questions card leaves
-    // it in the composer (number keys, Enter and Esc answer while it's empty).
-    const typed = s.dialog?.method === "input" || s.dialog?.method === "editor";
-    if (this.dialog.sync(s.dialog) && this.dialog.field && typed) this.dialog.field.focus();
-    if (!s.dialog && this.dialogFocusBack) this.composer.focus();
+    // A permission or questions card leaves the keyboard in the composer
+    // (number keys, Enter and Esc answer while it's empty).
+    this.dialog.sync(s.dialog);
     this.composer.dialogKeys = s.dialog?.method === "select" || s.dialog?.method === "confirm";
-    this.composer.askKeys = s.dialog?.method === "permission" || s.dialog?.method === "questions";
-    this.dialogFocusBack = Boolean(this.dialog.field) && typed;
+    this.composer.askCard = s.dialog?.method === "permission" || s.dialog?.method === "questions" ? s.dialog.method : null;
     if (s.editorText != null && s.editorText !== this.editorAcked) {
       this.editorAcked = s.editorText;
       this.composer.set(s.editorText);
@@ -1222,8 +1219,8 @@ export default class HerdrChat extends View {
     const pk = this.picker;
     const m = this.composer.menu?.items?.length ? this.composer.menu : null;
     const dlg = this.store.state.dialog;
-    // A permission or questions card, the composer empty: 1–9, ↑↓, Enter, Esc answer it.
-    if (!pk && !m && dlg && this.composer.askKeys && !this.composer.value.trim() && this.askAction(a, dlg, cx)) {
+    // A permission or questions card, the composer empty: 1–9, ↑↓, Space, Enter, Esc answer it.
+    if (!pk && !m && dlg && this.composer.askCard && !this.composer.value.trim() && this.askAction(a, dlg, cx)) {
       this.debug.mark();
       cx.notify();
       return;
@@ -1272,14 +1269,12 @@ export default class HerdrChat extends View {
       return false;
     }
     if (d.method === "questions") {
-      if (digit) { this.dialog.pick(d, this.dialog.q, Number(digit[1]) - 1); return true; }
-      if (a === "herdrchat_up" || a === "herdrchat_down") {
-        const n = (d.questions ?? []).length;
-        if (n) this.dialog.q = (this.dialog.q + (a === "herdrchat_up" ? -1 : 1) + n) % n;
-        return true;
-      }
-      if (a === "herdrchat_enter") { const ans = this.dialog.answers(d); if (ans) this.answer("answers", ans, cx); return true; }
-      if (a === "herdrchat_escape") { this.answer("cancel", null, cx); return true; }
+      const key = /^herdrchat_(up|down|space|enter)$/.exec(a)?.[1];
+      if (a === "herdrchat_escape") this.answer("cancel", null, cx);
+      else if (digit) this.dialog.form.digit(Number(digit[1]));
+      else if (key) { const ans = this.dialog.form.key(key); if (ans) this.answer("answers", ans, cx); }
+      else return false;
+      return true;
     }
     return false;
   }
@@ -1516,8 +1511,7 @@ export default class HerdrChat extends View {
         if (what.startsWith("dialog:reason:")) { this.dialog.field?.set_value?.(what.slice(14)); break; }
         if (what.startsWith("dialog:other:")) { // dialog:other:<question index>:<text>
           const [qi, ...rest] = what.slice(13).split(":");
-          const q = d?.questions?.[Number(qi)];
-          if (q) this.dialog.others.get(q.id)?.set_value?.(rest.join(":"));
+          this.dialog.form?.setOther(Number(qi), rest.join(":"));
           break;
         }
         if (what.startsWith("picker:")) return this.picker?.choose(Number(what.slice(7)), cx);
@@ -1884,7 +1878,7 @@ export default class HerdrChat extends View {
       phase: s.phase, error: s.error, model: s.model ? `${s.model.provider}/${s.model.id}` : null, thinking: s.thinking,
       sessionFile: s.sessionFile, sessionName: s.sessionName, usage: s.usage, queue: s.queue,
       dialog: s.dialog ? { id: s.dialog.id, method: s.dialog.method, title: s.dialog.title, value: this.dialog.field ? this.dialog.value() : null,
-        ...(s.dialog.method === "questions" ? { picked: Object.fromEntries([...this.dialog.picked].map(([k, v]) => [k, [...v]])), q: this.dialog.q } : {}) } : null,
+        ...this.dialog.form?.debugState() } : null,
       statuses: s.statuses.map((x) => ({ key: x.key, text: x.spans.map((y) => y.text).join("") })),
       widgets: s.widgets.map((w) => w.key), commands: s.commands.length, commandNames: s.commands.map((c) => c.name),
       items: this.store.items.map((it) => ({ id: it.id, kind: it.kind, ...(it.parent ? { parent: it.parent } : {}), ...(it.status ? { status: it.status } : {}), ...(it.streaming ? { streaming: true } : {}),

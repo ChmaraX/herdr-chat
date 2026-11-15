@@ -15,6 +15,16 @@ ask_key() {
   keys_or "$1" "$2" "key:$a" "$3"
 }
 agent_log() { cat "$BASE/fake-$1.log" 2>/dev/null; }
+# The answers in Claude's last control_response (fake-claude's log), one per line.
+claude_answers() { agent_log claude | grep control_response | tail -1 | python3 -c 'import json,sys
+r=json.loads(sys.stdin.read())["response"].get("response") or {}
+for v in ((r.get("updatedInput") or {}).get("answers") or {}).values(): print(v)'; }
+qcursor() { d "'%s:%s' % (d['dialog']['cursor']['q'], d['dialog']['cursor']['i'])"; }
+nothing_picked() { [ "$(d "not any(d['dialog']['picked'].values())")" = true ]; }
+other_focus() { d "d['dialog']['otherFocus']"; }
+other_text() { d "d['dialog']['others']['$1']"; }
+# The last key action the mod took (its log), e.g. herdrchat_space.
+last_action() { d "([l.split(' action ')[-1] for l in d['log'] if ' action ' in l] or [''])[-1]"; }
 # The newest chat (by dump) of provider $1.
 chat_of() { python3 -c 'import glob,json,os,sys; L=[]
 for f in glob.glob(sys.argv[1] + "/c-*.json"):
@@ -98,6 +108,12 @@ if want v3 || want claude; then
   open_dialog permission "Claude asks before the command"
   note "titled \"$(d 'd["dialog"]["title"]')\"" # (the mapping: tests/host/claude-asks.test.ts)
   shot v3-2-claude-permission 0.4
+  keys 56:shift space
+  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = " " ]' 3 || { note "space didn't land: again, primed"; cmd focus; sleep 0.3; keys 56:shift space; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = " " ]' 3 || true; }
+  if [ "$(d 'd["composer"]["text"]')" = " " ]; then ok "Space on a permission card types a space (no card key takes it)"
+  elif [ "$(last_action)" = herdrchat_space ]; then fail "the permission card took Space"
+  else skip "Space on a permission card (the key didn't land)"; fi
+  cmd clear
   ask_key "text:1" '[ "$(d "d[\"lastAnswer\"][\"choice\"]")" = allow ]' "1 answers Allow once"
   expect 'agent_log claude | grep "control_response" | tail -1 | grep -q "\"behavior\":\"allow\""' "Claude got behavior allow" 5
   expect '[ "$(phase)" = idle ] && [ "$(last_tool status)" = done ]' "the command ran" 15
@@ -139,6 +155,62 @@ if want v3 || want claude; then
   shot v3-3-claude-questions 0.4
   ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter submits the answers"
   expect 'agent_log claude | grep "control_response" | tail -1 | grep -q "Postgres"' "the answers reached Claude" 5
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "claude: a questions card by keys alone: the recommended option starts highlighted, ↑↓ move, Enter answers"
+  send_text "a drink, please"
+  open_dialog questions "a one-question card"
+  [ "$(qcursor)" = 0:1 ] && ok "the highlight starts on Tea (Recommended), not the first option" || fail "cursor $(qcursor)"
+  nothing_picked && ok "a highlight is not an answer: nothing is picked yet" || fail "picked on open"
+  ask_key space '[ "$(last_action)" = herdrchat_space ]' "Space reaches the card"
+  nothing_picked && [ "$(qcursor)" = 0:1 ] && ok "Space on a single-select question picks nothing and keeps the highlight" || fail "Space: picked $(d "d['dialog']['picked']"), cursor $(qcursor)"
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter answers the card"
+  expect '[ "$(claude_answers)" = "Tea (Recommended)" ]' "Claude got the highlighted option, its label as Claude wrote it" 5
+  expect '[ "$(phase)" = idle ]' "done" 15
+  send_text "a drink, please"
+  open_dialog questions "the card again"
+  ask_key down '[ "$(qcursor)" = 0:2 ]' "↓ moves the highlight to Water"
+  nothing_picked && ok "moving the highlight picks nothing" || fail "↓ picked"
+  ask_key down '[ "$(qcursor)" = 0:3 ]' "↓ moves on to the Other field"
+  ask_key up '[ "$(qcursor)" = 0:2 ]' "↑ comes back to Water"
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter answers the card"
+  expect '[ "$(claude_answers)" = Water ]' "Claude got Water" 5
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "claude: two questions by keys alone: Enter answers one and moves on, Space ticks a multi-select"
+  send_text "ask me"
+  open_dialog questions "a questions card"
+  ask_key down '[ "$(qcursor)" = 0:1 ]' "↓ highlights SQLite"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks it and moves on to the checks"
+  [ "$(d "list(d['dialog']['picked'].values())[0]")" = '["SQLite"]' ] && ok "SQLite is picked" || fail "picked $(d "d['dialog']['picked']")"
+  ask_key space '[ "$(d "list(d[\"dialog\"][\"picked\"].values())[1]")" = "[\"Unit tests\"]" ]' "Space ticks Unit tests"
+  ask_key down '[ "$(qcursor)" = 1:1 ]' "↓ highlights Type check"
+  ask_key down '[ "$(qcursor)" = 1:2 ]' "↓ highlights Lint"
+  ask_key space '[ "$(d "\"Lint\" in list(d[\"dialog\"][\"picked\"].values())[1]")" = true ]' "Space ticks Lint too"
+  shot v3-3-claude-questions-keys 0.4
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter submits: nothing is left unanswered"
+  expect '[ "$(claude_answers | tr "\n" "|")" = "SQLite|Unit tests, Lint|" ]' "Claude got SQLite and the two checks" 5
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "claude: on a single-select question an option and Other text exclude each other: the card sends what it shows"
+  send_text "ask me"
+  open_dialog questions "a questions card"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks Postgres and moves on to the checks"
+  ask_key up '[ "$(qcursor)" = 0:2 ]' "↑ goes back to the database question's Other field"
+  ask_key enter '[ "$(last_action)" = herdrchat_enter ] && [ "$(d "d[\"dialog\"] is not None")" = true ]' "Enter on the empty field: the card stays open"
+  keys "text:mysql"
+  until_ '[ "$(other_text q0)" = mysql ]' 3 || { by_command "the field didn't get the text"; cmd "click:dialog:other:0:mysql"; }
+  expect '[ "$(other_text q0)" = mysql ] && [ "$(d "d[\"dialog\"][\"picked\"][\"q0\"]")" = "[]" ]' "typing Other clears the pick: the card shows only mysql" 3
+  keys enter
+  until_ '[ "$(qcursor)" = 1:0 ]' 3 || { by_command "Enter in the field didn't land"; cmd focus; sleep 0.3; cmd key:enter; }
+  expect '[ "$(qcursor)" = 1:0 ]' "Enter in the field answers mysql and moves on to the checks" 5
+  ask_key up '[ "$(qcursor)" = 0:2 ]' "↑ back to the Other field"
+  ask_key up '[ "$(qcursor)" = 0:1 ]' "↑ highlights SQLite"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks SQLite and moves on"
+  [ "$(d "[d['dialog']['picked']['q0'], d['dialog']['others']['q0']]")" = '[["SQLite"], ""]' ] && ok "picking SQLite cleared the Other text" || fail "q0: $(d "[d['dialog']['picked']['q0'], d['dialog']['others']['q0']]")"
+  ask_key space '[ "$(d "d[\"dialog\"][\"picked\"][\"q1\"]")" = "[\"Unit tests\"]" ]' "Space ticks Unit tests"
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter submits"
+  expect '[ "$(claude_answers | tr "\n" "|")" = "SQLite|Unit tests|" ]' "Claude got SQLite, the option the card showed, not the old Other text" 5
   expect '[ "$(phase)" = idle ]' "done" 15
 
   step "claude: plan approval (ExitPlanMode): the plan as markdown, Approve, accept edits"
@@ -264,6 +336,56 @@ if want v3 || want codex; then
   shot v3-3-codex-questions 0.4
   ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter submits the answers"
   expect '[ "$(phase)" = idle ] && host | grep -q "Using Postgres"' "answered: Codex used Postgres" 15
+
+  step "codex: the card goes away while its Other field has the keyboard: the composer gets it back"
+  send_text "ask me"
+  open_dialog questions "a questions card"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks Postgres and moves on to the free-text question"
+  keys enter; sleep 0.4; keys "text:x"
+  until_ '[ "$(other_text name)" = x ]' 3 || { note "Enter or x didn't land: again, primed"; keys 56:shift enter; sleep 0.4; keys "text:x"; until_ '[ "$(other_text name)" = x ]' 3 || true; }
+  [ "$(other_text name)" = x ] && ok "Enter on the empty field gave it the keyboard: x landed there" || fail "the field didn't take the keyboard: others $(d "d['dialog']['others']"), composer \"$(d 'd["composer"]["text"]')\""
+  DLG=$(d 'd["dialog"]["id"]')
+  "$REPO/bin/herdr-chat-host" op --chat "$CHAT" --state-dir "$STATE" dialog_answer "{\"dialog\": \"$DLG\", \"cancelled\": true}" >>"$LOG" 2>&1 || fail "another client's answer"
+  expect '[ "$(d "d[\"dialog\"]")" = null ]' "another client cancels the card: it goes" 5
+  keys "text:hi"
+  until_ '[ "$(d "\"hi\" in d[\"composer\"][\"text\"]")" = true ]' 3 || { note "hi didn't land: again, primed"; keys 56:shift "text:hi"; until_ '[ "$(d "\"hi\" in d[\"composer\"][\"text\"]")" = true ]' 3 || true; }
+  [ "$(d '"hi" in d["composer"]["text"]')" = true ] && ok "the keyboard is back in the composer: typing lands there" || fail "typed into nothing: the composer has \"$(d 'd["composer"]["text"]')\""
+  cmd clear
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "codex: the same card by keys alone, a free-text question included"
+  send_text "ask me"
+  open_dialog questions "a questions card"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks Postgres and moves on to the free-text question"
+  ask_key enter '[ "$(other_focus)" = name ]' "Enter on its empty field takes the keyboard there"
+  [ "$(d 'd["dialog"] is not None')" = true ] && ok "an empty field doesn't answer" || fail "the card closed"
+  keys "text:billing"
+  until_ '[ "$(d "list(d[\"dialog\"][\"others\"].values())[1]")" = billing ]' 3 || { by_command "the field didn't get the text"; cmd "click:dialog:other:1:billing"; }
+  expect '[ "$(d "list(d[\"dialog\"][\"others\"].values())[1]")" = billing ]' "typed into the field" 3
+  shot v3-3-codex-other-typed 0.4
+  keys enter
+  until_ '[ "$(d "d[\"dialog\"]")" = null ]' 3 || { by_command "Enter in the field didn't land"; cmd focus; sleep 0.3; cmd key:enter; }
+  expect '[ "$(d "d[\"dialog\"]")" = null ]' "Enter in the field submits: nothing is left unanswered" 5
+  expect '[ "$(phase)" = idle ] && agent_log codex | grep -q "\"billing\""' "Codex got Postgres and billing" 15
+
+  step "codex: Esc in an Other field hands the keyboard back; Esc in the composer cancels the card"
+  send_text "ask me"
+  open_dialog questions "a questions card"
+  ask_key enter '[ "$(qcursor)" = 1:0 ]' "Enter picks Postgres and moves on to the free-text question"
+  ask_key enter '[ "$(other_focus)" = name ]' "Enter on its empty field takes the keyboard there"
+  keys esc
+  until_ '[ "$(other_focus)" = null ]' 3 || { note "esc didn't land: again, primed"; keys 56:shift esc; until_ '[ "$(other_focus)" = null ]' 3 || true; }
+  [ "$(d 'd["dialog"] is not None and d["dialog"]["otherFocus"] is None')" = true ] && ok "Esc in the field hands the keyboard back; the card stays open" || fail "after Esc: dialog $(d 'd["dialog"]')"
+  ask_key esc '[ "$(d "d[\"dialog\"]")" = null ]' "Esc in the composer cancels the card"
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "codex: an MCP form with no fields: Space does nothing, Enter accepts it"
+  send_text "check the server"
+  open_dialog questions "a card with no questions"
+  ask_key space '[ "$(last_action)" = herdrchat_space ]' "Space reaches the card"
+  [ "$(d 'd["dialog"] is not None')" = true ] && ok "Space leaves it open" || fail "Space closed it"
+  ask_key enter '[ "$(d "d[\"dialog\"]")" = null ]' "Enter accepts it"
+  expect '[ "$(phase)" = idle ] && host | grep -q "Figma went on"' "the MCP server got accept" 15
 
   step "codex: a todo list (plan card) and a plan; a subagent nested in its card"
   send_text "make a plan"

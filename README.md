@@ -99,6 +99,7 @@ window to "add the mod at github.com/ChmaraX/herdr-chat".
 | ⌘I | anywhere | The launcher (⌘J A when ⌘I is taken) |
 | Enter / ⌥Enter | composer | Send; while the agent works, steer / queue a follow-up |
 | Esc, ⌃C | chat | Stop the run (Esc also closes a menu or dialog) |
+| 1–9, ↑↓, Space, Enter | an approval or question card | Answer it, with nothing typed |
 | ⇧⌘M / ⇧⌘T / ⇧⌘A | chat | Model, effort, permission-mode picker |
 | ⇧Tab | composer | Next permission mode (next thinking level for Pi) |
 | ⌥⌘T | chat | `/tui` |
