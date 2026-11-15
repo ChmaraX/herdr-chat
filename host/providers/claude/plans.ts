@@ -3,7 +3,7 @@
 // TodoWrite's input is the whole list of one agent. The task tools (TaskCreate,
 // TaskUpdate, TaskList) edit one list per session, which subagents share (the
 // CLI's task list id names no agent), and a task's id comes back only in
-// TaskCreate's result: so that list is built from the results. The card shows
+// TaskCreate's result: so that list is built from the results. The plan shows
 // it in task id order, the CLI's own (TaskList's).
 import type { NormalizedEvent, EventOf, PlanStep } from "../types.ts";
 
@@ -68,7 +68,7 @@ export class ClaudePlans {
   private tasks = new Map<string, PlanStep>();
   /** The ids this list gave out. The CLI never gives one out twice, so a repeat is a new list: a fork's starts empty. */
   private given = new Set<string>();
-  /** The task card's steps as last shown; null while there is no card. */
+  /** The task list's steps as last sent; null while there is no plan. */
   private shown: PlanStep[] | null = null;
   /** Task tool calls waiting for their result, by call id. */
   private calls = new Map<string, { tool: TaskTool; input: Obj }>();
@@ -87,14 +87,14 @@ export class ClaudePlans {
     const change = changeOf(call.tool, call.input, ev);
     if (!change) return null;
     this.apply(change);
-    return this.card();
+    return this.listPlan();
   }
 
   /**
    * History's events with the plan events they make. They go through in time
    * order, as live: history nests a background agent's steps at its card, ahead
    * of main-thread steps that came first. Each plan lands after its trigger and
-   * after its card's previous plan, so the card ends on the newest.
+   * after the previous plan with its key, so the last one is the newest.
    */
   replay(events: NormalizedEvent[]): NormalizedEvent[] {
     let now = 0;
@@ -138,8 +138,8 @@ export class ClaudePlans {
     }
   }
 
-  /** The task card when its steps changed. An empty list makes no card, though it empties one. */
-  private card(): Plan | null {
+  /** The task list's plan when its steps changed. An empty list makes no plan, though it clears one. */
+  private listPlan(): Plan | null {
     const steps = [...this.tasks].sort(([a], [b]) => Number(a) - Number(b)).map(([, step]) => step);
     if (this.shown ? sameSteps(this.shown, steps) : !steps.length) return null;
     this.shown = steps;

@@ -77,7 +77,16 @@ function saveThread(t) {
   if (t.ephemeral || !t.written) return;
   t.updatedMs = Date.now();
   mkdirSync(SESSIONS, { recursive: true });
-  writeFileSync(threadFile(t), JSON.stringify({ ...t, live: undefined }) + "\n");
+  const lines = [JSON.stringify({ ...t, live: undefined, rollout: undefined }), ...(t.rollout ?? []).map((r) => JSON.stringify(r))];
+  writeFileSync(threadFile(t), lines.join("\n") + "\n");
+}
+// The real rollout's records the host reads back (update_plan calls, by turn), after the thread's own line.
+function record(t, type, payload) {
+  (t.rollout ??= []).push({ timestamp: new Date().toISOString(), type, payload });
+}
+function readThread(file) {
+  const [first, ...rest] = readFileSync(file, "utf8").split("\n").filter(Boolean);
+  return { ...JSON.parse(first), rollout: rest.map((l) => JSON.parse(l)) };
 }
 function loadThread(id, path) {
   const candidates = [];
@@ -85,7 +94,7 @@ function loadThread(id, path) {
   if (existsSync(SESSIONS)) for (const n of readdirSync(SESSIONS)) if (n.includes(id)) candidates.push(join(SESSIONS, n));
   for (const c of candidates) {
     try {
-      return JSON.parse(readFileSync(c, "utf8"));
+      return readThread(c);
     } catch {}
   }
   return null;
@@ -309,6 +318,8 @@ async function runStep(a, step) {
   }
   if (step.todo !== undefined) {
     notify("turn/plan/updated", { threadId: t.id, turnId: a.turn.id, explanation: step.todo.explanation ?? null, plan: step.todo.plan });
+    const plan = step.todo.plan.map((s) => ({ step: s.step, status: s.status === "inProgress" ? "in_progress" : s.status }));
+    record(t, "response_item", { type: "function_call", name: "update_plan", arguments: JSON.stringify({ ...(step.todo.explanation ? { explanation: step.todo.explanation } : {}), plan }), call_id: uid("call_") });
     return;
   }
   if (step.error !== undefined) {
@@ -476,6 +487,7 @@ async function startTurn(t, params, steps) {
     notify("thread/status/changed", { threadId: t.id, status: { type: "active", activeFlags: [] } });
     turn.startedAt = secs();
     notify("turn/started", { threadId: t.id, turn: { ...turn } });
+    record(t, "event_msg", { type: "task_started", turn_id: turn.id });
     if (!t.written && !t.ephemeral) {
       t.written = true;
       saveThread(t);
@@ -568,6 +580,9 @@ async function handle(msg) {
       t.settings.effort = scenario.forkEffort ?? t.settings.effort;
       t.forkedFromId = src.id;
       t.turns = JSON.parse(JSON.stringify(src.turns.slice(0, upTo + 1)));
+      const kept = new Set(t.turns.map((x) => x.id));
+      let turnOf = null;
+      t.rollout = (src.rollout ?? []).filter((r) => (turnOf = r.payload?.type === "task_started" ? r.payload.turn_id : turnOf) && kept.has(turnOf));
       t.written = t.turns.length > 0;
       t.preview = src.preview;
       t.config = p.config ?? null;
@@ -596,7 +611,7 @@ async function handle(msg) {
       if (existsSync(SESSIONS)) {
         for (const n of readdirSync(SESSIONS)) {
           try {
-            const t = JSON.parse(readFileSync(join(SESSIONS, n), "utf8"));
+            const t = readThread(join(SESSIONS, n));
             if (t.parentThreadId) continue;
             if (!p.cwd || t.cwd === p.cwd) out.push({ ...threadView(t), _updatedMs: t.updatedMs ?? 0 });
           } catch {}

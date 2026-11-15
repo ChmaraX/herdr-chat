@@ -1,5 +1,5 @@
 // Claude Code: every tool kind becomes the card a user expects, including a
-// subagent's steps nested under its card and a todo list as a plan item.
+// subagent's steps nested under its card and a todo list as the chat's plan.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { idle } from "./harness.ts";
@@ -76,8 +76,8 @@ test("claude: bash (exit codes, live output), read, edit, write, web, MCP, subag
     assert.equal(agent.output, "The config is loaded in src/app.ts.", "the subagent's report, not the harness note");
     const nested = c.items.filter((i) => i.parent === agent.id);
     assert.deepEqual(nested.map((i) => [i.kind, i.title ?? i.text, i.status]), [["tool", "$ grep -rn config src", "done"]], "the subagent's step, nested under its card");
-    const plan = c.items.find((i) => i.kind === "plan");
-    assert.deepEqual(plan.steps, [{ text: "Fix util test", status: "in_progress" }, { text: "Update notes", status: "pending" }]);
+    assert.deepEqual(c.state.plan.steps, [{ text: "Fix util test", status: "in_progress" }, { text: "Update notes", status: "pending" }], "TodoWrite is the chat's plan");
+    assert.equal(c.items.filter((i) => i.kind === "plan").length, 0, "not a card in the transcript");
     assert.ok(h.controls("get_task_output").length >= 1, "live output came from get_task_output");
     await h.waitTranscript(/· \$ make test ✗/);
     h.artifact("claude-tools");

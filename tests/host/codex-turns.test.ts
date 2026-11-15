@@ -108,10 +108,8 @@ test("codex: a plan item and a todo list; a retried error, then a failed turn sh
     await c.waitFor(idle, 10_000);
     await c.req("send", { text: "make a plan" });
     await c.waitFor(answered(/^# Greeting/), 5000);
-    const plans = c.items.filter((i) => i.kind === "plan");
-    assert.equal(plans.length, 1, "the todo list is replaced in place");
-    assert.deepEqual(plans[0].steps, [{ text: "Pick a word", status: "completed" }, { text: "Say it", status: "in_progress" }]);
-    assert.equal(plans[0].explanation, undefined);
+    assert.deepEqual(c.state.plan, { steps: [{ text: "Pick a word", status: "completed" }, { text: "Say it", status: "in_progress" }] }, "the todo list is the chat's plan, the last update's");
+    assert.equal(c.items.filter((i) => i.kind === "plan").length, 0, "no card in the transcript");
     const proposal = c.items.find((i) => i.kind === "assistant");
     assert.match(proposal.text, /1\. Pick a word/);
     assert.equal(proposal.blocks[0].type, "markdown");
@@ -129,6 +127,74 @@ test("codex: a plan item and a todo list; a retried error, then a failed turn sh
     h.artifact("codex-plan-retry-fail");
   } finally {
     await h.stop();
+  }
+});
+
+const strip = (c: { state: any }) => c.state.plan?.steps.map((s: any) => [s.text, s.status]) ?? null;
+const markers = (items: any[]) => items.filter((i) => i.kind === "notice" && i.source === "plan").map((i) => i.text);
+const PLANS = {
+  prompts: [
+    {
+      match: "^make a plan",
+      steps: [
+        { todo: { explanation: "Two steps", plan: [{ step: "Pick a word", status: "inProgress" }, { step: "Say it", status: "pending" }] } },
+        { text: "Picking." },
+        { todo: { plan: [{ step: "Pick a word", status: "completed" }, { step: "Say it", status: "inProgress" }] } },
+        { text: "Picked." },
+      ],
+    },
+    {
+      match: "^use an agent",
+      steps: [{ subagent: { prompt: "Count to 4", steps: [{ todo: { plan: [{ step: "Count", status: "inProgress" }] } }, { text: "1 2 3 4" }], answer: "1 2 3 4" } }, { text: "Counted." }],
+    },
+    { match: "^add a step", steps: [{ todo: { plan: [{ step: "Pick a word", status: "completed" }, { step: "Say it", status: "completed" }, { step: "Wave", status: "inProgress" }] } }, { text: "Waving." }] },
+    { match: "^finish", steps: [{ todo: { plan: [{ step: "Pick a word", status: "completed" }, { step: "Say it", status: "completed" }, { step: "Wave", status: "completed" }] } }, { text: "Done." }] },
+  ],
+};
+
+test("codex: each turn's plan updates the chat's one plan; a subagent's is a card; the plan comes back from the rollout", async () => {
+  const h = await codexHost({ name: "cx-plans", scenario: PLANS });
+  let livePlan: any;
+  try {
+    const c = h.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "make a plan" });
+    await c.waitFor(answered(/^Picked\./), 5000);
+    assert.deepEqual(strip(c), [["Pick a word", "completed"], ["Say it", "in_progress"]]);
+    assert.deepEqual(markers(c.items), ["Plan created · 2 steps"], "a status change makes no marker");
+
+    await c.req("send", { text: "use an agent" });
+    await c.waitFor(answered(/^Counted\./), 5000);
+    const spawn = c.items.find((i) => i.kind === "tool" && i.title === "Agent Count to 4");
+    assert.deepEqual(c.items.filter((i) => i.kind === "plan").map((p) => [p.parent, p.steps]), [[spawn.id, [{ text: "Count", status: "in_progress" }]]],
+      "the subagent's plan is a card in its group");
+    assert.deepEqual(strip(c), [["Pick a word", "completed"], ["Say it", "in_progress"]], "and leaves the chat's plan alone");
+    livePlan = structuredClone(c.state.plan);
+    h.artifact("codex-plans-live");
+  } finally {
+    await h.stop();
+  }
+
+  const again = await codexHost({ name: "cx-plans-resumed", scenario: PLANS, dir: h.dir });
+  try {
+    const c = again.client;
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Counted."), 10_000, "history");
+    assert.deepEqual(c.state.plan, livePlan, "the rollout's update_plan calls rebuild the plan");
+    assert.deepEqual(markers(c.items), ["Plan created · 2 steps"], "and its marker");
+
+    await c.req("send", { text: "add a step" });
+    await c.waitFor(answered(/^Waving\./), 5000);
+    assert.deepEqual(markers(c.items), ["Plan created · 2 steps", "Plan updated · 3 steps"], "a new step is worth a marker");
+    await c.req("send", { text: "finish" });
+    await c.waitFor(answered(/^Done\./), 5000);
+    assert.deepEqual(strip(c), [["Pick a word", "completed"], ["Say it", "completed"], ["Wave", "completed"]], "done: it stays until the next message");
+    await c.req("send", { text: "thanks" });
+    await c.waitFor(answered(/^ok: thanks/), 5000);
+    assert.equal(c.state.plan, null, "the next message clears a finished plan");
+    assert.equal(markers(c.items).length, 2);
+    again.artifact("codex-plans-resumed");
+  } finally {
+    await again.stop();
   }
 });
 

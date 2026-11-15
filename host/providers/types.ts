@@ -169,7 +169,7 @@ export type NormalizedEvent = Common &
         type: "tool_ended"; callId: string; name: string; args?: unknown; isError: boolean; declined?: boolean;
         output: string; images?: ImageBlock[]; result?: unknown; durationMs?: number; lostBytes?: number;
       }
-    /** A todo list or plan update; `key` identifies the plan item, replaced in place. */
+    /** A todo list or plan update. Top level: the chat's plan, replacing the last. With `parent`: the subagent's card, replaced in place per `key`. */
     | { type: "plan"; key: string; explanation?: string; steps: PlanStep[] }
 
     // ---- asks

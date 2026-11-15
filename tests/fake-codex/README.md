@@ -19,7 +19,7 @@ which also reads back what the host sent (`requests(method)`, `answers()`).
 - `FAKE_CODEX_REPLAY=<fixture.jsonl>`: replay a recorded real session instead (below).
 - `FAKE_CODEX_SPEED=<n>`: divides every wait.
 - `FAKE_CODEX_LOG=<file>`: every message received, one JSON per line, after a `{_start, argv, cwd, env}` line.
-- `FAKE_CODEX_HOME=<dir>`: where threads persist (`<dir>/sessions/rollout-<ts>-<id>.jsonl`, one JSON thread per file, written at the first turn like Codex). A restarted fake resumes them.
+- `FAKE_CODEX_HOME=<dir>`: where threads persist (`<dir>/sessions/rollout-<ts>-<id>.jsonl`, the thread as JSON on the first line, then the real rollout's `task_started` and `update_plan` records, written at the first turn like Codex). A restarted fake resumes them.
 
 ## Behaviour that mirrors Codex 0.163
 
@@ -67,7 +67,7 @@ which also reads back what the host sent (`requests(method)`, `answers()`).
 | `{"permissions": {reason, permissions}, "then": {session\|turn\|denied: …}}` | `item/permissions/requestApproval` |
 | `{"elicitation": {serverName, mode, message, requestedSchema \| url}, "then": {accept\|decline\|cancel: …}}` | `mcpServer/elicitation/request`; `{content}` is the answer |
 | `{"plan": "markdown"}` | `plan` item with `item/plan/delta`s |
-| `{"todo": {explanation?, plan: [{step, status}]}}` | `turn/plan/updated` |
+| `{"todo": {explanation?, plan: [{step, status}]}}` | `turn/plan/updated`, and an `update_plan` call in the rollout |
 | `{"error", "willRetry"?, "details"?}` | `error` notification |
 | `{"fail": "message"}` | ends the turn `failed` with that error |
 | `{"wait": ms}`, `{"hang": true \| ms}` | silence (a stall) until interrupted |
