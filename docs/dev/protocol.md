@@ -112,6 +112,8 @@ type ChatState = {
   model: { provider: string; id: string; name: string; reasoning: boolean; contextWindow: number | null;
            input: string[] } | null;
   thinking: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
+  plan: { explanation?: string;  // the agent's current plan, shown above the composer (v3.6); null: none
+          steps: { text: string; status: "pending" | "in_progress" | "completed" }[] } | null;
   usage: { contextTokens: number | null; contextWindow: number | null; percent: number | null;
            cost: number | null } | null;
   queue: { steering: string[]; followUp: string[] };
@@ -176,7 +178,7 @@ type Item =
                                   //     by the file's extension (same bounds as `output`)
       detail: ToolDetail }
   | { id; kind: "notice"; ts; level: "info" | "warning" | "error";
-      source: "notify" | "retry" | "compaction" | "extension_error" | "host" | "queue";
+      source: "notify" | "retry" | "compaction" | "extension_error" | "host" | "queue" | "plan";
       text: string; spans?: Span[] }
   | { id; kind: "custom"; ts; customType: string; text: string };   // display:true custom messages
 
@@ -377,7 +379,7 @@ marks it with a "(Recommended)" suffix, which stays in the label because the ans
 // any item: `parent?: string`, the id of the tool item (a subagent) whose run produced it.
 // The client nests it under that card, collapsed.
 | { id; kind: "plan"; ts; explanation?: string;
-    steps: { text: string; status: "pending" | "in_progress" | "completed" }[] }      // a todo list or plan update; replaced in place
+    steps: { text: string; status: "pending" | "in_progress" | "completed" }[] }      // a subagent's todo list (always with `parent`), replaced in place; the chat's own plan is `state.plan` (v3.6)
 // tool items: status may be "declined" (a permission was denied or the tool was blocked by a rule)
 ToolDetail +=
   | { type: "web"; tool: "fetch" | "search"; url?: string; query?: string }
@@ -595,3 +597,30 @@ under the composer; a click copies it.
 - **An outdated chat.** A host that started before `installedAt` and whose `build` differs (or has none: before 0.3) runs older code. A host started after the install never counts, so in a clone, edited code isn't an update until `./install.sh`. The chat (`mods/chat/update.js`, one `Updater`) restarts it on the same session (`shutdown`, then a new host, as `healHost` does) once the person asks and the chat is quiet: idle (or the agent exited), no dialog, nothing queued, no live sub-agent of its own (their reports go to the host's terminal). Never a sub-agent's chat. One try per install build.
 - **The questions** (`mods/new-chat/update.js`, the layout's floating block): after an install, "Restart N chats?" (Restart sets the shared `herdr-chat.update.restart` to the build: every chat restarts when quiet; Later sets `herdr-chat.update.later`: a bar in each chat, its Restart and `/reload` still work). For a release install, once a day (or `new-chat.update-check`), GitHub's latest release (tags `X.Y.Z` only): "X is available" → Update runs `update --version X` in a core terminal, with a PATH holding the node, hc and agents config.json names (a core terminal lacks the login PATH). The update is done when that terminal ends (shared `herdr-chat.update.running`, then `.result`); on success the restart question follows. Settings: `"updates": {"check": false}` turns the lookup off; `feed` points it elsewhere.
 - **Shutdown** cuts a client that doesn't close its side within 500 ms, so a restart never waits on a client.
+
+## v3.6: the plan (state, not an item)
+
+### ChatState
+
+```ts
+plan: { explanation?: string;
+        steps: { text: string; status: "pending" | "in_progress" | "completed" }[] }
+    | null;                      // null: no plan (Pi has none)
+```
+
+The agent's current plan: Claude Code's task list or TodoWrite, Codex's `update_plan`. The host keeps one per chat (`Timeline.plan`; the timeline reports each change and the next flush sends it). A new plan (a `plan` event) replaces it, whichever tool made it. A plan with no steps clears it. A plan whose steps are all completed stays until the next top-level user message, which clears it. A message the agent rejects or handles without a run puts it back. History rebuilds it as live:
+- Claude Code's transcript. A plan made by a subagent's step (the shared task list) is placed in time against the top-level items, so a background agent's change after the next user message comes after it.
+- Codex's rollout files (`thread/turns/list` has no item for `update_plan` calls): each call after the user message of its turn it came after, a steer being a second one. A fork's history is its source's rollout up to the fork (`session_meta.history_base`).
+
+A subagent's plan (a `subagent_plan` event, with `parent` and a `key`) is a `plan` item with `parent`, a card in its group, replaced in place per key. One whose subagent card isn't on the timeline (cut from the history) is dropped.
+
+### The marker row
+
+The transcript gets a notice (`source: "plan"`, `level: "info"`) instead of a card, at most one per turn (from one top-level user message to the next):
+- `Plan created · N steps` when the plan starts: no plan before, or no step text carried over from the last one.
+- `Plan updated · N steps` when steps were added, removed or renamed.
+- `Plan cleared` when a plan with no steps ends it.
+- A later change in the same turn edits that row to the turn's last plan (`created` wins). A change of status or explanation only makes no row.
+
+The mod shows the plan as a strip above the composer (`2/5`, a progress bar, the step in progress, else the first pending one). A click opens the full list above it, another closes it. All done: `N/N done`.
+

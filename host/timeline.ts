@@ -49,10 +49,13 @@ export type ToolItem = Nested & {
   status: "pending" | "running" | "done" | "error" | "declined"; args: string; output: string; outputTruncated: boolean;
   durationMs?: number; images?: string[]; outputLines?: Span[][]; detail: ToolDetail;
 };
-export type NoticeItem = Nested & { id: string; kind: "notice"; ts: number; level: "info" | "warning" | "error"; source: "notify" | "retry" | "compaction" | "extension_error" | "host" | "queue"; text: string; spans?: Span[] };
+export type NoticeItem = Nested & { id: string; kind: "notice"; ts: number; level: "info" | "warning" | "error"; source: "notify" | "retry" | "compaction" | "extension_error" | "host" | "queue" | "plan"; text: string; spans?: Span[] };
 export type CustomItem = Nested & { id: string; kind: "custom"; ts: number; customType: string; text: string };
 export type PlanStep = { text: string; status: "pending" | "in_progress" | "completed" };
-export type PlanItem = Nested & { id: string; kind: "plan"; ts: number; explanation?: string; steps: PlanStep[] };
+/** A list of steps: the agent's plan (chat state, shown above the composer), or a subagent's card. */
+export type Plan = { explanation?: string; steps: PlanStep[] };
+/** A subagent's plan: a card in its group. */
+export type PlanItem = Nested & { id: string; kind: "plan"; ts: number } & Plan;
 export type Item = UserItem | AssistantItem | ThinkingItem | ToolItem | NoticeItem | CustomItem | PlanItem;
 
 let idCounter = 0;
@@ -81,6 +84,23 @@ function addUsage(a: Usage | undefined, b: Usage | undefined): Usage | undefined
 
 const STOP_REASONS = new Set<string>(["stop", "length", "toolUse", "error", "aborted"]);
 
+const planDone = (p: Plan): boolean => p.steps.every((s) => s.status === "completed");
+const sameTexts = (a: Plan, b: Plan): boolean => a.steps.length === b.steps.length && a.steps.every((s, i) => s.text === b.steps[i]?.text);
+
+function planOf(ev: EventOf<"plan" | "subagent_plan">): Plan {
+  return { ...(ev.explanation !== undefined ? { explanation: ev.explanation } : {}), steps: ev.steps.map((s) => ({ ...s, text: bounded(s.text, 4096) })) };
+}
+
+/** The turn's plan marker row; `created`: the turn started a new plan. */
+type TurnMarker = { id: string; created: boolean };
+
+/** The transcript's row for a turn's plan change. */
+function markerText(plan: Plan | null, created: boolean): string {
+  if (!plan) return "Plan cleared";
+  const n = plan.steps.length;
+  return `${created ? "Plan created" : "Plan updated"} · ${n} ${n === 1 ? "step" : "steps"}`;
+}
+
 export class Timeline {
   items: Item[] = [];
   byId = new Map<string, Item>();
@@ -99,7 +119,14 @@ export class Timeline {
   saveImage: ImageSaver | null = null;
   /** The message being streamed, per parent (a subagent streams beside the main agent). */
   private msgs = new Map<string, MsgCtx>();
-  private plans = new Map<string, string>(); // plan key -> item id
+  /** The top-level agent's plan. A new one replaces it; a finished one goes at the next user message. Never changed in place. */
+  plan: Plan | null = null;
+  /** `plan` changed since the chat last read it. */
+  planChanged = false;
+  private turnMarker: TurnMarker | null = null;
+  /** What the last top-level user message reset, until the plan changes again: removing that message puts it back. */
+  private turnStart: { userId: string; plan: Plan | null; marker: TurnMarker | null } | null = null;
+  private cardsByKey = new Map<string, string>();
   /** The callId of the event being applied's parent, if any. */
   private parentCall: string | undefined;
 
@@ -139,6 +166,11 @@ export class Timeline {
   addUser(text: string, images: number, source: UserSource, from?: string, ts = Date.now(), blocks: ImageBlock[] = [], skill?: SkillRef): UserItem {
     this.carry = {};
     const item = this.add<UserItem>({ id: newId("u"), kind: "user", ts, text: bounded(text), images: Math.max(images, blocks.length), source, ...(from ? { from } : {}), ...(skill ? { skill } : {}) });
+    if (!item.parent) {
+      this.turnStart = { userId: item.id, plan: this.plan, marker: this.turnMarker };
+      this.turnMarker = null;
+      if (this.plan && planDone(this.plan)) this.replacePlan(null);
+    }
     const paths = this.saveImages(item.id, blocks);
     if (paths.length) item.imagePaths = paths;
     return item;
@@ -169,6 +201,11 @@ export class Timeline {
     this.byId.delete(id);
     this.dirty.delete(id);
     this.removed.add(id);
+    if (this.turnStart?.userId === id) {
+      if (this.plan !== this.turnStart.plan) this.replacePlan(this.turnStart.plan);
+      this.turnMarker = this.turnStart.marker;
+      this.turnStart = null;
+    }
     return true;
   }
 
@@ -196,18 +233,40 @@ export class Timeline {
     return this.add({ id: newId("c"), kind: "custom", ts, customType, text: bounded(stripAnsi(text)) });
   }
 
-  private setPlan(key: string, explanation: string | undefined, steps: EventOf<"plan">["steps"], ts: number): void {
-    const known = this.plans.get(key);
+  private replacePlan(plan: Plan | null): void {
+    this.plan = plan;
+    this.planChanged = true;
+  }
+
+  /** The agent's new plan (null: no steps). A turn that adds, removes or renames steps gets one marker row, kept up to date. */
+  private setPlan(next: Plan | null, ts: number): void {
+    const prev = this.plan;
+    if (!prev && !next) return;
+    this.replacePlan(next);
+    this.turnStart = null;
+    const kept = prev !== null && next !== null && next.steps.some((s) => prev.steps.some((p) => p.text === s.text));
+    if (kept && sameTexts(prev, next)) return;
+    const marker = this.turnMarker;
+    if (marker && this.byId.has(marker.id)) {
+      marker.created ||= !kept;
+      this.updateNotice(marker.id, { text: markerText(next, marker.created) });
+      return;
+    }
+    this.turnMarker = { id: this.addNotice("info", "plan", markerText(next, !kept), ts).id, created: !kept };
+  }
+
+  private setCard(key: string, plan: Plan, ts: number): void {
+    const known = this.cardsByKey.get(key);
     const it = known ? this.byId.get(known) : undefined;
     if (it && it.kind === "plan") {
-      it.steps = steps.map((s) => ({ ...s, text: bounded(s.text, 4096) }));
-      if (explanation !== undefined) it.explanation = explanation;
+      it.steps = [...plan.steps];
+      if (plan.explanation !== undefined) it.explanation = plan.explanation;
       else delete it.explanation;
       this.dirty.add(it.id);
       return;
     }
-    const item = this.add<PlanItem>({ id: newId("p"), kind: "plan", ts, ...(explanation !== undefined ? { explanation } : {}), steps: steps.map((s) => ({ ...s, text: bounded(s.text, 4096) })) });
-    this.plans.set(key, item.id);
+    const item = this.add<PlanItem>({ id: newId("p"), kind: "plan", ts, ...plan, steps: [...plan.steps] });
+    this.cardsByKey.set(key, item.id);
   }
 
   // ---------------- assistant messages ----------------
@@ -311,7 +370,11 @@ export class Timeline {
         this.addNotice(ev.level, ev.source, ev.text, now);
         return true;
       case "plan":
-        this.setPlan(ev.key, ev.explanation, ev.steps, now);
+        this.setPlan(ev.steps.length ? planOf(ev) : null, now);
+        return true;
+      case "subagent_plan":
+        // A subagent whose card isn't on the timeline (cut from the history) has nowhere to show its plan.
+        if (this.toolsByCall.has(ev.parent)) this.setCard(ev.key, planOf(ev), now);
         return true;
       case "assistant_start":
         this.msgs.delete(this.msgKey);

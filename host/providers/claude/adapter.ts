@@ -545,8 +545,8 @@ export class ClaudeAdapter implements ProviderAdapter {
   }
 
   async history(): Promise<NormalizedEvent[]> {
-    if (this.file && existsSync(this.file)) return historyEvents(this.file);
-    if (this.forked && this.forked.file === this.file) return historyEvents(this.forked.fromFile, this.forked.at);
+    if (this.file && existsSync(this.file)) return this.mapper.resume(historyEvents(this.file));
+    if (this.forked && this.forked.file === this.file) return this.mapper.resume(historyEvents(this.forked.fromFile, this.forked.at));
     return [];
   }
 

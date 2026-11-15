@@ -107,7 +107,7 @@ we don't need.
 | `imageGeneration` | `{status, revisedPrompt, result, savedPath?}` | generic + image |
 | `collabAgentToolCall` | subagents: `{tool: spawnAgent\|sendInput\|resumeAgent\|wait\|closeAgent\|sendMessage\|followupTask\|interruptAgent\|listAgents, senderThreadId, receiverThreadIds[], prompt, model, reasoningEffort, agentsStates: {threadId: {status, message}}}`. `subAgentActivity {kind: started\|interacted\|interrupted\|completed, agentThreadId, agentPath}`. Children are threads with `parentThreadId` | new `subagent` detail, or generic. Children's own items arrive with their child `threadId`; filter by `threadId` |
 | `plan` | `{text}`, plan-mode proposal; `item/plan/delta` (the final item is authoritative) | notice or markdown |
-| todo list | `turn/plan/updated {turnId, explanation, plan: [{step, status: pending\|inProgress\|completed}]}`. The `update_plan` tool was **not offered** in my run (sample 11: "update_plan … isn't available"). T enables it with thread config `"tools.update_plan.enabled": true` (T:1356-1359) | `widget` / todo card |
+| todo list | `turn/plan/updated {turnId, explanation, plan: [{step, status: pending\|inProgress\|completed}]}`. The `update_plan` tool was **not offered** in my run (sample 11: "update_plan … isn't available"). T enables it with thread config `"tools.update_plan.enabled": true` (T:1356-1359). With it, codex-cli 0.163 in code mode writes each call to the rollout as `exec` JS, `tools.update_plan({plan: [...]})` (`tests/fixtures/codex/plan-rollout.rollout.jsonl`) | `widget` / todo card |
 | `contextCompaction` | `{id}` between `item/started` and `item/completed` | compaction |
 | `enteredReviewMode` / `exitedReviewMode` | `{review}` from `review/start` | notice + markdown |
 | `hookPrompt`, `sleep {durationMs}`, `functionCallOutput` | rare | generic or notice |
@@ -295,7 +295,7 @@ then resume). Revisit design 2 once Herdr wants live TUI+GUI.
 
 **Pitfalls to avoid:**
 - Full-history `thread/resume`.
-- Parsing rollout files.
+- Parsing rollout files, except for one narrow read (`rollout.ts`): a resume reads the `update_plan` calls back from the thread's rollout (and a fork's source's), read-only and line by line, because `thread/turns/list` has no item for them. Nothing else is taken from it.
 - Treating a `turn/start` reply as "a new turn began": it can be a steer (sample 09).
 - Resuming a thread before its first turn exists.
 

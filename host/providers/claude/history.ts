@@ -6,7 +6,7 @@
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { readTranscript, promptText } from "./sessions.ts";
-import { imagesOf, textOf, toolEnded, usageOf, planFor } from "./mapper.ts";
+import { imagesOf, textOf, toolEnded, usageOf } from "./mapper.ts";
 import type { NormalizedEvent, AssistantBlock, StopReason } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -72,8 +72,6 @@ function emitAssistant(group: Rec[], ctx: Ctx, parent?: string): void {
         if (b.type !== "tool_use") continue;
         ctx.names.set(String(b.id), String(b.name ?? "tool"));
         ctx.out.push({ type: "tool_call", callId: String(b.id), name: String(b.name ?? "tool"), args: b.input, ...p, ...(ts ? { ts } : {}) });
-        const plan = planFor(String(b.name), b.input, parent);
-        if (plan) ctx.out.push({ ...plan, ...(ts ? { ts } : {}) });
       }
     }
     return;
@@ -86,11 +84,7 @@ function emitAssistant(group: Rec[], ctx: Ctx, parent?: string): void {
     type: "assistant_end", content, stopReason: isError ? "error" : stop, ...(isError ? { error: textOf(blocks) || String(first.error) } : {}),
     ...(usage ? { usage } : {}), ...(!synthetic && typeof m.model === "string" ? { model: m.model } : {}), ...(ts ? { ts } : {}),
   });
-  for (const b of blocks) {
-    if (b.type !== "tool_use") continue;
-    const plan = planFor(String(b.name), b.input);
-    if (plan) ctx.out.push({ ...plan, ...(ts ? { ts } : {}) });
-  }
+  for (const b of blocks) if (b.type === "tool_use") ctx.out.push({ type: "tool_call", callId: String(b.id), name: String(b.name ?? "tool"), args: b.input, ...(ts ? { ts } : {}) });
 }
 
 function emitRecords(records: Rec[], ctx: Ctx, parent?: string): void {

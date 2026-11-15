@@ -1,7 +1,8 @@
 // Claude Code stream-json records → normalized events. No I/O: the adapter
 // feeds it records (and tells it what it sent) and forwards what comes out.
 // Control requests and responses are the adapter's.
-import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, StopReason, Usage, PlanStep } from "../types.ts";
+import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, StopReason, Usage } from "../types.ts";
+import { ClaudePlans } from "./plans.ts";
 
 type Rec = Record<string, any>;
 
@@ -35,22 +36,6 @@ export function textOf(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content.filter((b: Rec) => b?.type === "text" && typeof b.text === "string").map((b: Rec) => b.text).join("\n");
-}
-
-/** TodoWrite input → plan steps. */
-export function todoSteps(input: unknown): PlanStep[] | null {
-  const todos = (input as Rec)?.todos;
-  if (!Array.isArray(todos)) return null;
-  return todos
-    .filter((t: Rec) => t && typeof t.content === "string")
-    .map((t: Rec) => ({ text: t.content, status: t.status === "completed" ? "completed" : t.status === "in_progress" ? "in_progress" : "pending" }));
-}
-
-/** The plan event a tool call carries (TodoWrite), if any. */
-export function planFor(name: string, input: unknown, parent?: string): NormalizedEvent | null {
-  if (name !== "TodoWrite") return null;
-  const steps = todoSteps(input);
-  return steps ? { type: "plan", key: parent ? `todos:${parent}` : "todos", steps, ...(parent ? { parent } : {}) } : null;
 }
 
 /**
@@ -99,6 +84,7 @@ export class ClaudeMapper {
 
   /** Records that ended a turn (`result`), for the adapter's settle fallback. */
   lastResultAt = 0;
+  private plans = new ClaudePlans();
 
   queueEvent(): EventOf<"queue_changed"> {
     const live = [...this.sent.values()].filter((s) => s.queued && !s.echoed && !s.cancelled);
@@ -159,7 +145,21 @@ export class ClaudeMapper {
     return [{ type: "run_settled", aborted }];
   }
 
+  /** A record's events, each followed by the plan event it makes. */
   map(rec: Rec): NormalizedEvent[] {
+    return this.events(rec).flatMap((ev) => {
+      const plan = this.plans.observe(ev);
+      return plan ? [ev, plan] : [ev];
+    });
+  }
+
+  /** The history's events with their plan events. The live session's todo lists carry on from them. */
+  resume(history: NormalizedEvent[]): NormalizedEvent[] {
+    this.plans = new ClaudePlans();
+    return this.plans.replay(history);
+  }
+
+  private events(rec: Rec): NormalizedEvent[] {
     switch (rec.type) {
       case "stream_event":
         return rec.parent_tool_use_id ? [] : this.stream(rec.event ?? {});
@@ -291,13 +291,10 @@ export class ClaudeMapper {
     const name = String(b.name ?? "tool");
     this.toolNames.set(callId, name);
     const p = parent ? { parent } : {};
-    const out: NormalizedEvent[] = [
+    return [
       { type: "tool_call", ...(index !== undefined ? { index } : {}), callId, name, args: b.input, ...p },
       { type: "tool_started", callId, name, args: b.input, ...p },
     ];
-    const plan = planFor(name, b.input, parent);
-    if (plan) out.push(plan);
-    return out;
   }
 
   private assistant(rec: Rec): NormalizedEvent[] {

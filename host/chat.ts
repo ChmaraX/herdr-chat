@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { Timeline } from "./timeline.ts";
-import type { Item, UserSource, ImageBlock, ToolDetail, NoticeItem } from "./timeline.ts";
+import type { Item, UserSource, ImageBlock, ToolDetail, NoticeItem, Plan } from "./timeline.ts";
 import { toSpans, toSpanLines, stripAnsi } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 import { mergeCommands, parseBuiltin, builtins } from "./commands.ts";
@@ -66,6 +66,8 @@ export type ChatState = {
   agentVersion: string | null;
   model: ModelInfo | null;
   thinking: string | null;
+  /** The agent's current plan (Timeline.plan), shown above the composer; null: none. */
+  plan: Plan | null;
   usage: { contextTokens: number | null; contextWindow: number | null; percent: number | null; cost: number | null } | null;
   queue: Queue;
   dialog: Dialog | null;
@@ -215,7 +217,7 @@ export class Chat {
     this.files = new FileIndex(opts.cwd);
     this.state = {
       phase: "starting", error: null, cwd: opts.cwd, sessionFile: opts.session, sessionName: null, agentVersion: null,
-      model: null, thinking: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
+      model: null, thinking: null, plan: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
       statuses: [], widgets: [], title: null, editorText: null, commands: [],
       provider: this.adapter.id, providerName: this.adapter.name, capabilities: structuredClone(this.adapter.capabilities), permissionMode: null,
       handoff: null, conflict: null, git: null,
@@ -291,6 +293,11 @@ export class Chat {
     if (this.flushTimer) clearTimeout(this.flushTimer);
     this.flushTimer = null;
     this.urgentQueued = false;
+    if (this.timeline.planChanged) {
+      this.timeline.planChanged = false;
+      this.state.plan = this.timeline.plan;
+      this.dirtyState.add("plan");
+    }
     if (!this.dirtyState.size && !this.timeline.dirty.size && !this.timeline.removed.size) return;
     const state: Partial<ChatState> = {};
     for (const k of this.dirtyState) (state as Record<string, unknown>)[k] = this.state[k];
@@ -318,7 +325,8 @@ export class Chat {
       start--;
     }
     items = items.slice(start);
-    return { state: structuredClone(this.state), items: structuredClone(items), hasOlder: items.length < all.length };
+    // The timeline's plan: `state.plan` catches up at the next flush.
+    return { state: structuredClone({ ...this.state, plan: this.timeline.plan }), items: structuredClone(items), hasOlder: items.length < all.length };
   }
 
   /** Replace the whole timeline (new session, switch, resume). */
@@ -327,6 +335,8 @@ export class Chat {
     const old = this.timeline;
     this.timeline = t;
     t.dirty.clear();
+    t.planChanged = false;
+    this.state.plan = t.plan;
     this.dirtyState.clear();
     for (const s of this.sinks) s.snapshot();
     // The old items' image files are no longer referenced.

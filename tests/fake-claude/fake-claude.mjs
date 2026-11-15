@@ -226,9 +226,10 @@ async function toolUseBlock(name, input) {
   out({ type: "stream_event", event: { type: "content_block_stop", index }, parent_tool_use_id: null, ...base() });
   return id;
 }
+// Live, a subagent's tool result carries no tool_use_result (tests/fixtures/claude/extra.jsonl:271); on disk it has toolUseResult.
 function toolResult(id, content, isError, tur, meta = {}, parent = null, agentFile = null) {
   const block = { tool_use_id: id, type: "tool_result", content, ...(isError ? { is_error: true } : {}) };
-  const rec = { type: "user", message: { role: "user", content: [block] }, parent_tool_use_id: parent, ...base(), timestamp: now(), ...(tur !== undefined ? { tool_use_result: tur } : {}), tool_result_meta: [{ id, ...meta }] };
+  const rec = { type: "user", message: { role: "user", content: [block] }, parent_tool_use_id: parent, ...base(), timestamp: now(), ...(tur !== undefined && !parent ? { tool_use_result: tur } : {}), tool_result_meta: [{ id, ...meta }] };
   out(rec);
   const d = { type: "user", message: { role: "user", content: [block] }, ...(tur !== undefined ? { toolUseResult: tur } : {}) };
   if (meta.permission_decision) d.permissionDecision = meta.permission_decision;
@@ -334,9 +335,25 @@ async function runSubagent(step, ctx) {
   out({ type: "system", subtype: "task_started", task_id: agentId, tool_use_id: id, description: input.description, subagent_type: input.subagent_type, task_type: "local_agent", prompt: input.prompt, ...base() });
   out({ type: "user", message: { role: "user", content: [{ type: "text", text: input.prompt }] }, parent_tool_use_id: id, agent_id: agentId, ...base(), timestamp: now() });
   disk({ type: "user", message: { role: "user", content: input.prompt }, agentId, parentUuid: null }, agentFile);
+  const accept = { permission_decision: { decision: "accept", source: "config" } };
+  if (s.background) {
+    toolResult(id, `Async agent launched successfully.\nagentId: ${agentId}`, false, { isAsync: true, status: "async_launched", agentId, description: input.description, prompt: input.prompt, outputFile: "" }, accept);
+    const run = subagentSteps(s, id, agentId, agentFile).then(() => out({ type: "system", subtype: "task_notification", task_id: agentId, tool_use_id: id, status: "completed", summary: s.report ?? "Done.", ...base() }));
+    if (s.background !== "outlives") ctx.background.push(run);
+    return;
+  }
+  const report = await subagentSteps(s, id, agentId, agentFile);
+  out({ type: "system", subtype: "task_notification", task_id: agentId, tool_use_id: id, status: "completed", summary: report, ...base() });
+  toolResult(id, [{ type: "text", text: `[Subagent hand-back] The text below is the final report of a subagent.\n\n${report}` }], false, { status: "completed", prompt: input.prompt, agentId, agentType: input.subagent_type, content: [{ type: "text", text: report }] }, accept);
+  foldSteers(ctx);
+}
+
+/** A subagent's steps and its report in its transcript; resolves to the report. */
+async function subagentSteps(s, id, agentId, agentFile) {
   for (const t of s.steps ?? []) {
-    await sleep(40);
+    await sleep(t.sleep ?? 40);
     check();
+    if (t.sleep) continue;
     if (t.text) {
       const block = { type: "text", text: t.text };
       out({ type: "assistant", message: { model: resolved(), id: `msg_sub${++msgIndex}`, type: "message", role: "assistant", content: [block], stop_reason: null }, parent_tool_use_id: id, agent_id: agentId, ...base(), timestamp: now() });
@@ -352,9 +369,7 @@ async function runSubagent(step, ctx) {
   }
   const report = s.report ?? "Done.";
   disk({ type: "assistant", message: { model: resolved(), id: `msg_sub${++msgIndex}`, role: "assistant", content: [{ type: "text", text: report }] }, agentId, parentUuid: null }, agentFile);
-  out({ type: "system", subtype: "task_notification", task_id: agentId, tool_use_id: id, status: "completed", summary: report, ...base() });
-  toolResult(id, [{ type: "text", text: `[Subagent hand-back] The text below is the final report of a subagent.\n\n${report}` }], false, { status: "completed", prompt: input.prompt, agentId, agentType: input.subagent_type, content: [{ type: "text", text: report }] }, { permission_decision: { decision: "accept", source: "config" } });
-  foldSteers(ctx);
+  return report;
 }
 
 async function runQuestion(step, ctx) {
@@ -454,7 +469,7 @@ function initFields() {
 async function runTurn(first) {
   busy = true;
   interrupted = false;
-  const ctx = { prompt: textOf(first.content), steered: [], uuids: first.uuid ? [first.uuid] : [], uuid: first.uuid, turns: 1, lastText: "" };
+  const ctx = { prompt: textOf(first.content), steered: [], uuids: first.uuid ? [first.uuid] : [], uuid: first.uuid, turns: 1, lastText: "", background: [] };
   state("running");
   if (!first.queuedStart) {
     lifecycle(first.uuid, "queued");
@@ -519,7 +534,8 @@ async function turnBody(first, ctx) {
       else if (step.retry) {
         out({ type: "system", subtype: "api_retry", attempt: step.retry.attempt ?? 1, max_retries: step.retry.max ?? 10, retry_delay_ms: step.retry.delayMs ?? 500, error_status: 529, error: step.retry.error ?? "overloaded", ...base() });
         await sleep(step.retry.delayMs ?? 500);
-      } else if (step.notice) out({ type: "system", subtype: "notification", key: "n", text: step.notice, priority: step.priority ?? "low", ...base() });
+      } else if (step.emit) out({ ...step.emit, ...base() });
+      else if (step.notice) out({ type: "system", subtype: "notification", key: "n", text: step.notice, priority: step.priority ?? "low", ...base() });
       else if (step.rateLimit) out({ type: "rate_limit_event", rate_limit_info: { status: step.rateLimit, rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 }, ...base() });
       else if (step.apiError) {
         closeMessage("end_turn");
@@ -538,6 +554,7 @@ async function turnBody(first, ctx) {
     }
     foldSteers(ctx);
     if (current) closeMessage("end_turn");
+    await Promise.all(ctx.background);
     result(ctx);
     for (const u of ctx.uuids) lifecycle(u, "completed");
   }

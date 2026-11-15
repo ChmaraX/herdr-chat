@@ -8,7 +8,7 @@
 // (items → timeline rows: work groups, footers, activity), timeline (own
 // measured scroller), cards (rows), rich (blocks, code, diffs, output),
 // composer (text, keys, the card), chrome (footer controls, statuses,
-// widgets, queue, empty state), menus (slash/@ menus, pickers), dialogs,
+// widgets, queue, the plan strip, empty state), menus (slash/@ menus, pickers), dialogs,
 // files (open in an editor), keymap (its key bindings, kept when Herdr rebuilds
 // the app's keymap), debug (E2E dump).
 //
@@ -22,7 +22,7 @@
 //   picker:<n>, copy:<itemId>, edit:<itemId>, open:<itemId>, enlarge:<itemId>:<k> (the viewer: viewer.js, its own viewer:… commands),
 //   enlarge:chip:<i>, chip-x:<i> (a composer image chip's thumbnail and ✕),
 //   widget:<key>, status:hide|show:<key>, queue:edit|move|remove:<message id> (a queued row),
-//   status:toggle-hidden, statuses (the +N popover),
+//   status:toggle-hidden, statuses (the +N popover), plan (opens or closes the plan strip's steps),
 //   handoff:return|show|close|cancel (the hand-off banner), conflict:go|take
 
 import { View, div } from "gpui-kit";
@@ -37,10 +37,10 @@ import { keepKeys } from "./keymap.js";
 import { Connection, hostTerminal, readConfig, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
-import { lineOf, row } from "./cards.js";
+import { lineOf, planProgress, row, samePlan } from "./cards.js";
 import { buildRows, cardLive, defaultOpen, groupCards } from "./rows.js";
 import { space } from "./space.js";
-import { branchChip, emptyState, footerControls, queueChips, queueLabels, widgetTray } from "./chrome.js";
+import { branchChip, emptyState, footerControls, planStrip, queueChips, queueLabels, widgetTray } from "./chrome.js";
 import { openFile } from "./files.js";
 import { Composer } from "./composer.js";
 import { Picker, menuView, slashItems, wheel as wheelMenu } from "./menus.js";
@@ -774,6 +774,9 @@ export default class HerdrChat extends View {
       this.req("ack_editor_text", {}, cx);
     } else if (s.editorText == null) this.editorAcked = null;
     if (this.composer.menu?.kind === "slash") this.updateMenu(cx);
+    // The strip's steps stay open while the same plan is on, not for the next one.
+    if (!samePlan(this.planShown, s.plan)) this.planOpen = false;
+    this.planShown = s.plan;
   }
 
   // ---- ops ------------------------------------------------------------------------
@@ -1521,6 +1524,7 @@ export default class HerdrChat extends View {
         return this.flash(`Copied ${what}`, cx);
       }
       case "status:toggle-hidden": this.showHidden = !this.showHidden; break;
+      case "plan": this.planOpen = !this.planOpen; break;
       case "latest": this.timeline.toBottom(); break;
       case "send": return this.send(cx);
       case "peek:tab": return this.openAsTab(cx);
@@ -1916,6 +1920,7 @@ export default class HerdrChat extends View {
       capabilities: s.capabilities ?? null, permissionMode: s.permissionMode ?? null,
       phase: s.phase, error: s.error, model: s.model ? `${s.model.provider}/${s.model.id}` : null, thinking: s.thinking,
       sessionFile: s.sessionFile, sessionName: s.sessionName, usage: s.usage, queue: s.queue,
+      plan: s.plan?.steps?.length ? { ...planProgress(s.plan), steps: s.plan.steps.map((x) => [x.text, x.status]), open: Boolean(this.planOpen) } : null,
       dialog: s.dialog ? { id: s.dialog.id, method: s.dialog.method, title: s.dialog.title, value: this.dialog.field ? this.dialog.value() : null,
         ...this.dialog.form?.debugState() } : null,
       statuses: s.statuses.map((x) => ({ key: x.key, text: x.spans.map((y) => y.text).join("") })),
@@ -2134,7 +2139,7 @@ export default class HerdrChat extends View {
     const bottom = v_flex().id("chat-bottom").w_full().gap(8)
       .on_size_change((sz, cx) => { if (sz.height !== this.bottomH) { this.bottomH = sz.height; this.debug.mark(); } })
       .when(Boolean(s.dialog), (e) => e.child(this.dialog.view(s.dialog, s.dialogsPending, t, (k, v, cx) => this.answer(k, v, cx), c)))
-      .children([widgetTray(this, above, t), queueChips(this, s, t)].filter(Boolean))
+      .children([widgetTray(this, above, t), queueChips(this, s, t), planStrip(this, s, t)].filter(Boolean))
       .child(composer)
       .children([widgetTray(this, below, t)].filter(Boolean))
       // The hint line, and the branch at its right end.

@@ -12,6 +12,8 @@ import { homedir, tmpdir } from "node:os";
 import { CodexProcess, CodexRpcError } from "./rpc.ts";
 import type { RequestId } from "./rpc.ts";
 import { CodexMapper, userContent } from "./map.ts";
+import { rolloutPlans } from "./rollout.ts";
+import type { RolloutPlan } from "./rollout.ts";
 import type { TokenUsage } from "./map.ts";
 import { stripAnsi } from "../../ansi.ts";
 import { AgentError } from "../types.ts";
@@ -1105,6 +1107,17 @@ export class CodexAdapter implements ProviderAdapter {
     }
   }
 
+  /** A thread's rollout file (a fork's source's, for its plans); null when Codex has none. */
+  private async rolloutPath(threadId: string): Promise<string | null> {
+    try {
+      const r: Rec = await this.require().request("thread/read", { threadId, includeTurns: false }, 30_000);
+      return str(r?.thread?.path) ?? null;
+    } catch (e) {
+      this.host?.log(`thread/read ${threadId}: ${errText(e)}`);
+      return null;
+    }
+  }
+
   async history(): Promise<NormalizedEvent[]> {
     const thread = this.requireThread();
     if (this.fresh) return [];
@@ -1114,10 +1127,20 @@ export class CodexAdapter implements ProviderAdapter {
     const out: NormalizedEvent[] = [];
     if (more) out.push({ type: "notice", level: "info", source: "host", text: `Showing the last ${HISTORY_TURNS} turns of this session.`, ts: (num(turns[0]?.startedAt) ?? 0) * 1000 });
     const loaded = new Set<string>();
+    const plans = this.threadFile ? await rolloutPlans(this.threadFile, (id) => this.rolloutPath(id)) : new Map<string, RolloutPlan[]>();
     const feed = async (threadId: string, turn: Rec): Promise<void> => {
       const t0 = (num(turn.startedAt) ?? Date.now() / 1000) * 1000;
       m.ts = t0;
       const items: Rec[] = Array.isArray(turn.items) ? turn.items : [];
+      // Each plan follows the user message it came after (a steer is a second one): the rollout doesn't say where among the turn's other items.
+      const turnPlans = threadId === thread ? [...(plans.get(String(turn.id)) ?? [])] : [];
+      let prompts = 0;
+      const emitPlans = (upTo = Infinity) => {
+        for (let next = turnPlans[0]; next && next.prompts <= upTo; next = turnPlans[0]) {
+          turnPlans.shift();
+          out.push(next.plan);
+        }
+      };
       let children: string[] = [];
       const flush = async () => {
         for (const child of children) {
@@ -1133,6 +1156,7 @@ export class CodexAdapter implements ProviderAdapter {
       };
       for (const [n, item] of items.entries()) {
         out.push(...m.item(threadId, "started", item), ...m.item(threadId, "completed", item));
+        if (item?.type === "userMessage") emitPlans(++prompts);
         const spawn = item?.type === "collabAgentToolCall" && item.tool === "spawnAgent";
         // A subagent's own turns nest under its spawn card. Live they ran while the next call (its wait) was open: replay them there.
         if (children.length && !spawn) await flush();
@@ -1147,6 +1171,7 @@ export class CodexAdapter implements ProviderAdapter {
         }
       }
       if (children.length) await flush();
+      emitPlans();
       m.ts = (num(turn.completedAt) ?? num(turn.startedAt) ?? Date.now() / 1000) * 1000;
       // A turn still in progress elsewhere stays open; one left by a dead process reads back as interrupted.
       if (str(turn.status) !== "inProgress") out.push(...m.turnCompleted(threadId, turn));
