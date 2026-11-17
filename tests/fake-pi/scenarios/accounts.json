@@ -1,0 +1,11 @@
+{
+ "description": "Six model providers, two of them a second Claude Code login: the model picker's widest tab strip (All + 6), to see that the picker's header holds it.",
+ "models": [
+  { "id": "claude-sonnet-5", "name": "Claude Sonnet 5", "api": "fake", "provider": "anthropic", "baseUrl": "http://fake", "reasoning": true, "input": ["text", "image"], "contextWindow": 1000000, "maxTokens": 16384, "cost": { "input": 1, "output": 5, "cacheRead": 0.1, "cacheWrite": 1.25 } },
+  { "id": "claude-opus-5-5", "name": "Claude Opus 5.5 (Claude Code)", "api": "fake", "provider": "claude-code", "baseUrl": "http://fake", "reasoning": true, "input": ["text", "image"], "contextWindow": 1000000, "maxTokens": 16384, "cost": { "input": 1, "output": 5, "cacheRead": 0.1, "cacheWrite": 1.25 } },
+  { "id": "claude-opus-5-5", "name": "Claude Opus 5.5 · second login", "api": "fake", "provider": "claude-code-2", "baseUrl": "http://fake", "reasoning": true, "input": ["text", "image"], "contextWindow": 1000000, "maxTokens": 16384, "cost": { "input": 1, "output": 5, "cacheRead": 0.1, "cacheWrite": 1.25 } },
+  { "id": "composer-2", "name": "Composer 2", "api": "fake", "provider": "cursor", "baseUrl": "http://fake", "reasoning": true, "input": ["text", "image"], "contextWindow": 400000, "maxTokens": 16384, "cost": { "input": 1, "output": 5, "cacheRead": 0.1, "cacheWrite": 1.25 } },
+  { "id": "gpt-5.6", "name": "GPT-5.6", "api": "fake", "provider": "github-copilot", "baseUrl": "http://fake", "reasoning": true, "input": ["text", "image"], "contextWindow": 400000, "maxTokens": 16384, "cost": { "input": 1, "output": 5, "cacheRead": 0.1, "cacheWrite": 1.25 } },
+  { "id": "gpt-5.6-luna", "name": "GPT-5.6 Luna", "api": "fake", "provider": "openai-codex", "baseUrl": "http://fake", "reasoning": true, "input": ["text", "image"], "contextWindow": 400000, "maxTokens": 16384, "cost": { "input": 1, "output": 5, "cacheRead": 0.1, "cacheWrite": 1.25 } }
+ ]
+}
