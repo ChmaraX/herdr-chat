@@ -225,3 +225,15 @@ A chat whose host started before an install runs older code (protocol.md v3.5).
 | A failed update looks like success, or is silent | E2E `update-release`: the dialog stays open on exit 7 |
 | The release check runs more than once a day | E2E `update-release`: no question after a reload |
 | A release tag runs as shell (`0.9.0;cmd`) | not covered (only `X.Y.Z` is offered, and it's an argument) |
+
+## /resume's sessions (`sessions.test.ts`)
+
+| Failure | Covered by |
+|---|---|
+| Only the newest 100 sessions exist | 402 Pi sessions: every one is listed, newest first, and an old one is found by a search |
+| Another folder's sessions in this folder's list (a Pi `--session-dir` holds every folder's flat) | one store, two folders, for Pi, Claude Code and Codex: this folder's list has only its own; every folder's has both, each with its folder and `here` |
+| The agents search differently | the same queries on all three: every word, case-insensitive; name and first message before folder; this folder's list ignores its own path |
+| Codex's list stops after its first page | `FAKE_CODEX_PAGE=1`: one thread per page, both threads listed |
+| A line bigger than one read (a 1.5 MiB brief inlined in the first message, 3 MB of tool output) loses the first message or miscounts | that session: `@/tmp/big.md summarise it`, 3 messages (tool output isn't one) |
+| A rename, a deleted session or a new one doesn't show | after `refresh`: the new name, the file gone, the new one first; without `refresh`, what was read before (protocol) |
+| `pi @brief.md` rows show the brief | `@/tmp/review/brief.task.md go` |

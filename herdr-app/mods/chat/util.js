@@ -176,6 +176,14 @@ export function fileChip(id, label, t) {
     .text_size(11.5).text_color(t.muted).child(icon("image", 12)).child(div().max_w(220).truncate().child(label));
 }
 
+// A folder for a list row: under home as ~/…, a long one as …/its last two parts.
+export function tildePath(p, homeDir) {
+  const h = homeDir?.replace(/\/$/, "");
+  const t = h && (p === h || p.startsWith(h + "/")) ? "~" + p.slice(h.length) : p;
+  if (t.length <= 36) return t;
+  return "…/" + t.split("/").filter(Boolean).slice(-2).join("/");
+}
+
 export function shortPath(p, cwd) {
   if (!p) return "";
   if (cwd && p.startsWith(cwd + "/")) return p.slice(cwd.length + 1);

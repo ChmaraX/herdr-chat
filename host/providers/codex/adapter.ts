@@ -23,7 +23,7 @@ import { agentEnv } from "../env.ts";
 import type { McpFailure } from "../mcp.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, Ask,
-  ModelInfo, AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, Question, ForkPoint,
+  ModelInfo, AgentCommand, AgentModel, SessionInfo, SessionScope, SessionSource, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, Question, ForkPoint,
 } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -1182,15 +1182,25 @@ export class CodexAdapter implements ProviderAdapter {
 
   // ---------------------------------------------------------------- queries
 
-  async listSessions(): Promise<SessionInfo[]> {
-    const r = await this.require().request("thread/list", { cwd: this.opts.cwd, limit: 50, sortKey: "updated_at" }, 30_000);
-    const list: Rec[] = Array.isArray(r?.data) ? r.data : [];
-    return list
-      .filter((t) => typeof t.id === "string" && !t.ephemeral)
-      .map((t) => ({
-        path: str(t.path) ?? t.id, name: str(t.name) || null, firstMessage: str(t.preview) ?? "",
-        modified: (num(t.updatedAt) ?? num(t.createdAt) ?? 0) * 1000, messageCount: Array.isArray(t.turns) ? t.turns.length : 0,
-      }));
+  // Every thread, a page at a time (thread/list leaves `turns` empty: no message count).
+  readonly sessions: SessionSource = { kind: "agent", list: (scope) => this.listThreads(scope) };
+
+  private async listThreads(scope: SessionScope): Promise<SessionInfo[]> {
+    const out: SessionInfo[] = [];
+    const seen = new Set<string>(); // cursors asked for: one repeated ends the walk
+    for (let cursor: string | null = null; ; ) {
+      const r = await this.require().request("thread/list", { ...(scope === "cwd" ? { cwd: this.opts.cwd } : {}), limit: 100, sortKey: "updated_at", ...(cursor ? { cursor } : {}) }, 30_000);
+      for (const t of Array.isArray(r?.data) ? (r.data as Rec[]) : []) {
+        if (typeof t.id !== "string" || t.ephemeral) continue;
+        out.push({
+          path: str(t.path) ?? t.id, name: str(t.name) || null, firstMessage: str(t.preview) ?? "",
+          modified: (num(t.updatedAt) ?? num(t.createdAt) ?? 0) * 1000, messageCount: null, cwd: str(t.cwd) ?? null,
+        });
+      }
+      cursor = str(r?.nextCursor) ?? null;
+      if (!cursor || seen.has(cursor)) return out;
+      seen.add(cursor);
+    }
   }
 
   async listModels(): Promise<AgentModel[]> {

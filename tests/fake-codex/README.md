@@ -18,6 +18,7 @@ which also reads back what the host sent (`requests(method)`, `answers()`).
 - `FAKE_CODEX_SCENARIO=<file.json>`: the script (below). Without it every prompt gets `ok: <prompt>`.
 - `FAKE_CODEX_REPLAY=<fixture.jsonl>`: replay a recorded real session instead (below).
 - `FAKE_CODEX_SPEED=<n>`: divides every wait.
+- `FAKE_CODEX_PAGE=<n>`: `thread/list` pages hold at most `n` threads (with `nextCursor`), so a test with a few threads sees several pages.
 - `FAKE_CODEX_LOG=<file>`: every message received, one JSON per line, after a `{_start, argv, cwd, env}` line.
 - `FAKE_CODEX_HOME=<dir>`: where threads persist (`<dir>/sessions/rollout-<ts>-<id>.jsonl`, written at the first turn like Codex). The first line is the thread as JSON; after it come the records the host reads, shaped as codex-cli 0.163 writes them (`tests/fixtures/codex/plan-rollout.rollout.jsonl`): `session_meta`, `task_started`, `turn_context`, the user messages, and `update_plan` as code mode's `exec` call. A fork's file holds only its own records and names its source in `session_meta.history_base`, as Codex does. A restarted fake resumes them.
 

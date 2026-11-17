@@ -51,7 +51,8 @@ These are refined after the Claude and Codex research.
 
 - `prompt {text, images, mode: auto|steer|followUp}`, `abort`, `answer {askId, value}`. The core holds follow-ups itself while a run is on (protocol v3.2), so an adapter sees `followUp` only in its own edge cases
 - optional `canRemoveQueued(id)` / `removeQueued(id)`: take back a queued message the agent hasn't taken yet (Pi: clear and re-add; Claude Code: `cancel_async_message`; Codex: none)
-- `listModels`, `setModel`, `setThinking`, `compact`, `newSession`, `listSessions`, `switchSession`, `setName`
+- `listModels`, `setModel`, `setThinking`, `compact`, `newSession`, `switchSession`, `setName`
+- `sessions: SessionSource`: where /resume's sessions come from. `{kind: "files", files(current, scope), describe(path)}` (Pi, Claude Code: the core reads and caches them, `host/sessions.ts`) or `{kind: "agent", list(scope)}` (Codex: `thread/list`, a page at a time). The core lists, searches (name, first message, folder) and marks each `here` the same way for every agent
 - `history()`: the normalized events to rebuild a resumed session
 - `tuiCommand(session)`: the argv of the agent's own TUI on this session, for hand-offs. Examples: `pi --session <f>`, `claude --resume <id>`, `codex resume <id>`.
 - optional `forkPoints()` and `fork(point)`: the person's messages, and a new session holding what came before one of them (resolves with the message's text). Pi: `get_fork_messages` / `fork`. Claude Code: its transcript's prompts, then a restart with `--resume <id> --fork-session --resume-session-at <the answer before>` (the fork's transcript is written at its first prompt; until then the history is the original's up to that answer). Codex: the turns' first `userMessage`, then `thread/fork {lastTurnId: the turn before}` on the same model and effort.

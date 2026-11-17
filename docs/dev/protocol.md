@@ -250,7 +250,7 @@ type ToolDetail =
 | `compact` | `instructions?` | `{}` | |
 | `new_session` | | `{}` | then a new snapshot |
 | `set_name` | `name` | `{}` | |
-| `sessions` | | `{sessions: {path,name,firstMessage,modified,messageCount}[]}` | Pi sessions for this cwd, newest first |
+| `sessions` | `scope?` (`cwd` \| `all`), `query?`, `refresh?` | `{sessions: {path,name,firstMessage,modified,messageCount,cwd,here}[], loading}` | every session of this cwd (or of every folder), newest first; `query`: words that must all be in the name or first message, or (`all`) the folder; name/first message matches first. `messageCount` null when the agent doesn't count (Codex); `here`: ran in this chat's folder (else the client opens a chat in `cwd`). The host reads session files in the background and remembers them until they change: `refresh` reads again (the picker opening); `loading: {done, total}` while reading (`total` 0: not known yet, Codex's pages), null once done, so the client asks again |
 | `switch_session` | `path` | `{}` | then a new snapshot |
 | `fork_points` | | `{points: {id, text}[]}` | the person's messages in this session, newest first, as typed (a skill as its `/command`). Refused when the agent can't fork (`capabilities.fork`) |
 | `fork` | `point` | `{text}` | a new session holding what came before that message (the agent's own fork: Pi `fork`, Claude Code `--fork-session --resume-session-at`, Codex `thread/fork`); the original is unchanged. Then a new snapshot, and `text` (the message, as typed) is the client's to put in its composer |

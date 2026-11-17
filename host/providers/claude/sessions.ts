@@ -5,7 +5,8 @@ import { readdirSync, statSync, readFileSync, realpathSync, openSync, readSync, 
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
-import type { SessionInfo } from "../types.ts";
+import type { SessionInfo, SessionScope } from "../types.ts";
+import { jsonlFiles, subdirs } from "../../jsonl.ts";
 
 type Rec = Record<string, any>;
 
@@ -90,9 +91,11 @@ export function describeSession(path: string): SessionInfo | null {
   let name: string | null = null;
   let first = "";
   let count = 0;
+  let cwd: string | null = null;
   const ids = new Set<string>();
   for (const r of readTranscript(path)) {
     if (r.type === "custom-title" && typeof r.customTitle === "string") name = r.customTitle || null;
+    if (!cwd && typeof r.cwd === "string" && r.cwd) cwd = r.cwd;
     if (r.isSidechain) continue;
     const p = promptText(r);
     if (p !== null) {
@@ -103,33 +106,15 @@ export function describeSession(path: string): SessionInfo | null {
       count++;
     }
   }
-  return { path, name, firstMessage: first, modified: st.mtimeMs, messageCount: count };
+  return { path, name, firstMessage: first, modified: st.mtimeMs, messageCount: count, cwd };
 }
 
-/** This cwd's sessions, newest first (ours are `entrypoint: sdk-cli`; the TUI's own picker hides them, ours doesn't). */
-export function listSessions(cwd: string, limit = 100): SessionInfo[] {
-  const dir = projectDir(cwd);
-  let names: string[] = [];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return [];
-  }
-  const files: [string, number][] = [];
-  for (const n of names) {
-    if (!n.endsWith(".jsonl")) continue;
-    const p = join(dir, n);
-    try {
-      files.push([p, statSync(p).mtimeMs]);
-    } catch {}
-  }
-  files.sort((a, b) => b[1] - a[1]);
-  const out: SessionInfo[] = [];
-  for (const [p] of files.slice(0, limit)) {
-    const d = describeSession(p);
-    if (d && d.messageCount > 0) out.push(d);
-  }
-  return out;
+/**
+ * This cwd's session files, or with `all` every project's (ours are `entrypoint:
+ * sdk-cli`; the TUI's own picker hides them, ours doesn't).
+ */
+export function sessionFiles(cwd: string, scope: SessionScope): string[] {
+  return jsonlFiles(scope === "all" ? subdirs(join(configDir(), "projects")) : [projectDir(cwd)]);
 }
 
 function pidAlive(pid: number): boolean {

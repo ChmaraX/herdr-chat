@@ -114,7 +114,8 @@ function runScenario() {
 
   const cwd = process.cwd();
   const noSession = argv.includes("--no-session");
-  const sessionDir = flag("--session-dir") ?? join(tmpdir(), "fake-pi-sessions", "--" + cwd.replace(/^\//, "").replace(/[/\\:]/g, "-") + "--");
+  // As Pi: <agent dir>/sessions/--<cwd>--/ ($PI_CODING_AGENT_DIR, as the E2E sets it; else a temp dir, never ~/.pi).
+  const sessionDir = flag("--session-dir") ?? join(process.env.PI_CODING_AGENT_DIR ? join(process.env.PI_CODING_AGENT_DIR, "sessions") : join(tmpdir(), "fake-pi-sessions"), "--" + cwd.replace(/^\//, "").replace(/[/\\:]/g, "-") + "--");
 
   const S = {
     model: findModel(flag("--model")) ?? findModel(scenario.model) ?? models[0],

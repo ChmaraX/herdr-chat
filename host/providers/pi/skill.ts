@@ -1,6 +1,7 @@
-// Pi runs a skill typed as `/skill:name rest` and echoes it expanded:
-// `<skill name=… location=…>\nbody\n</skill>\n\nrest`. The adapter turns that
-// back into the skill (drawn as a pill) and the person's text after it.
+// What Pi expands, turned back into what the person typed. A skill typed as
+// `/skill:name rest` is echoed as `<skill name=… location=…>\nbody\n</skill>\n\nrest`:
+// the adapter turns that back into the skill (drawn as a pill) and the text after it.
+// A file given as `pi @brief.md` arrives inline: `<file name="/abs/brief.md">…</file>`.
 import type { SkillRef } from "../types.ts";
 
 const BODY_MAX = 64 * 1024;
@@ -20,4 +21,9 @@ export function parsePiSkill(text: string): { skill: SkillRef; text: string } | 
 /** A user message's text and skill, as the person typed it: `{text, skill?}`. */
 export function userText(text: string): { text: string; skill?: SkillRef } {
   return parsePiSkill(text) ?? { text };
+}
+
+/** `pi @brief.md go`'s inlined files back as `@/abs/brief.md go` (a session list's one line). */
+export function fileArgsAsTyped(text: string): string {
+  return text.replace(/<file name="([^"]*)">[\s\S]*?(?:<\/file>|$)\n?/g, "@$1 ").trim();
 }

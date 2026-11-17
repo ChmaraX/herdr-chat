@@ -319,10 +319,40 @@ EOF
   cmd focus; sleep 0.3
   send_text "/copy"
   expect '[ "$(d "d[\"copied\"]")" -gt 0 ]' "/copy put the last answer on the clipboard" 5
+  # Another folder's session, as `pi @brief.task.md` leaves it: the brief inline, lines and all.
+  OTHER="$BASE/other-project"; mkdir -p "$OTHER"; OTHER=$(cd "$OTHER" && pwd -P)
+  OTHER_DIR="$PI_CODING_AGENT_DIR/sessions/--$(printf %s "$OTHER" | sed 's#^/##; s#[/:]#-#g')--"
+  OTHER_SESSION="$OTHER_DIR/2026-01-01T00-00-00-000Z_e2e-other.jsonl"
+  mkdir -p "$OTHER_DIR"
+  python3 - "$OTHER_SESSION" "$OTHER" <<'PY'
+import json, sys
+brief = '<file name="/tmp/e2e/brief.task.md">\nRead the diff.\nReport back.\n</file>\nGo now: check every finding in the review against the code itself, then write the report to the file the brief names, and say when it is done'
+rows = [{"type": "session", "version": 3, "id": "e2e-other", "timestamp": "2026-01-01T00:00:00.000Z", "cwd": sys.argv[2]},
+        {"type": "message", "id": "u1", "parentId": None, "timestamp": "2026-01-01T00:00:01.000Z", "message": {"role": "user", "content": [{"type": "text", "text": brief}], "timestamp": 1}},
+        {"type": "message", "id": "a1", "parentId": "u1", "timestamp": "2026-01-01T00:00:02.000Z", "message": {"role": "assistant", "content": [{"type": "text", "text": "Reviewed."}], "timestamp": 2}}]
+open(sys.argv[1], "w").write("".join(json.dumps(r) + "\n" for r in rows))
+PY
+  MINE=$(d 'd["sessionFile"]')
   send_text "/resume"
-  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = sessions ]' "/resume opens the sessions picker" 8
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = sessions ] && [ "$(d "d[\"picker\"][\"loading\"]")" = false ]' "/resume opens the sessions picker" 8
+  [ "$(d "d['picker']['scope'] == 0 and '$MINE' in d['picker']['items'] and '$OTHER_SESSION' not in d['picker']['items']")" = true ] \
+    && ok "This folder: this chat's session, not the other folder's" || fail "this folder's list: $(d 'd["picker"]["items"]')"
   shot misc-2-resume 0.3
-  keys_or esc '[ "$(d "d[\"picker\"]")" = null ]' "key:escape" "Esc closes it"
+  keys_or tab '[ "$(d "d[\"picker\"][\"scope\"]")" = 1 ] && [ "$(d "d[\"picker\"][\"loading\"]")" = false ]' "click:picker:scope:1" "Tab: All folders"
+  I=$(d "d['picker']['items'].index('$OTHER_SESSION') if '$OTHER_SESSION' in d['picker']['items'] else -1")
+  [ "$I" -ge 0 ] && ok "All folders lists the other folder's session" || fail "all: $(d 'd["picker"]["items"]')"
+  d "d['picker']['labels'][$I]" | grep -qF "@/tmp/e2e/brief.task.md Go now: check every finding" && ok "its row is one line, as typed: @/tmp/e2e/brief.task.md Go now: …" || fail "label: $(d "d['picker']['labels'][$I]")"
+  [ "$(d "any(chr(10) in l for l in d['picker']['labels'])")" = false ] && ok "no row carries a line break" || fail "multi-line labels: $(d 'd["picker"]["labels"]')"
+  d "d['picker']['metas'][$I]" | grep -qF 'other-project · 2 messages · ' && ok "its meta: the folder, 2 messages, when ($(d "d['picker']['metas'][$I]"))" || fail "meta: $(d "d['picker']['metas'][$I]")"
+  shot misc-2b-resume-all 0.3
+  cmd "click:picker:$I"
+  expect '[ "$(d "d[\"picker\"]")" = null ] && [ "$(d "d[\"lastNewChat\"] is not None")" = true ]' "picking it opens a new chat tab" 8
+  NEW=$(d 'd["lastNewChat"]')
+  expect '[ "$(dbg "$NEW" "d[\"cwd\"]")" = "$OTHER" ] && [ "$(dbg "$NEW" "d[\"sessionFile\"]")" = "$OTHER_SESSION" ] && [ "$(dbg "$NEW" "d[\"phase\"]")" = idle ]' "the new chat runs in the other folder, on that session" 25
+  [ "$(dbg "$NEW" "[(i['kind'], i.get('len')) for i in d['items']]")" = '[["user", null], ["assistant", 9]]' ] && ok "its history shows (the brief, then Reviewed.)" || fail "new chat items: $(dbg "$NEW" "[(i['kind'], i.get('len')) for i in d['items']]")"
+  [ "$(d 'd["sessionFile"]')" = "$MINE" ] && ok "this chat stays on its own session" || fail "this chat switched to $(d 'd["sessionFile"]')"
+  do_ tab.close --id "$(dbg "$NEW" 'd["place"]["tab"]')" --confirmed true
+  do_ tab.select --id "$(d 'd["place"]["tab"]')"; sleep 0.5
   step "Pi crashes mid-run: the chat says so; Restart Pi resumes"
   cmd focus; sleep 0.3
   send_text "Run the tests"

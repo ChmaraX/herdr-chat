@@ -96,31 +96,84 @@ export function menuView(menu, t, o) {
 }
 
 // A list to choose from, with its own filter field.
-// items: [{value, label, detail?, current?}]; hint: its shortcut ("⇧⌘M"), shown by the title.
+// items: [{value, label, detail?, meta?, current?}]: a row is the label (one line, cut
+// to fit), the detail after it (cut first), the meta at the end (never cut: counts, times).
+// hint: its shortcut ("⇧⌘M"), shown by the title. scopes: {labels, index, onChange(index, cx)}:
+// lists of the same things the title row switches between (Tab too).
+// onQuery(cx): the list is searched elsewhere (the host: /resume); the picker shows
+// what setItems() gives it, as given, and calls this when the filter changes.
+// loading: no list yet (one is on its way: setItems).
 export class Picker {
-  constructor(kind, title, items, onChoose, { hint = null } = {}) {
+  constructor(kind, title, items, onChoose, { hint = null, scopes = null, empty = "Nothing matches", onQuery = null, loading = false } = {}) {
     this.kind = kind;
     this.title = title;
     this.hint = hint;
-    this.all = items;
+    this.scopes = scopes;
+    this.empty = empty;
+    this.onQuery = onQuery;
+    this.progress = null; // {done, total} while the list is still being read (total 0: not known yet)
     this.onChoose = onChoose;
     this.input = InputState.new({ placeholder: "Filter…" });
     this.query = "";
-    this.sel = Math.max(0, items.findIndex((x) => x.current));
-    this.top = null;
-    follow(this, 10);
+    this.all = [];
+    this.setItems(items);
+    this.loading = loading;
+    // The list shown doesn't answer the filter or scope yet (onQuery's reply is on its way):
+    // Enter waits for it, and its first row is selected.
+    this.stale = loading;
     this.input.on("change", (_e, cx) => {
       this.query = this.input.value();
       this.sel = 0;
       this.top = 0;
+      if (this.onQuery) {
+        this.stale = true;
+        this.onQuery(cx);
+      }
       cx.notify();
     });
   }
 
+  // A new list. The selected row stays selected if it's still there (a list that
+  // grows while it's read), else the current item's, else the first. An Enter
+  // that waited for it picks now (cx).
+  setItems(items, { progress = null } = {}, cx = null) {
+    const was = this.all[this.sel]?.value;
+    const keep = was !== undefined && !this.stale ? items.findIndex((x) => x.value === was) : -1;
+    this.stale = false;
+    this.all = items;
+    this.progress = progress;
+    this.loading = false;
+    if (keep >= 0) this.sel = keep;
+    else {
+      this.sel = this.query ? 0 : Math.max(0, items.findIndex((x) => x.current));
+      this.top = null;
+    }
+    follow(this, 10);
+    if (this.enterWaits && cx) {
+      this.enterWaits = false;
+      this.choose(null, cx);
+    }
+  }
+
+  // Tab: the next scope when there are scopes, else the pick (as Enter).
+  tab(cx) {
+    if (!this.scopes) return this.choose(null, cx);
+    this.scope((this.scopes.index + 1) % this.scopes.labels.length, cx);
+  }
+
+  scope(i, cx) {
+    if (!this.scopes || i === this.scopes.index || !this.scopes.labels[i]) return;
+    this.scopes.index = i;
+    this.loading = true;
+    this.stale = true;
+    this.scopes.onChange(i, cx);
+    cx.notify();
+  }
+
   items() {
-    if (!this.query) return this.all;
+    if (!this.query || this.onQuery) return this.all;
     return this.all
-      .map((x) => ({ x, r: Math.max(rank(x.label, this.query), rank(x.value, this.query), rank(x.detail ?? "", this.query) * 0.5) }))
+      .map((x) => ({ x, r: Math.max(rank(x.label, this.query), rank(x.value, this.query), rank(x.detail ?? "", this.query) * 0.5, rank(x.meta ?? "", this.query) * 0.5) }))
       .filter((y) => y.r > 0).sort((a, b) => b.r - a.r).map((y) => y.x);
   }
 
@@ -134,13 +187,30 @@ export class Picker {
     return wheel(this, dy, this.items().length, 10);
   }
 
+  // i: a row (a click on what's shown); null: the selection (Enter), which waits for a list on its way.
   choose(i, cx) {
+    if (i == null && this.stale) {
+      this.enterWaits = true;
+      return;
+    }
     const it = this.items()[i ?? this.sel];
     if (it) this.onChoose(it, cx);
   }
 
   focus() {
     this.input.focus();
+  }
+
+  scopeTabs(t) {
+    const sc = this.scopes;
+    return h_flex().gap(2).children(sc.labels.map((l, i) => {
+      const on = i === sc.index;
+      let el = div().id(`picker-scope-${i}`).px(7).py(1).rounded(5).text_size(11).cursor_pointer()
+        .text_color(on ? t.foreground : t.dim).hover((s) => s.text_color(t.foreground))
+        .on_click((_e, cx) => { cx.stop_propagation(); this.scope(i, cx); });
+      if (on) el = el.bg(t.selected);
+      return el.child(l);
+    }));
   }
 
   // actions(a, cx): the view's key handler; o: {onOutside(cx)}
@@ -151,22 +221,27 @@ export class Picker {
     for (const a of ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape"]) wrap = wrap.on_action(a, (_e, cx) => actions(a, cx));
     wrap = wrap.child(Input.new(this.input).h(30).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12.5));
     const more = items.length > 10 ? ` · ${start + 1}–${start + list.length} of ${items.length}` : "";
+    const p = this.progress;
+    const reading = p ? (p.total ? ` · reading ${p.done}/${p.total}…` : " · reading…") : "";
+    const keys = `↑↓ choose · Enter pick${this.scopes ? " · Tab " + this.scopes.labels[(this.scopes.index + 1) % this.scopes.labels.length].toLowerCase() : ""} · Esc close`;
     return card(t, { id: "picker-card", onWheel: (dy, cx) => { if (this.wheel(dy)) cx.notify(); }, onOutside: o.onOutside }).w_full().gap(4)
       .child(h_flex().px(6).pt(2).gap(8).items_center().child(div().flex_1().text_size(12).font_semibold().text_color(t.foreground).child(this.title))
+        .when(Boolean(this.scopes), (e) => e.child(this.scopeTabs(t)))
         .when(Boolean(this.hint), (e) => e.child(div().text_size(11).text_color(t.dim).child(this.hint)))
         .child(div().id("picker-close").cursor_pointer().text_color(t.dim).on_click((_e, cx) => { cx.stop_propagation(); actions("herdrchat_escape", cx); }).child(icon("x", 12))))
       .child(wrap)
-      .child(v_flex().gap(1).children(list.map((it, k) => {
+      .when(!this.loading, (e) => e.child(v_flex().gap(1).children(list.map((it, k) => {
         const i = start + k;
         let row = h_flex().id(`pick-${i}`).h(ROW_H).px(8).gap(10).items_center().rounded(6).cursor_pointer()
           .hover((s) => s.bg(t.hover)).on_click((_e, cx) => { cx.stop_propagation(); this.choose(i, cx); })
           .child(div().w(12).flex_none().child(it.current ? icon("check", 12).text_color(t.accent) : div()))
-          .child(div().flex_none().text_size(12.5).text_color(t.foreground).child(it.label))
-          .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(it.detail ?? ""));
+          .child(div().min_w(0).truncate().text_size(12.5).text_color(t.foreground).child(it.label))
+          .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(it.detail ?? ""))
+          .when(Boolean(it.meta), (e) => e.child(div().flex_none().text_size(11.5).text_color(t.dim).child(it.meta)));
         if (i === this.sel) row = row.bg(t.selected);
         return row;
-      })))
-      .when(items.length === 0, (e) => e.child(div().px(8).py(6).text_size(12).text_color(t.dim).child("Nothing matches")))
-      .child(div().px(8).text_size(10.5).text_color(t.dim).child(`${items.length}${more} · ↑↓ choose · Enter pick · Esc close`));
+      }))))
+      .when(this.loading || items.length === 0, (e) => e.child(div().px(8).py(6).text_size(12).text_color(t.dim).child(this.loading ? "Loading…" : this.progress ? "Reading sessions…" : this.query ? "Nothing matches" : this.empty)))
+      .child(div().px(8).text_size(10.5).text_color(t.dim).child(`${items.length}${more}${reading} · ${keys}`));
   }
 }

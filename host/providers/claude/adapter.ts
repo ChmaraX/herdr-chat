@@ -10,10 +10,10 @@ import { mcpFailureNotice } from "../mcp.ts";
 import { agentEnv } from "../env.ts";
 import type { Priority } from "./mapper.ts";
 import { historyEvents, hasMessages, forkPoints } from "./history.ts";
-import { sessionPath, sessionIdOf, listSessions, liveHolder, readUserSettings } from "./sessions.ts";
+import { sessionPath, sessionIdOf, sessionFiles, describeSession, liveHolder, readUserSettings } from "./sessions.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, ModelInfo,
-  AgentCommand, AgentModel, SessionInfo, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, ForkPoint, Question,
+  AgentCommand, AgentModel, SessionSource, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, ForkPoint, Question,
 } from "../types.ts";
 import { CLAUDE_TOOLS } from "./tools.ts";
 
@@ -550,9 +550,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     return [];
   }
 
-  listSessions(): SessionInfo[] {
-    return listSessions(this.opts.cwd);
-  }
+  readonly sessions: SessionSource = { kind: "files", files: (_current, scope) => sessionFiles(this.opts.cwd, scope), describe: describeSession };
 
   async listModels(): Promise<AgentModel[]> {
     const p = this.require();

@@ -13,6 +13,9 @@ export type ClaudeHostOptions = {
   replay?: string;
   speed?: number;
   dir?: string;
+  /** Another chat in the same dir (one config dir): its own cwd and chat id. */
+  cwd?: string;
+  chat?: string;
   session?: string;
   /** Arguments after `--` (passed to claude). */
   args?: string[];
@@ -35,7 +38,7 @@ export class ClaudeHost extends Host {
 }
 
 export async function startClaude(o: ClaudeHostOptions): Promise<ClaudeHost> {
-  const h = new ClaudeHost({ name: o.name, provider: "claude", agent: FAKE_CLAUDE, ...(o.dir ? { dir: o.dir } : {}), ...(o.session ? { session: o.session } : {}), piArgs: o.args ?? [] });
+  const h = new ClaudeHost({ name: o.name, provider: "claude", agent: FAKE_CLAUDE, ...(o.dir ? { dir: o.dir } : {}), ...(o.cwd ? { cwd: o.cwd } : {}), ...(o.chat ? { chat: o.chat } : {}), ...(o.session ? { session: o.session } : {}), piArgs: o.args ?? [] });
   const env: Record<string, string> = {
     CLAUDE_CONFIG_DIR: h.configDir,
     FAKE_CLAUDE_LOG: join(h.dir, "claude-in.jsonl"),

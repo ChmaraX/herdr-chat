@@ -18,6 +18,8 @@ import { ChatClient } from "./client.ts";
 import { FileIndex } from "./files.ts";
 import { GitWatch } from "./git.ts";
 import type { GitState } from "./git.ts";
+import { SessionCatalog } from "./sessions.ts";
+import type { SessionList } from "./sessions.ts";
 import { loadImages } from "./clipboard.ts";
 import type { Attachments } from "./attachments.ts";
 import type { ImageFile } from "./imagesize.ts";
@@ -25,7 +27,7 @@ import { Renderer, diffLines } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
 import type {
-  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, SessionInfo, ForkPoint,
+  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, ForkPoint,
 } from "./providers/types.ts";
 
 export type { ModelInfo, Capabilities };
@@ -208,6 +210,7 @@ export class Chat {
   private sessionId: string | null = null;
   private files: FileIndex;
   private git: GitWatch;
+  private catalog: SessionCatalog;
   private generation = 0;
 
   constructor(opts: ChatOptions) {
@@ -216,6 +219,7 @@ export class Chat {
     this.timeline = this.newTimeline();
     this.render = new Renderer(opts.imageDir ?? null, (id) => this.timeline.rawOutput.get(id), opts.log);
     this.files = new FileIndex(opts.cwd);
+    this.catalog = new SessionCatalog(opts.adapter.sessions, opts.cwd, () => this.state.sessionFile);
     this.state = {
       phase: "starting", error: null, cwd: opts.cwd, sessionFile: opts.session, sessionName: null, agentVersion: null,
       model: null, thinking: null, plan: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
@@ -1420,8 +1424,11 @@ export class Chat {
     return { text: this.asTyped(text) };
   }
 
-  async sessions(): Promise<{ sessions: SessionInfo[] }> {
-    return { sessions: await this.adapter.listSessions(this.state.sessionFile) };
+  /** /resume's list (host/sessions.ts): `here` sessions switch this chat; another folder's opens a chat there (the client's). */
+  async sessions(a: Rec): Promise<SessionList> {
+    return this.catalog.list(a.scope === "all" ? "all" : "cwd", {
+      query: typeof a.query === "string" ? a.query : "", refresh: a.refresh === true,
+    });
   }
 
   async filesOp(query: string, limit?: number): Promise<{ files: string[] }> {
@@ -1706,7 +1713,7 @@ export class Chat {
       case "fork":
         return this.fork(String(a.point ?? ""));
       case "sessions":
-        return this.sessions();
+        return this.sessions(a);
       case "switch_session":
         await this.switchSession(String(a.path ?? ""));
         return {};
