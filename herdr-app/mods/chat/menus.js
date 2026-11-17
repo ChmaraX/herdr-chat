@@ -201,9 +201,11 @@ export class Picker {
     this.input.focus();
   }
 
+  // On their own row under the title, wrapping: an agent's list of scopes has no
+  // bound (a model picker has a tab per provider), and the title row keeps the ✕.
   scopeTabs(t) {
     const sc = this.scopes;
-    return h_flex().gap(2).children(sc.labels.map((l, i) => {
+    return h_flex().px(4).gap(2).flex_wrap().children(sc.labels.map((l, i) => {
       const on = i === sc.index;
       let el = div().id(`picker-scope-${i}`).px(7).py(1).rounded(5).text_size(11).cursor_pointer()
         .text_color(on ? t.foreground : t.dim).hover((s) => s.text_color(t.foreground))
@@ -225,10 +227,10 @@ export class Picker {
     const reading = p ? (p.total ? ` · reading ${p.done}/${p.total}…` : " · reading…") : "";
     const keys = `↑↓ choose · Enter pick${this.scopes ? " · Tab " + this.scopes.labels[(this.scopes.index + 1) % this.scopes.labels.length].toLowerCase() : ""} · Esc close`;
     return card(t, { id: "picker-card", onWheel: (dy, cx) => { if (this.wheel(dy)) cx.notify(); }, onOutside: o.onOutside }).w_full().gap(4)
-      .child(h_flex().px(6).pt(2).gap(8).items_center().child(div().flex_1().text_size(12).font_semibold().text_color(t.foreground).child(this.title))
-        .when(Boolean(this.scopes), (e) => e.child(this.scopeTabs(t)))
+      .child(h_flex().px(6).pt(2).gap(8).items_center().child(div().flex_1().min_w(0).truncate().text_size(12).font_semibold().text_color(t.foreground).child(this.title))
         .when(Boolean(this.hint), (e) => e.child(div().text_size(11).text_color(t.dim).child(this.hint)))
-        .child(div().id("picker-close").cursor_pointer().text_color(t.dim).on_click((_e, cx) => { cx.stop_propagation(); actions("herdrchat_escape", cx); }).child(icon("x", 12))))
+        .child(div().id("picker-close").flex_none().cursor_pointer().text_color(t.dim).on_click((_e, cx) => { cx.stop_propagation(); actions("herdrchat_escape", cx); }).child(icon("x", 12))))
+      .when(Boolean(this.scopes), (e) => e.child(this.scopeTabs(t)))
       .child(wrap)
       .when(!this.loading, (e) => e.child(v_flex().gap(1).children(list.map((it, k) => {
         const i = start + k;

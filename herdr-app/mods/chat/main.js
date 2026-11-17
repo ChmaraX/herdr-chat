@@ -19,7 +19,7 @@
 //   · shortcut:<action> (keys.default.json's actions, as their keys do)
 //   controls: chip:model|thinking|permission, latest, send, stop, restart,
 //   dialog:submit|cancel|choice:<id>|reason:<text>|other:<q>:<text>,
-//   picker:<n>, picker:scope:<n> (its scope tabs: /resume's folder/all), copy:<itemId>, edit:<itemId>, open:<itemId>, enlarge:<itemId>:<k> (the viewer: viewer.js, its own viewer:… commands),
+//   picker:<n>, picker:scope:<n> (its scope tabs: /resume's folder/all, /model's accounts), copy:<itemId>, edit:<itemId>, open:<itemId>, enlarge:<itemId>:<k> (the viewer: viewer.js, its own viewer:… commands),
 //   enlarge:chip:<i>, chip-x:<i> (a composer image chip's thumbnail and ✕),
 //   widget:<key>, status:hide|show:<key>, queue:edit|move|remove:<message id> (a queued row),
 //   status:toggle-hidden, statuses (the +N popover), plan (opens or closes the plan strip's steps),
@@ -57,6 +57,11 @@ const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before t
 let VIEWS = 0;
 
 const IMAGE = /\.(png|jpe?g|gif|webp)$/i;
+
+// A model provider's name for the model picker's scope tabs: its id with the dashes
+// out. The agent names its providers (two Claude Code logins are two providers, so an
+// account is a tab); the mod names none of them.
+const modelTab = (p) => p.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 export default class HerdrChat extends View {
   init(_props, cx) {
@@ -1161,11 +1166,24 @@ export default class HerdrChat extends View {
         const d = await this.req("models", {}, cx);
         const cur = this.store.state.model;
         const models = [...(d?.models ?? [])].sort((a, b) => Number(Boolean(b.enabled)) - Number(Boolean(a.enabled)));
-        const items = models.map((m) => ({ value: `${m.provider}/${m.id}`, label: m.name || m.id, detail: `${m.provider}/${m.id}${m.enabled ? "" : " · not enabled"}`, current: cur && cur.provider === m.provider && cur.id === m.id, m }));
-        this.openPicker(new Picker("model", "Model", items, (it, cx) => {
+        const rows = (provider) => models.filter((m) => !provider || m.provider === provider)
+          .map((m) => ({ value: `${m.provider}/${m.id}`, label: m.name || m.id, detail: `${m.provider}/${m.id}${m.enabled ? "" : " · not enabled"}`, current: cur && cur.provider === m.provider && cur.id === m.id, m }));
+        // One tab per provider, after All, so a model is picked from one account at a
+        // time. In id order: the agent lists its models in no order the tabs can keep.
+        const providers = [...new Set(models.map((m) => m.provider))].sort();
+        const tabs = [{ label: "All", provider: null }, ...providers.map((p) => ({ label: modelTab(p), provider: p }))];
+        const picker = new Picker("model", "Model", rows(null), (it, cx) => {
           this.closePicker(cx);
           this.fire("set_model", { provider: it.m.provider, modelId: it.m.id }, cx);
-        }, { hint: keyHint("model") }), cx);
+        }, {
+          hint: keyHint("model"),
+          scopes: providers.length < 2 ? null
+            : {
+              labels: tabs.map((x) => x.label), index: 0,
+              onChange: (i, cx) => { picker.setItems(rows(tabs[i].provider), {}, cx); this.debug.mark(); },
+            },
+        });
+        this.openPicker(picker, cx);
       } catch (e) {
         this.flash(`models: ${message(e)}`, cx);
       }
@@ -2263,7 +2281,7 @@ function pickerDump(pk) {
   return {
     kind: pk.kind, sel: pk.sel, top: pk.top ?? 0, wheeled: pk.wheeled ?? 0, count: items.length, hint: pk.hint,
     items: top.map((x) => x.value), labels: top.map((x) => x.label), metas: top.map((x) => x.meta ?? null),
-    scope: pk.scopes?.index ?? null, loading: pk.loading, stale: pk.stale, progress: pk.progress,
+    scope: pk.scopes?.index ?? null, scopeLabels: pk.scopes?.labels ?? null, loading: pk.loading, stale: pk.stale, progress: pk.progress,
   };
 }
 

@@ -77,6 +77,15 @@ if want commands; then
   shot commands-1-slash 0.3
   press enter '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
   expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]' "Enter on /model opens the model picker" 8
+  [ "$(d "d['picker']['scope'] == 0 and d['picker']['scopeLabels'][0] == 'All' and len(d['picker']['scopeLabels']) >= 3 and d['picker']['scopeLabels'][1:] == sorted(d['picker']['scopeLabels'][1:])")" = true ] \
+    && ok "a tab per account, All first, the rest in order: $(d "d['picker']['scopeLabels']")" || fail "tabs: $(d "d['picker']['scopeLabels']")"
+  [ "$(d "len({i.split('/')[0] for i in d['picker']['items']}) > 1")" = true ] && ok "All lists every account's models" || fail "all: $(d 'd["picker"]["items"]')"
+  keys_or tab '[ "$(d "d[\"picker\"][\"scope\"]")" = 1 ]' "click:picker:scope:1" "Tab: the next account"
+  [ "$(d "len(d['picker']['items']) > 0 and len({i.split('/')[0] for i in d['picker']['items']}) == 1")" = true ] \
+    && ok "that tab lists only its own account's models ($(d "d['picker']['scopeLabels'][1]"))" || fail "scoped: $(d 'd["picker"]["items"]')"
+  shot commands-2a-model-tabs 0.3
+  cmd "click:picker:scope:0"
+  expect '[ "$(d "d[\"picker\"][\"scope\"]")" = 0 ]' "back to All" 5
   FIRST=$(d 'd["model"]')
   sleep 0.3
   S0=$(d 'd["picker"]["sel"]')
@@ -98,6 +107,20 @@ if want commands; then
   expect '[ "$(d "d[\"menu\"][\"kind\"]")" = files ] && [ "$(d "d[\"menu\"][\"items\"][0]")" = README.md ]' "@READ lists README.md" 8
   press enter '[ "$(d "d[\"composer\"][\"text\"]")" = "see @README.md " ]'
   expect '[ "$(d "d[\"composer\"][\"text\"]")" = "see @README.md " ]' "Enter inserts @README.md" 5
+  # Six providers, two of them Claude Code logins that serve the same model id: the
+  # widest strip the picker draws, and the case the tabs exist for. The tab names are
+  # the agent's provider ids with the dashes out: checked by count and order, not by word.
+  CHAT=$(open_chat accounts accounts)
+  ready
+  cmd "shortcut:model"
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]' "the model picker on six accounts" 8
+  [ "$(d "len(d['picker']['scopeLabels']) == 7 and d['picker']['scopeLabels'][0] == 'All'")" = true ] \
+    && ok "seven tabs, All first: $(d "d['picker']['scopeLabels']")" || fail "tabs: $(d "d['picker']['scopeLabels']")"
+  cmd "click:picker:scope:3"
+  expect '[ "$(d "d[\"picker\"][\"items\"] == [\"claude-code-2/claude-opus-5-5\"]")" = true ]' "the second login's tab lists only its own model" 5
+  shot commands-2b-six-accounts 0.3
+  press enter '[ "$(d "d[\"picker\"]")" = null ]'
+  expect '[ "$(d "d[\"model\"]")" = claude-code-2/claude-opus-5-5 ]' "Enter there picks the second login's Opus, not the first's" 8
 fi
 
 # --- flow: messages from outside (hc send), with the sender shown -------------------------------
