@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/ChmaraX/herdr-chat/compare/v0.4.0...v0.5.0) (2026-11-17)
+
+
+### Features
+
+* **chat:** /resume lists every session, for every agent, with This folder / All folders ([#25](https://github.com/ChmaraX/herdr-chat/issues/25)) ([478786b](https://github.com/ChmaraX/herdr-chat/commit/478786be5264d7a37c09fb94f6a9225904c1a8a2))
+* **chat:** the model picker has a tab per model provider, so two logins of one service are two tabs ([#26](https://github.com/ChmaraX/herdr-chat/issues/26)) ([e44a0ef](https://github.com/ChmaraX/herdr-chat/commit/e44a0ef900dd25315369fa4a45654141dbb053f9))
+
 ## [0.4.0](https://github.com/ChmaraX/herdr-chat/compare/v0.3.0...v0.4.0) (2026-11-15)
 
 
