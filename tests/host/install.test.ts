@@ -227,7 +227,7 @@ test("keys: without the layout's new-chat copy (--no-direct) only the launcher k
 const INSTR = join(ROOT, "install", "instructions.ts");
 function agentHomes(o: { pi?: string | null; claude?: string | null; codex?: string | null }) {
   const d = mkdtempSync(join(tmpdir(), "herdr-chat-instr-"));
-  const env = { ...process.env, HOME: join(d, "home"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
+  const env = { ...process.env, HOME: join(d, "home"), XDG_DATA_HOME: join(d, "data"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
   mkdirSync(join(d, "app", "data", "herdr-chat"), { recursive: true });
   const files = { pi: join(d, "pi", "AGENTS.md"), claude: join(d, "home", ".claude", "CLAUDE.md"), codex: join(d, "home", ".codex", "AGENTS.md") };
   for (const [k, f] of Object.entries(files)) {
@@ -305,7 +305,7 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   const realApp = execFileSync("sh", ["-c", "command -v herdr-app"], { encoding: "utf8" }).trim();
   const appAs = (v: string) => { const f = join(bin, `herdr-app-${v}`); writeFileSync(f, `#!/bin/sh\n[ "$1" = --version ] && { echo 'herdr-app ${v}'; exit 0; }\nexec '${realApp}' "$@"\n`, { mode: 0o755 }); return f; };
   for (const a of ["pi", "claude", "codex"]) writeFileSync(join(bin, a), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_APP_BIN: appAs("9.0.0"), HOME: join(d, "home"), HERDR_APP_HOME: app, XDG_CONFIG_HOME: join(d, "config"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_APP_BIN: appAs("9.0.0"), HOME: join(d, "home"), HERDR_APP_HOME: app, XDG_CONFIG_HOME: join(d, "config"), XDG_DATA_HOME: join(d, "data"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
   const sh = (...a: string[]) => {
     const r = spawnSync(join(ROOT, "install.sh"), a, { encoding: "utf8", env });
     assert.equal(r.status, 0, r.stdout + r.stderr);
