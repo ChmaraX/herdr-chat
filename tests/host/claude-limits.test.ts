@@ -48,7 +48,7 @@ test("claude: the limits a turn reports are saved for other programs; nothing el
     await c.waitFor((x) => idle(x) && x.items.filter((i) => i.kind === "assistant" && !i.streaming).length === 2, 10_000, "second answered");
     const next = JSON.parse(readFileSync(file, "utf8"));
     assert.deepEqual(next.seven_day, { used_percentage: 100, resets_at: 1795500000 });
-    assert.equal(next.five_hour, undefined, "a report replaces the one before: only the windows it names");
+    assert.deepEqual(next.five_hour, { used_percentage: 25, resets_at: 1795000000 }, "a window the report doesn't name keeps its last number");
     assert.ok(c.items.some((i) => i.kind === "notice" && /rate limited \(seven_day\)/.test(i.text)), "a rejection still warns");
 
     await c.req("send", { text: "third" });
