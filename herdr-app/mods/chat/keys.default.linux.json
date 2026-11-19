@@ -1,0 +1,15 @@
+{
+  "steer": "enter",
+  "followUp": "alt-enter",
+  "model": "ctrl-shift-m",
+  "effort": "ctrl-shift-i",
+  "cycleEffort": null,
+  "mode": "ctrl-shift-a",
+  "cycleMode": "shift-tab",
+  "stop": "ctrl-c",
+  "tui": "ctrl-alt-t",
+  "resume": "ctrl-shift-r",
+  "latest": "ctrl-end",
+  "focusComposer": "ctrl-l",
+  "newChat": "ctrl-alt-n"
+}

@@ -29,6 +29,7 @@ import { appHome, closeOverlay, nextCommand, props, readTextFile, theme } from "
 import { stateDir } from "./connection.js";
 import { Debug } from "./debug.js";
 import { homeRel } from "./util.js";
+import { MAC } from "./platform.js";
 
 const MIN = 0.1;
 const MAX = 8;
@@ -306,7 +307,7 @@ export class Viewer {
       .on_hover((h, cx) => { if (!h && this.drag) { this.dragEnd(); cx.notify(); } })
       .child(h_flex().gap(4).items_center()
         .child(div().flex_none().max_w(260).truncate().text_size(12).text_color(t.dim).child(this.path.split("/").pop()))
-        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).pl(8).child("⌘ scroll to zoom · drag to pan · 0 fit"))
+        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).pl(8).child(`${MAC ? "⌘" : "Ctrl+"} scroll to zoom · drag to pan · 0 fit`))
         .child(btn("viewer-out", "−", "Zoom out (-)", () => this.zoomTo(this.z / STEP)))
         .child(btn("viewer-pct", `${pct} %`, "Fit (0)", () => this.refit()).min_w(52))
         .child(btn("viewer-in", "+", "Zoom in (+)", () => this.zoomTo(this.z * STEP)))

@@ -40,8 +40,7 @@ function written(cx) {
   pending = AFTER_WRITE.map((ms) => cx.timer.after(ms, install, { owner: null }));
 }
 
-// Resolved: /tmp is /private/tmp and ~/.config may be a link (macOS; the mod
-// runs nowhere else).
+// Resolved: /tmp is /private/tmp on macOS, and ~/.config may be a link.
 async function resolvedHome() {
   const dir = appHome().replace(/\/+$/, "");
   const r = await exec("/bin/pwd", ["-P"], { cwd: dir }).catch(() => null);

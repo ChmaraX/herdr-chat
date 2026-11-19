@@ -1,4 +1,6 @@
-// Chat-scoped shortcuts (KEYS.md). The defaults ship in keys.default.json;
+// Chat-scoped shortcuts (KEYS.md). The defaults ship in keys.default.json
+// (macOS) and keys.default.linux.json (everywhere else: Ctrl for Cmd, and
+// chords Herdr's own Linux keys don't use);
 // the person's overrides live in <appHome>/data/herdr-chat/keys.json, in the
 // same shape: {"<action>": "<chord>"}, a list for several chords, null to
 // unbind. They're bound in the chat's own key contexts only (the chat root,
@@ -8,6 +10,9 @@
 
 import { appHome, readTextFile } from "herdr";
 import { MOD } from "./util.js";
+import { MAC } from "./platform.js";
+
+export const DEFAULTS_FILE = MAC ? "keys.default.json" : "keys.default.linux.json";
 
 // action → what it does (menus, tooltips, KEYS.md)
 export const SHORTCUTS = {
@@ -63,7 +68,7 @@ export const overridesPath = () => `${appHome()}/data/herdr-chat/keys.json`;
 // Defaults, then the person's file over them. Returns action → [chords].
 export async function loadShortcuts() {
   errors = [];
-  const defaults = await readJson(`${appHome()}/mods/${MOD}/keys.default.json`);
+  const defaults = await readJson(`${appHome()}/mods/${MOD}/${DEFAULTS_FILE}`);
   const mine = await readJson(overridesPath());
   const out = {};
   for (const a of Object.keys(SHORTCUTS)) out[a] = chords(a in mine ? mine[a] : a in defaults ? defaults[a] : FALLBACK[a]);
@@ -91,7 +96,9 @@ export function bindShortcuts(cx) {
     if (!list.length) continue;
     const b = [];
     const ctxs = ONLY[a] ?? ["HerdrChat", ...INPUTS.map((c) => `${c} > Input`)];
-    for (const k of list) for (const context of ctxs) b.push({ keystroke: k, action: actionName(a), context });
+    // Off macOS Ctrl+C is the inputs' copy: there it stays theirs, and Esc stops the agent.
+    const where = (k) => (!MAC && k === "ctrl-c" ? ctxs.filter((c) => !c.endsWith("> Input")) : ctxs);
+    for (const k of list) for (const context of where(k)) b.push({ keystroke: k, action: actionName(a), context });
     try {
       cx.bind_keys(b);
     } catch (e) {
@@ -105,7 +112,8 @@ export function shortcuts() {
   return map;
 }
 
-// The first chord bound to an action, for people: "⇧⌘M"; null when unbound.
+// The first chord bound to an action, for people: "⇧⌘M" (macOS), "Ctrl+Shift+M"
+// elsewhere; null when unbound.
 export function keyHint(a) {
   const k = map[a]?.[0];
   return k ? keyLabel(k) : null;
@@ -115,14 +123,18 @@ const GLYPH = { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" };
 const ORDER = ["ctrl", "alt", "shift", "cmd"];
 const NAMES = { tab: "⇥", enter: "↩", escape: "Esc", up: "↑", down: "↓", left: "←", right: "→", space: "Space", backspace: "⌫" };
 
-export function keyLabel(chord) {
+// Off macOS, keys are written out as Herdr writes them there ("Ctrl+Shift+P").
+const WORD = { cmd: "Super", ctrl: "Ctrl", alt: "Alt", shift: "Shift" };
+const KEY_WORDS = { tab: "Tab", enter: "Enter", escape: "Esc", up: "↑", down: "↓", left: "←", right: "→", space: "Space", backspace: "Backspace" };
+
+export function keyLabel(chord, mac = MAC) {
   return chord.split(" ").map((step) => {
     const parts = step.split("-");
     // "cmd--" (minus) splits into an empty last part
     const key = parts[parts.length - 1] === "" ? "-" : parts.pop();
-    const mods = parts.filter(Boolean);
-    const m = ORDER.filter((x) => mods.includes(x)).map((x) => GLYPH[x]).join("");
-    return m + (NAMES[key] ?? (key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1)));
+    const mods = ORDER.filter((x) => parts.includes(x));
+    const name = (mac ? NAMES : KEY_WORDS)[key] ?? (key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1));
+    return mac ? mods.map((x) => GLYPH[x]).join("") + name : [...mods.map((x) => WORD[x]), name].join("+");
   }).join(" ");
 }
 

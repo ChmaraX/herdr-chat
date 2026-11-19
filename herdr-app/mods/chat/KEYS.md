@@ -6,6 +6,14 @@ of Herdr's keys or a key in the shipped `keys.json`. The same actions work for
 every agent. An action the agent can't do (permission modes for Pi, effort for
 a model without levels) says so in the hint line under the composer.
 
+The defaults below are macOS's (`keys.default.json`). On Linux they come from
+`keys.default.linux.json`: Ctrl where macOS has ⌘, on chords Herdr's own Linux
+keys leave free (`model` Ctrl+Shift+M, `effort` Ctrl+Shift+I, `mode`
+Ctrl+Shift+A, `tui` Ctrl+Alt+T, `resume` Ctrl+Shift+R, `latest` Ctrl+End,
+`focusComposer` Ctrl+L, `newChat` Ctrl+Alt+N). There Ctrl+C is a text field's
+copy, so `stop` on Ctrl+C works only outside the composer and the pickers'
+fields; Esc stops the run anywhere.
+
 | Action | Default | What it does |
 |---|---|---|
 | `steer` | ↩ (`enter`) | Sends the message. While the agent works, it **steers**: the message joins the blue "Steer: next turn" lane and reaches the agent at its next step. |

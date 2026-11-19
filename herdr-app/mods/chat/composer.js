@@ -19,6 +19,7 @@ import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { alpha, fileChip, icon, thumbnail } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
+import { MAC } from "./platform.js";
 
 const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatQuestions"];
 const CARDS = ["HerdrChatAsk", "HerdrChatQuestions"];
@@ -47,7 +48,7 @@ export function bindComposerKeys(cx) {
   b.push({ keystroke: "enter", action: "herdrchat_dialog_enter", context: "HerdrChatDialog > Input" });
   b.push({ keystroke: "escape", action: "herdrchat_dialog_escape", context: "HerdrChatDialog" });
   b.push({ keystroke: "escape", action: "herdrchat_dialog_escape", context: "HerdrChatEditor" });
-  b.push({ keystroke: "cmd-enter", action: "herdrchat_dialog_enter", context: "HerdrChatEditor > Input" });
+  b.push({ keystroke: MAC ? "cmd-enter" : "ctrl-enter", action: "herdrchat_dialog_enter", context: "HerdrChatEditor > Input" });
   cx.bind_keys(b);
 }
 

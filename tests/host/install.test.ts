@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT } from "./harness.ts";
 import { agentsBase, writeBases } from "../../install/mods.ts";
+import { defaults as keyDefaults, pretty } from "../../install/keys.ts";
 
 const LAYOUT = join(ROOT, "install", "layout.ts");
 
@@ -320,7 +321,9 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   const before = { layout: read(app, "mine"), keys: readFileSync(join(app, "keys.json"), "utf8") };
 
   const quiet = sh("--no-subagents");
-  assert.equal(quiet.trim().split("\n").at(-1), "  keys       New chat: ⌘I", "the summary's last line: the real chord");
+  // The launcher's default chord on this platform: ⌘I on macOS, Ctrl+Alt+Shift+P elsewhere.
+  const open = pretty(keyDefaults(process.platform).open, process.platform);
+  assert.equal(quiet.trim().split("\n").at(-1), `  keys       New chat: ${open}`, "the summary's last line: the real chord");
   assert.match(quiet, /^ {2}templates  none \(--no-subagents\)$/m);
   assert.match(quiet, /^herdr-chat: Herdr 9\.0\.0 is newer than the tested .*\n/, "the warning first, then the install");
   assert.ok(!existsSync(join(tpl, "pi-chat.md")), "no templates");

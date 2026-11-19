@@ -8,6 +8,7 @@ import { imageSize } from "./imagesize.ts";
 
 /** Saves the clipboard's image as `path` (its folder must exist): `path`, or null when it holds none. */
 export function clipboardImage(path: string): Promise<string | null> {
+  if (process.platform === "linux") return linuxClipboardImage(path);
   if (process.platform !== "darwin") return Promise.resolve(null);
   const script = [
     "set png to (the clipboard as «class PNGf»)",
@@ -26,6 +27,34 @@ export function clipboardImage(path: string): Promise<string | null> {
       } else resolve(path);
     });
   });
+}
+
+/** A program's whole stdout as bytes, or null when it fails or can't start. */
+function bytesOf(cmd: string, args: string[]): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { encoding: "buffer", timeout: 10_000, maxBuffer: MAX_SOURCE_BYTES }, (err, stdout) => resolve(err ? null : stdout));
+  });
+}
+
+/**
+ * Linux: the clipboard's PNG through wl-clipboard on Wayland, else xclip on X11
+ * (whichever the session has; neither installed reads as no image). Other image
+ * types the clipboard offers are left: the chat attaches PNGs from a paste.
+ */
+async function linuxClipboardImage(path: string): Promise<string | null> {
+  const tools: [string, string[], string[]][] = [];
+  if (process.env.WAYLAND_DISPLAY) tools.push(["wl-paste", ["--list-types"], ["--no-newline", "--type", "image/png"]]);
+  if (process.env.DISPLAY) tools.push(["xclip", ["-selection", "clipboard", "-t", "TARGETS", "-o"], ["-selection", "clipboard", "-t", "image/png", "-o"]]);
+  for (const [cmd, list, read] of tools) {
+    const types = await bytesOf(cmd, list);
+    if (types === null) continue;
+    if (!types.toString("utf8").split(/\s+/).includes("image/png")) return null;
+    const png = await bytesOf(cmd, read);
+    if (!png || sniff(png) !== "image/png") return null;
+    writeFileSync(path, png);
+    return path;
+  }
+  return null;
 }
 
 const MIME: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp" };
@@ -49,12 +78,20 @@ function run(cmd: string, args: string[]): Promise<string | null> {
   });
 }
 
+/** How to shrink `file` in place to a MAX_EDGE longest edge: `sips` on macOS; ImageMagick elsewhere, when installed. */
+function shrinkCommands(file: string): [string, string[]][] {
+  if (process.platform === "darwin") return [["sips", ["-Z", String(MAX_EDGE), file]]];
+  const im = [file, "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, file];
+  return [["magick", im], ["convert", im]];
+}
+
 /**
- * Downscales to a MAX_EDGE longest edge with `sips -Z` (macOS only, no
- * dependencies). Returns the original bytes when smaller, not macOS, or sips fails.
+ * Downscales to a MAX_EDGE longest edge (`sips -Z` on macOS, ImageMagick's
+ * `magick` or `convert` elsewhere). Returns the original bytes when smaller,
+ * or when no tool can do it.
  */
 export async function downscale(path: string, bytes: Buffer, mime: string): Promise<Buffer> {
-  if (process.platform !== "darwin") return bytes;
+  if (process.platform === "win32") return bytes;
   const dim = imageSize(bytes);
   if (!dim || Math.max(dim.w, dim.h) <= MAX_EDGE) return bytes;
   const dir = join(tmpdir(), "herdr-chat-images");
@@ -62,7 +99,9 @@ export async function downscale(path: string, bytes: Buffer, mime: string): Prom
   const tmp = join(dir, `scaled-${Date.now()}-${randomBytes(3).toString("hex")}${extname(path) || ".png"}`);
   try {
     writeFileSync(tmp, bytes);
-    if ((await run("sips", ["-Z", String(MAX_EDGE), tmp])) === null) return bytes;
+    let shrunk = false;
+    for (const [cmd, args] of shrinkCommands(tmp)) if ((shrunk = (await run(cmd, args)) !== null)) break;
+    if (!shrunk) return bytes;
     const out = readFileSync(tmp);
     return out.length && sniff(out) === mime ? out : bytes;
   } catch {
