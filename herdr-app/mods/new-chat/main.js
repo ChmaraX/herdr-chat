@@ -77,12 +77,30 @@ export function cantContinue(t) {
   return null;
 }
 
+const isAgent = (argv, agent) => base(argv?.[0]) === agent || base(argv?.[1]) === agent;
+
 /** The agent's process in a terminal (`hc get --json`): its foreground program when that's the agent (started from a shell), else the terminal's own. */
 export function agentPid(info, agent) {
-  const is = (p) => p?.pid && (base(p.argv?.[0]) === agent || base(p.argv?.[1]) === agent);
+  const is = (p) => p?.pid && isAgent(p.argv, agent);
   if (is(info?.foreground)) return info.foreground.pid;
   if (is(info)) return info.pid;
   return null;
+}
+
+/** The agent among a process's children ({pid, argv} from `ps`), else null: a terminal whose own command started
+ *  the agent (`fish -ic 'claude --resume …; exec fish -i'`, `zsh -c 'claude'`) has that shell in its foreground. */
+export function agentChild(children, agent) {
+  return children.find((c) => c.pid > 0 && isAgent(c.argv, agent))?.pid ?? null;
+}
+
+/** A process's children as {pid, argv} (argv split on spaces: enough for the program's name), or []. */
+async function childrenOf(pid) {
+  const kids = await exec("pgrep", ["-P", String(pid)]);
+  const pids = kids.stdout.split("\n").map(Number).filter((n) => n > 0);
+  if (!pids.length) return [];
+  const ps = await exec("ps", ["-o", "pid=,command=", "-p", pids.join(",")]);
+  return ps.stdout.split("\n").map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter(Boolean)
+    .map((m) => ({ pid: Number(m[1]), argv: m[2].split(/\s+/) }));
 }
 
 async function chatConfig() {
@@ -122,7 +140,8 @@ export async function continueAsChat(addr, cx) {
   const g = await hc(["get", t.address, "--json"]);
   if (g.code !== 0) throw new Error(`hc get ${t.address}: ${g.stderr.trim()}`);
   const info = JSON.parse(g.stdout);
-  const pid = agentPid(info, agent);
+  const shell = info.foreground?.pid ?? info.pid;
+  const pid = agentPid(info, agent) ?? (shell ? agentChild(await childrenOf(shell), agent) : null);
   if (!pid) throw new Error(`no ${NAMES[agent]} process in ${t.address} (its foreground is ${info.foreground?.argv?.[0] ?? "unknown"})`);
   const cwd = info.foreground?.cwd || t.cwd || "/";
   const cfg = await chatConfig();
