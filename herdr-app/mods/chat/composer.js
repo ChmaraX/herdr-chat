@@ -24,6 +24,10 @@ import { MAC } from "./platform.js";
 const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatQuestions"];
 const CARDS = ["HerdrChatAsk", "HerdrChatQuestions"];
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+// Linux: a terminal app's paste keys. Herdr's text fields paste on Ctrl+V only there, but dictation tools
+// and clipboard managers paste into a terminal app's window with Ctrl+Shift+V (or Shift+Insert),
+// whatever its pane shows; the composer takes them too.
+const PASTE_KEYS = MAC ? [] : ["ctrl-shift-v", "shift-insert"];
 export const ACTIONS = ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape", "herdrchat_space", ...DIGITS.map((d) => `herdrchat_digit_${d}`)];
 
 // The composer's bindings in the app's keymap (keymap.js says when).
@@ -38,6 +42,7 @@ export function bindComposerKeys(cx) {
     b.push({ keystroke: "escape", action: "herdrchat_escape", context: `${ctx} > Input` });
   }
   for (const ctx of CARDS) for (const d of DIGITS) b.push({ keystroke: d, action: `herdrchat_digit_${d}`, context: `${ctx} > Input` });
+  for (const ctx of CONTEXTS) for (const k of PASTE_KEYS) b.push({ keystroke: k, action: "herdrchat_paste", context: `${ctx} > Input` });
   b.push({ keystroke: "space", action: "herdrchat_space", context: "HerdrChatQuestions > Input" });
   for (const ctx of ["HerdrChatMenu", "HerdrChatEmpty", ...CARDS]) {
     b.push({ keystroke: "up", action: "herdrchat_up", context: `${ctx} > Input` });
@@ -97,6 +102,18 @@ export class Composer {
     this.ta.on("focus", (_e, cx) => { this.focused = true; cx.notify(); });
     this.ta.on("blur", (_e, cx) => { this.focused = false; cx.notify(); });
     this.ta.on("paste_other", (_e, cx) => onPasteOther?.(cx));
+    this.onPasteOther = onPasteOther;
+  }
+
+  // A paste key of PASTE_KEYS: the clipboard's text where the cursor is, as Ctrl+V puts it (the
+  // field's change event follows), else what a paste of no text does (an image).
+  pasteKey(cx) {
+    let text;
+    try {
+      text = cx.read_from_clipboard();
+    } catch {}
+    if (text) this.ta.replace(text);
+    else this.onPasteOther?.(cx);
   }
 
   focus() {
@@ -275,6 +292,7 @@ export class Composer {
     });
     let wrap = div().id("composer-box").w_full().min_w(0).key_context(this.context());
     for (const a of ACTIONS) wrap = wrap.on_action(a, (_e, cx) => c.action(a, cx));
+    if (PASTE_KEYS.length) wrap = wrap.on_action("herdrchat_paste", (_e, cx) => this.pasteKey(cx));
     wrap = wrap.child(Textarea.new(this.ta).w_full().px(14).pt(12).pb(4).text_size(14).text_color(t.foreground).bg(alpha(t.background, 0))
       .token((tok, _cx) => skillPillEl(tok, t)));
     const working = c.working;
