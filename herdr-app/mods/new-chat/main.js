@@ -39,6 +39,8 @@ const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
 async function openChat(provider) {
   const f = focused();
   const space = spaces().find((s) => s.id === f?.space);
+  // A space of another machine (`hc machine`): its terminals run there, a chat's host here.
+  if (space?.machine) throw new Error(`${space.name ?? "This space"} is on ${space.machine}: chats run in this computer's spaces only.`);
   const cwd = f?.cwd || space?.folder || null;
   const chat = `c-${randomBytes(4).toString("hex")}`;
   run("tab.new", { name: provider, mod: "chat", props: { chat, provider, ...(cwd ? { cwd } : {}) } });
@@ -69,12 +71,21 @@ export function agentOf(t) {
  */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
+  // Another machine's terminal ("box/t7"): its agent runs there, and a chat's host would run here.
+  const machine = machineOf(t.address);
+  if (machine) return { why: `on ${machine}: chats run on this computer only`, machine };
   if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
   if (!agentOf(t)) return { why: "not an agent's TUI" };
   const st = word(t.status);
   if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
   if (!["idle", "done"].includes(st)) return { why: `status ${st}` };
   return null;
+}
+
+/** The machine of another computer's terminal address ("box" for "box/t7"), null for one of this computer's. */
+export function machineOf(address) {
+  const s = String(address ?? ""), at = s.indexOf("/");
+  return at > 0 ? s.slice(0, at) : null;
 }
 
 /** The agent's process in a terminal (`hc get --json`): its foreground program when that's the agent (started from a shell), else the terminal's own. */
@@ -117,6 +128,7 @@ const alive = async (pid) => (await exec("kill", ["-0", String(pid)])).code === 
 export async function continueAsChat(addr, cx) {
   const t = term(addr || focused()?.terminal);
   const no = cantContinue(t);
+  if (no?.machine) throw new Error(`This agent runs on ${no.machine}: chats run on this computer only.`);
   if (no) throw new Error(no.working ? "Wait for the run to end, then Continue as chat." : `Not an agent's TUI that can continue as a chat: ${no.why}.`);
   const agent = agentOf(t);
   const g = await hc(["get", t.address, "--json"]);

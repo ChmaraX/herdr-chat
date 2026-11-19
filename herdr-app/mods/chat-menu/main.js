@@ -31,6 +31,8 @@ const agentOf = (t) => [t?.program?.key, t?.app, t?.status?.app, t?.report?.app,
 /** Why a terminal can't continue as a chat (null: it can; `working`: once its run ends). A copy of new-chat's. */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
+  const at = String(t.address ?? "").indexOf("/");
+  if (at > 0) return { why: `on ${t.address.slice(0, at)}: chats run on this computer only`, machine: t.address.slice(0, at) };
   if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
   if (!agentOf(t)) return { why: "not an agent's TUI" };
   const st = word(t.status);
@@ -39,11 +41,13 @@ export function cantContinue(t) {
   return null;
 }
 
-/** An agent's TUI (sub-agent or top-level) the menu offers Continue as chat for: {address, working}, else null. */
+/** An agent's TUI (sub-agent or top-level) the menu offers Continue as chat for: {address, working}, else null.
+ *  `machine`: an agent of another computer's, shown with why it can't. */
 export function tuiOf(p) {
   if (p?.tab !== "pane") return null;
   const t = terminals().find((x) => x.address === p.target?.terminal);
   const no = cantContinue(t);
+  if (no?.machine) return agentOf(t) ? { address: t.address, working: false, machine: no.machine } : null;
   return !no ? { address: t.address, working: false } : no.working ? { address: t.address, working: true } : null;
 }
 
@@ -85,7 +89,8 @@ export default class ChatMenu extends Menu {
     if (c) return this.chatItems(c);
     const tui = tuiOf(props());
     if (!tui) return [];
-    // While the agent works: shown, disabled (no action), with why.
+    // Another computer's agent, or while the agent works: shown, disabled (no action), with why.
+    if (tui.machine) return [["Continue as chat", null, `On ${tui.machine}`]];
     return [tui.working ? ["Continue as chat", null, "Wait for the run to end"] : ["Continue as chat", () => run(`new-chat.continue:${tui.address}`)]];
   }
 
