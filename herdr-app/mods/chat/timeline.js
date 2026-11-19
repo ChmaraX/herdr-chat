@@ -7,6 +7,10 @@
 // layout pass. Scrolling up unsticks; reaching the bottom sticks again.
 // A new row is drawn in the frame that makes room for it, with no fade: the
 // rows above move at once, so a fade would show a blank hole first (#16).
+//
+// Every height here is in layout px, the unit top() and bottom() take. With
+// the app's UI zoom other than 1, on_size_change reports zoomed px instead, so
+// a 100 px probe measures the ratio and each measure is divided by it (#28).
 
 import { div } from "gpui-kit";
 import { v_flex } from "gpui-base";
@@ -24,6 +28,9 @@ export class Timeline {
     this.viewH = 0;
     this.total = 0;
     this.shown = [];
+    this.scale = 1; // px on_size_change reports per layout px: the UI zoom, measured by the probe
+    this.viewRaw = 0; // the viewport's height as reported (zoomed)
+    this.anchor = null; // history went in front: the rows on screen, to keep where they were [{id, dy}]
     this.heightsSeen = null; // debug only (trace()): row id → [[ms, height]…], the heights it was measured at
   }
 
@@ -50,10 +57,24 @@ export class Timeline {
     this.sticky = true;
   }
 
-  // Items were put in front (history): keep what's on screen where it is.
-  prepended(items) {
+  // Items were put in front (history): keep what's on screen where it is. The
+  // next view() finds one of the rows shown now and puts it back at the same
+  // y. (The items themselves don't say how much room they take: tools and
+  // thinking fold into groups, and some items draw nothing.)
+  prepended() {
     if (this.sticky) return;
-    for (const it of items) this.top += this.h(it);
+    this.anchor = this.shown.map((id) => ({ id, dy: (this.offsets.get(id) ?? 0) - this.top }));
+  }
+
+  // The probe's report: the zoom changed (or was first measured).
+  rescale(k) {
+    if (!(k > 0) || Math.abs(k - this.scale) < 0.001) return false;
+    const r = this.scale / k;
+    for (const [id, h] of this.heights) this.heights.set(id, h * r);
+    this.top *= r;
+    this.scale = k;
+    this.viewH = this.viewRaw / k;
+    return true;
   }
 
   // items: the rows (rows.js); row(r): its element; onNearTop(): page older
@@ -66,6 +87,12 @@ export class Timeline {
       total += this.h(items[i]);
     }
     this.total = total;
+    if (this.anchor) {
+      const at = new Map(items.map((it, i) => [it.id, i]));
+      const a = this.anchor.find((x) => at.has(x.id));
+      if (a && !this.sticky) this.top = offs[at.get(a.id)] - a.dy;
+      this.anchor = null;
+    }
     const rows = [];
     let place;
     if (this.sticky || total <= this.viewH) {
@@ -89,20 +116,23 @@ export class Timeline {
     else if (this.sticky && total < this.viewH && onNearTop) onNearTop();
     const measured = (it) => div().id(`row-${it.id}`).w_full()
       .child(row(it)).on_size_change((s, cx) => {
+      const h = s.height / this.scale;
       const old = this.heights.get(it.id);
-      if (old === s.height) return;
-      this.heights.set(it.id, s.height);
-      this.heightsSeen?.add(it.id, Math.round(s.height));
+      if (old !== undefined && Math.abs(old - h) < 0.01) return;
+      const was = this.h(it); // the height it was laid out with: its last measure, else the estimate
+      this.heights.set(it.id, h);
+      this.heightsSeen?.add(it.id, Math.round(h));
       // A row above the viewport changed size: keep the view still.
       const off = this.offsets.get(it.id);
-      if (!this.sticky && off !== undefined && off < this.top) this.top += s.height - (old ?? this.h(it));
+      if (!this.sticky && off !== undefined && off < this.top) this.top += h - was;
       // Sticky, a known row growing needs no redraw: it's pinned to the bottom.
       if (!this.sticky || old === undefined) cx.notify();
     });
     return div().id(this.id).relative().flex_1().min_h(0).w_full().overflow_hidden()
       .on_size_change((s, cx) => {
-        if (s.height === this.viewH) return;
-        this.viewH = s.height;
+        if (s.height === this.viewRaw) return;
+        this.viewRaw = s.height;
+        this.viewH = s.height / this.scale;
         cx.notify();
       })
       .on_scroll_wheel((e, cx) => {
@@ -110,6 +140,7 @@ export class Timeline {
         this.scrollBy(e.delta.y);
         if (before[0] !== this.top || before[1] !== this.sticky) cx.notify();
       })
+      .child(div().absolute().top(0).left(0).w(1).h(100).on_size_change((s, cx) => this.rescale(s.height / 100) && cx.notify()))
       .child(place(v_flex().absolute().left(0).right(0)).children(rows.map((i) => measured(items[i]))))
       .when(!this.sticky && total > this.viewH && Boolean(thumb), (e) => {
         const h = Math.max(28, (this.viewH * this.viewH) / total);
