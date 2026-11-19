@@ -1,7 +1,7 @@
 // Claude Code stream-json records → normalized events. No I/O: the adapter
 // feeds it records (and tells it what it sent) and forwards what comes out.
 // Control requests and responses are the adapter's.
-import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, StopReason, Usage } from "../types.ts";
+import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, PlanLimits, StopReason, Usage } from "../types.ts";
 import { ClaudePlans } from "./plans.ts";
 
 type Rec = Record<string, any>;
@@ -183,9 +183,11 @@ export class ClaudeMapper {
       }
       case "rate_limit_event": {
         const info: Rec = rec.rate_limit_info ?? {};
-        if (!info.status || info.status === "allowed" || info.status === "allowed_warning") return [];
+        const limits = planLimits(info.unifiedWindows);
+        const out: NormalizedEvent[] = limits ? [{ type: "limits", limits }] : [];
+        if (!info.status || info.status === "allowed" || info.status === "allowed_warning") return out;
         const when = typeof info.resetsAt === "number" ? ` until ${new Date(info.resetsAt * 1000).toLocaleTimeString()}` : "";
-        return [{ type: "notice", level: "warning", source: "host", text: `Claude Code is rate limited (${info.rateLimitType ?? "limit"})${when}.`, once: "run" }];
+        return [...out, { type: "notice", level: "warning", source: "host", text: `Claude Code is rate limited (${info.rateLimitType ?? "limit"})${when}.`, once: "run" }];
       }
     }
     return [];
@@ -491,4 +493,23 @@ export class ClaudeMapper {
     }
     return [];
   }
+}
+
+/**
+ * The plan limits in a `rate_limit_event`'s `unifiedWindows` (the 5-hour and weekly ones), as Claude Code hands them to
+ * a status line: `utilization` is a fraction, shown as a % with one decimal and at most 100, as Claude Code does. Null
+ * when it names neither.
+ */
+export function planLimits(windows: unknown): PlanLimits | null {
+  if (!windows || typeof windows !== "object") return null;
+  const out: PlanLimits = {};
+  for (const key of ["five_hour", "seven_day"] as const) {
+    const w = (windows as Record<string, any>)[key];
+    if (!w || typeof w.utilization !== "number" || !Number.isFinite(w.utilization)) continue;
+    out[key] = {
+      used_percentage: Math.min(Math.round(Math.max(0, w.utilization) * 1000) / 10, 100),
+      resets_at: typeof w.resetsAt === "number" && Number.isFinite(w.resetsAt) ? Math.round(w.resetsAt) : null,
+    };
+  }
+  return out.five_hour || out.seven_day ? out : null;
 }

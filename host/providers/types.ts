@@ -196,6 +196,7 @@ export type NormalizedEvent = Common &
     | { type: "permission_mode"; mode: string | null }
     | { type: "capabilities"; capabilities: Partial<Capabilities> }
     | { type: "version"; version: string | null }
+    | { type: "limits"; limits: PlanLimits }
     | { type: "compaction"; phase: "start"; reason: "manual" | "overflow" | "auto" }
     | { type: "compaction"; phase: "end"; outcome: "done" | "aborted" | "failed"; tokensBefore?: number; tokensAfter?: number; error?: string }
     | { type: "retry"; phase: "start"; attempt: number; maxAttempts: number | null; delayMs: number; error: string }
@@ -388,3 +389,8 @@ export type AdapterOptions = {
   args: string[];
   log: (msg: string) => void;
 };
+
+/** One plan limit as Claude Code hands it to a status line: the % used (0-100) and its reset (seconds since 1970). */
+export interface PlanWindow { used_percentage: number; resets_at: number | null }
+/** The plan limits the agent last reported, by window (Claude Code's `rate_limit_event`). */
+export interface PlanLimits { five_hour?: PlanWindow; seven_day?: PlanWindow }

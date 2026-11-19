@@ -18,6 +18,7 @@ import { appHomeOf, labelSelf, newChatId, planSubagent } from "./subagent.ts";
 import { readChatConfig } from "./settings.ts";
 import { PaneWatch } from "./panewatch.ts";
 import { hostBuild } from "./build.ts";
+import { saveLimits } from "./limits.ts";
 
 const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir> [--provider pi] [--session <file>] [--after-pid <pid> [--model <provider/id>] [--thinking <level>]] [--app-home <dir>] [--<provider> <cmd>] [-- <agent args>]
   (--app-home: the Herdr app's home, whose app it asks to close its hidden pane once its chat's pane is gone; default $HERDR_APP_HOME, else ~/.config/herdr-app)
@@ -110,6 +111,13 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
       if (f && f !== entry.sessionFile) save({ sessionFile: f });
     },
     onVersion: (v) => save({ agentVersion: v }),
+    onLimits: (l) => {
+      try {
+        saveLimits(stateDir, provider, l);
+      } catch (e) {
+        log(`limits not saved: ${e}`);
+      }
+    },
     onShutdown: () => void exit(0),
   });
   const server = new ChatServer(chat, token, log);

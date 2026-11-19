@@ -27,7 +27,7 @@ import { Renderer, diffLines } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
 import type {
-  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, ForkPoint,
+  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, ForkPoint, PlanLimits,
 } from "./providers/types.ts";
 
 export type { ModelInfo, Capabilities };
@@ -142,6 +142,8 @@ export type ChatOptions = {
   log: (msg: string) => void;
   onSessionFile?: (file: string | null) => void;
   onVersion?: (v: string | null) => void;
+  /** The plan limits the agent reported (Claude Code's rate_limit_event). */
+  onLimits?: (limits: PlanLimits) => void;
   onShutdown?: () => void;
 };
 
@@ -733,6 +735,9 @@ export class Chat {
       case "version":
         this.set({ agentVersion: ev.version });
         this.opts.onVersion?.(ev.version);
+        return;
+      case "limits":
+        this.opts.onLimits?.(ev.limits);
         return;
       case "exited":
         this.onExit(ev);

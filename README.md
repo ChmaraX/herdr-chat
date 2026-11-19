@@ -134,6 +134,16 @@ runs). A new chat picks up a change. `updates.check: false` stops the daily
 look for a new release (a release install only); `updates.feed` points it at
 another URL with GitHub's release JSON.
 
+### Plan limits for other tools
+
+Claude Code tells a chat its plan limits as it runs (it hands them to a status
+line otherwise, and a chat has none). The last ones any chat heard are in
+`~/.config/herdr-app/data/herdr-chat/limits/claude.json`, in the shape Claude
+Code gives a status line, with the time they were seen:
+`{"at": 1795000000, "five_hour": {"used_percentage": 25, "resets_at": …},
+"seven_day": {…}}`. Nothing else goes there; a panel or a status bar can read
+it.
+
 ## Limitations
 
 - **macOS only.** Spaces on other machines still open the agent's TUI.
