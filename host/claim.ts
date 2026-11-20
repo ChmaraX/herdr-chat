@@ -22,15 +22,14 @@
 //
 // Released: a host marks its generation `<n>.released` as it exits. One that
 // died (SIGKILL, a crash) leaves it unmarked: its pid is dead, or reused by a
-// process with another start time (`ps -o lstart`).
-import { execFileSync } from "node:child_process";
+// process with another start time (registry.ts processStamp).
 import { linkSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { pidAlive } from "./registry.ts";
+import { processRuns, processStamp } from "./registry.ts";
 
 export type Claim = {
   pid: number;
-  /** The process's start time as `ps` prints it: a pid reused by another process starts at another time. Null when `ps` couldn't say. */
+  /** The process's processStamp (its start time): a pid reused by another process has another. Null when `ps` couldn't say. */
   started: string | null;
   terminal: string | null;
   /** ms, when it claimed the chat. */
@@ -41,24 +40,6 @@ const KEEP = 8;
 
 export function claimDir(stateDir: string, chat: string): string {
   return join(stateDir, "chats", `${chat}.lock`);
-}
-
-/** When `pid` started, as `ps` prints it; null when it isn't running (or `ps` can't tell). */
-export function processStart(pid: number): string | null {
-  try {
-    const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, LC_ALL: "C" } });
-    return out.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-/** Whether the process that made the claim still runs: its pid, with the same start time. */
-function processLive(c: Claim): boolean {
-  if (!Number.isInteger(c.pid) || c.pid <= 0 || !pidAlive(c.pid)) return false;
-  if (!c.started) return true; // no start time recorded: the pid is all there is
-  const now = processStart(c.pid);
-  return now === null || now === c.started; // ps failed on a live pid: not taken on a guess
 }
 
 function generations(dir: string): number[] {
@@ -85,7 +66,7 @@ function read(dir: string, gen: number): Claim | null {
 /** Generation `gen`'s claim while its host runs and hasn't released it; else null. */
 function live(dir: string, gen: number): Claim | null {
   const c = read(dir, gen);
-  return c && !existsSync(releasedPath(dir, gen)) && processLive(c) ? c : null;
+  return c && !existsSync(releasedPath(dir, gen)) && processRuns(c.pid, c.started) ? c : null;
 }
 
 /** The chat's live host claim, if any. */
@@ -106,7 +87,8 @@ export type ClaimResult =
 export function claimChat(stateDir: string, chat: string, terminal: string | null): ClaimResult {
   const dir = claimDir(stateDir, chat);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const claim: Claim = { pid: process.pid, started: processStart(process.pid), terminal, at: Date.now() };
+  const stamp = processStamp(process.pid);
+  const claim: Claim = { pid: process.pid, started: stamp === "gone" ? null : stamp, terminal, at: Date.now() };
   const tmp = join(dir, `.${process.pid}.${Date.now().toString(36)}.tmp`);
   writeFileSync(tmp, JSON.stringify(claim) + "\n", { mode: 0o600 });
   try {

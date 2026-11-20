@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Host, idle, sleep, ARTIFACTS } from "./harness.ts";
-import { readRegistry, readLock } from "../../host/registry.ts";
+import { readRegistry, readLock, lockPath } from "../../host/registry.ts";
 import { claimDir } from "../../host/claim.ts";
 
 const N = 6;
@@ -209,5 +209,27 @@ test("one host per chat: a host from before the claim (none on disk) still runs 
   } finally {
     await b?.stop();
     await old.stop();
+  }
+});
+
+test("one host per chat: a session lock left by a host of this chat that died, its pid now another process's, is stale: the next host opens the session", async () => {
+  const { dir, chat, session } = await chatWithSession("stale-lock");
+  // What a SIGKILLed host of this chat leaves: its session lock. Its pid went to an unrelated process
+  // (this test runner): once as a 0.6 lock (a start time that isn't the runner's), once as a pre-0.6
+  // lock (no start time: the runner isn't a host of this chat).
+  for (const [label, lock] of [
+    ["0.6", { pid: process.pid, chat, terminal: "t-dead", startedAt: 0, stamp: "Thu Jan  1 00:00:00 1970" }],
+    ["pre-0.6", { pid: process.pid, chat, terminal: "t-dead", startedAt: 0 }],
+  ] as const) {
+    writeFileSync(lockPath(session), JSON.stringify(lock) + "\n");
+    const h = await new Host({ name: `stale-lock-${label}`, dir, chat, session }).start();
+    try {
+      await h.client.waitFor((x) => (idle(x) && x.items.some((i) => i.text === "ok: before the restart")) || x.state.phase === "conflict", 10_000, "opened or conflict");
+      h.artifact(`one-host-stale-lock-${label}`);
+      assert.notEqual(h.client.state.phase, "conflict", `${label}: no conflict with a dead host's lock`);
+      assert.equal(readLock(session)?.pid, h.proc.pid, `${label}: the new host holds the session`);
+    } finally {
+      await h.stop();
+    }
   }
 });
