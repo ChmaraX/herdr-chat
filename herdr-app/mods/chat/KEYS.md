@@ -80,7 +80,7 @@ part of the same file, then run `./install.sh` again (it puts them in Herdr's
 
 `open` is the launcher (`mod.open:new-chat`), `pi`/`claude`/`codex` open that
 agent's chat at once (`new-chat.pi`…). Left out: the default (⌘I for `open`,
-⌘J A when ⌘I is taken; the others unbound). A chord you choose replaces what
+⌘J A when ⌘I is taken; on Linux Ctrl+Alt+Shift+P; the others unbound). A chord you choose replaces what
 had it, and uninstall puts that back. In the launcher, P, C and X pick.
 
 macOS turns ⌘. into Esc before an app sees it, so `stop` uses ⌃C.
@@ -102,7 +102,11 @@ same shape as `keys.default.json` in this folder:
 - `null` unbinds the action.
 - Actions you leave out keep their defaults.
 - Chords use Herdr's spelling: `cmd`, `ctrl`, `alt`, `shift`, joined with `-`.
-  A space separates the steps of a sequence.
+  A space separates the steps of a sequence. `cmd` is the platform key: ⌘ on
+  macOS, Super on Linux (where the desktop often takes it), so on Linux you
+  usually want `ctrl`. The chat and the installer show `cmd` as "Super" there.
+- On Linux a `ctrl-c` you bind (to `stop` or any action) works outside the
+  chat's text fields only: inside them Ctrl+C stays their copy.
 - A chord you give one action leaves the action that has it by default. For
   example `{"cycleEffort": "shift-tab"}` takes Shift+Tab from `cycleMode`, so
   you don't have to unbind `cycleMode` too.
