@@ -5,11 +5,15 @@ import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { imageSize } from "./imagesize.ts";
+import { IS_MAC, OS } from "./platform.ts";
 
-/** Saves the clipboard's image as `path` (its folder must exist): `path`, or null when it holds none. */
+/**
+ * Saves the clipboard's image as `path` (its folder must exist): `path`, or null when it holds none.
+ * Throws with a user-facing message when the clipboard can't be read at all (Linux: no display, no tool).
+ */
 export function clipboardImage(path: string): Promise<string | null> {
-  if (process.platform === "linux") return linuxClipboardImage(path);
-  if (process.platform !== "darwin") return Promise.resolve(null);
+  if (OS === "linux") return linuxClipboardImage(path);
+  if (!IS_MAC) return Promise.resolve(null);
   const script = [
     "set png to (the clipboard as «class PNGf»)",
     `set f to open for access (POSIX file ${JSON.stringify(path)}) with write permission`,
@@ -29,31 +33,42 @@ export function clipboardImage(path: string): Promise<string | null> {
   });
 }
 
-/** A program's whole stdout as bytes, or null when it fails or can't start. */
-function bytesOf(cmd: string, args: string[]): Promise<Buffer | null> {
+type Output = { bytes: Buffer } | { missing: true } | { failed: true };
+
+/** A program's whole stdout as bytes; `missing` when it isn't installed. */
+function output(cmd: string, args: string[]): Promise<Output> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { encoding: "buffer", timeout: 10_000, maxBuffer: MAX_SOURCE_BYTES }, (err, stdout) => resolve(err ? null : stdout));
+    execFile(cmd, args, { encoding: "buffer", timeout: 10_000, maxBuffer: MAX_SOURCE_BYTES }, (err, stdout) =>
+      resolve(!err ? { bytes: stdout } : (err as NodeJS.ErrnoException).code === "ENOENT" ? { missing: true } : { failed: true }));
   });
 }
 
+/** A clipboard tool: how it lists the clipboard's types, and how it reads the PNG. */
+type ClipboardTool = { cmd: string; pkg: string; listTypes: string[]; readPng: string[] };
+const WL_PASTE: ClipboardTool = { cmd: "wl-paste", pkg: "wl-clipboard", listTypes: ["--list-types"], readPng: ["--no-newline", "--type", "image/png"] };
+const XCLIP: ClipboardTool = { cmd: "xclip", pkg: "xclip", listTypes: ["-selection", "clipboard", "-t", "TARGETS", "-o"], readPng: ["-selection", "clipboard", "-t", "image/png", "-o"] };
+
 /**
  * Linux: the clipboard's PNG through wl-clipboard on Wayland, else xclip on X11
- * (whichever the session has; neither installed reads as no image). Other image
- * types the clipboard offers are left: the chat attaches PNGs from a paste.
+ * (whichever the session has). Other image types the clipboard offers are
+ * left: the chat attaches PNGs from a paste.
  */
 async function linuxClipboardImage(path: string): Promise<string | null> {
-  const tools: [string, string[], string[]][] = [];
-  if (process.env.WAYLAND_DISPLAY) tools.push(["wl-paste", ["--list-types"], ["--no-newline", "--type", "image/png"]]);
-  if (process.env.DISPLAY) tools.push(["xclip", ["-selection", "clipboard", "-t", "TARGETS", "-o"], ["-selection", "clipboard", "-t", "image/png", "-o"]]);
-  for (const [cmd, list, read] of tools) {
-    const types = await bytesOf(cmd, list);
-    if (types === null) continue;
-    if (!types.toString("utf8").split(/\s+/).includes("image/png")) return null;
-    const png = await bytesOf(cmd, read);
-    if (!png || sniff(png) !== "image/png") return null;
-    writeFileSync(path, png);
+  const tools = [process.env.WAYLAND_DISPLAY && WL_PASTE, process.env.DISPLAY && XCLIP].filter((t): t is ClipboardTool => Boolean(t));
+  if (!tools.length) throw new Error("Image paste needs a Wayland or X11 session, and the chat's host has neither (no WAYLAND_DISPLAY or DISPLAY)");
+  let installed = false;
+  for (const tool of tools) {
+    const types = await output(tool.cmd, tool.listTypes);
+    if ("missing" in types) continue;
+    installed = true;
+    if ("failed" in types) continue;
+    if (!types.bytes.toString("utf8").split(/\s+/).includes("image/png")) return null;
+    const png = await output(tool.cmd, tool.readPng);
+    if (!("bytes" in png) || sniff(png.bytes) !== "image/png") return null;
+    writeFileSync(path, png.bytes);
     return path;
   }
+  if (!installed) throw new Error(`Image paste needs ${tools.map((t) => `${t.cmd} (${t.pkg})`).join(" or ")}`);
   return null;
 }
 
@@ -78,11 +93,11 @@ function run(cmd: string, args: string[]): Promise<string | null> {
   });
 }
 
-/** How to shrink `file` in place to a MAX_EDGE longest edge: `sips` on macOS; ImageMagick elsewhere, when installed. */
-function shrinkCommands(file: string): [string, string[]][] {
-  if (process.platform === "darwin") return [["sips", ["-Z", String(MAX_EDGE), file]]];
-  const im = [file, "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, file];
-  return [["magick", im], ["convert", im]];
+/** How to shrink `file` in place to a MAX_EDGE longest edge, in the order to try: `sips` on macOS; ImageMagick elsewhere, when installed. */
+function shrinkCommands(file: string): { cmd: string; args: string[] }[] {
+  if (IS_MAC) return [{ cmd: "sips", args: ["-Z", String(MAX_EDGE), file] }];
+  const args = [file, "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, file];
+  return [{ cmd: "magick", args }, { cmd: "convert", args }];
 }
 
 /**
@@ -91,7 +106,7 @@ function shrinkCommands(file: string): [string, string[]][] {
  * or when no tool can do it.
  */
 export async function downscale(path: string, bytes: Buffer, mime: string): Promise<Buffer> {
-  if (process.platform === "win32") return bytes;
+  if (OS === "win32") return bytes;
   const dim = imageSize(bytes);
   if (!dim || Math.max(dim.w, dim.h) <= MAX_EDGE) return bytes;
   const dir = join(tmpdir(), "herdr-chat-images");
@@ -100,7 +115,7 @@ export async function downscale(path: string, bytes: Buffer, mime: string): Prom
   try {
     writeFileSync(tmp, bytes);
     let shrunk = false;
-    for (const [cmd, args] of shrinkCommands(tmp)) if ((shrunk = (await run(cmd, args)) !== null)) break;
+    for (const { cmd, args } of shrinkCommands(tmp)) if ((shrunk = (await run(cmd, args)) !== null)) break;
     if (!shrunk) return bytes;
     const out = readFileSync(tmp);
     return out.length && sniff(out) === mime ? out : bytes;

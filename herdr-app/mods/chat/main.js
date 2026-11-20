@@ -901,11 +901,19 @@ export default class HerdrChat extends View {
     this.fire("send", { text: `/${name}${rest ? " " + rest : ""}`, mode: "auto" }, cx);
   }
 
+  // A clipboard the host can't read at all (Linux: no wl-paste or xclip, no display) answers an
+  // error that says why, shown as it is; an empty one, "no image".
   pasteImage(cx) {
-    this.fire("clipboard_image", {}, cx, (d, cx) => {
-      if (d?.path) this.composer.addChip(d.path, { size: d.size ?? null });
-      else this.flash("The clipboard has no image", cx);
+    cx.spawn(async (cx) => {
+      try {
+        const d = await this.req("clipboard_image", {}, cx);
+        if (d?.path) this.composer.addChip(d.path, { size: d.size ?? null });
+        else this.flash("The clipboard has no image", cx);
+      } catch (e) {
+        this.flash(message(e), cx);
+      }
       this.debug.mark();
+      cx.notify();
     });
   }
 

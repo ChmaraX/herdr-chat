@@ -255,7 +255,7 @@ type ToolDetail =
 | `fork_points` | | `{points: {id, text}[]}` | the person's messages in this session, newest first, as typed (a skill as its `/command`). Refused when the agent can't fork (`capabilities.fork`) |
 | `fork` | `point` | `{text}` | a new session holding what came before that message (the agent's own fork: Pi `fork`, Claude Code `--fork-session --resume-session-at`, Codex `thread/fork`); the original is unchanged. Then a new snapshot, and `text` (the message, as typed) is the client's to put in its composer |
 | `files` | `query`, `limit?` | `{files: string[]}` | cwd-relative paths, fuzzy-ranked. `git ls-files` (else a bounded walk), cached and refreshed every 30 s |
-| `clipboard_image` | | `{path: string \| null, size?}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»); null when the clipboard holds none. `size` (v3.7): its pixel size `{w, h}`, or null |
+| `clipboard_image` | | `{path: string \| null, size?}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»; Linux: `wl-paste` on Wayland, else `xclip` on X11, a PNG only); null when the clipboard holds none. An error when the host can't read the clipboard at all (Linux: no `wl-paste`/`xclip`, or neither `WAYLAND_DISPLAY` nor `DISPLAY`), its message for the person. `size` (v3.7): its pixel size `{w, h}`, or null |
 | `attach_image` | `path` | `{path, size}` | a copy of an image file (a drop) as an attachment, `<ms>-<hex>-<name>` (a name over 200 bytes is shortened, its extension kept). It checks the file as `send` does and fails with the same messages (type, unreadable or over 64 MiB, not a valid PNG/JPEG/GIF/WebP). `size` (v3.7): its pixel size `{w, h}`, or null |
 | `detach_image` | `path` | `{}` | the chip's ✕: removes an attachment, unless a held or queued message lists it. Any path outside the chat's attachments is left alone |
 | `sweep_attachments` | `open: string[]` | `{removed: string[]}` | `open`: the chats with a pane in the app's layout. Removes the attachments of other chats that have no pane and no live host, once two calls in a row agree (see "Attachments") |
@@ -470,7 +470,7 @@ queue: { steering: string[]; followUp: string[];
 
 ## Host env (tests, tuning)
 
-`HERDR_CHAT_HC` (hc binary, default `hc`), `HERDR_CHAT_HANDOFF_POLL_MS` (2000), `HERDR_CHAT_HANDOFF_GRACE_MS` (60000).
+`HERDR_CHAT_HC` (hc binary, default `hc`), `HERDR_CHAT_HANDOFF_POLL_MS` (2000), `HERDR_CHAT_HANDOFF_GRACE_MS` (60000), `HERDR_CHAT_PLATFORM` (the OS whose clipboard and image tools the host uses, default Node's `process.platform`: the tests run Linux's on any machine).
 
 ## Notes for the mod
 

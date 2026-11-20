@@ -7,9 +7,10 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { startHost, idle, Host } from "./harness.ts";
 
-/** Whether the host can shrink a large image here: sips on macOS, ImageMagick on Linux. */
-const has = (c: string) => spawnSync("sh", ["-c", `command -v ${c}`]).status === 0;
-const SHRINKS = process.platform === "darwin" || (process.platform !== "win32" && (has("magick") || has("convert")));
+// The host shrinks with sips on macOS, and elsewhere with ImageMagick when this machine has it.
+// clipboard-linux.test.ts checks the ImageMagick path on any machine.
+const onPath = (cmd: string) => spawnSync("sh", ["-c", `command -v ${cmd}`]).status === 0;
+const SHRINKS = process.platform === "darwin" || (process.platform !== "win32" && (onPath("magick") || onPath("convert")));
 
 /** A w×h grayscale PNG, no dependencies. */
 function makePng(w: number, h: number): Buffer {
