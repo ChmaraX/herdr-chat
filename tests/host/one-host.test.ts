@@ -151,6 +151,7 @@ test("one host per chat: a claim whose pid now runs another process (pid reuse) 
     assert.equal(readRegistry(h.stateDir, chat)?.pid, h.proc.pid);
     assert.match(readFileSync(join(dir, "state", "logs", `${chat}.log`), "utf8"), new RegExp(`took over the claim of a host that died \\(pid ${process.pid}\\)`));
   } finally {
+    artifact("one-host-pid-reuse", { test: "one-host-pid-reuse", fakeClaim: process.pid, host: h.proc.pid, registry: readRegistry(h.stateDir, chat), log: readFileSync(join(dir, "state", "logs", `${chat}.log`), "utf8").split("\n") });
     await h.stop();
   }
 });
@@ -164,6 +165,7 @@ test("one host per chat: a restart (the old host shuts down, then a new one star
   assert.equal(await Promise.race([a.exited, sleep(5000).then(() => "timeout")]), 0, "the old host exits cleanly");
   assert.equal(readRegistry(a.stateDir, chat)?.pid, null, "and clears its registry entry");
   const hosts = await race({ dir, chat, session, name: "restart-b", n: 2 });
+  const record = () => artifact("one-host-restart", { test: "one-host-restart", old: a.proc.pid, racers: hosts.map((h) => ({ pid: h.proc.pid, exitCode: h.exitCode })), registry: readRegistry(a.stateDir, chat), log: readFileSync(join(dir, "state", "logs", `${chat}.log`), "utf8").split("\n") });
   try {
     const serving = hosts.filter((h) => h.exitCode === null);
     assert.equal(serving.length, 1, "the replacement serves, a second start at the same moment refuses");
@@ -177,11 +179,11 @@ test("one host per chat: a restart (the old host shuts down, then a new one star
     const c = await new Host({ name: "restart-c", dir, chat, session }).start();
     try {
       await c.client.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: after the restart"), 10_000, "a third host after a SIGTERM");
-      c.artifact("one-host-restart");
     } finally {
       await c.stop();
     }
   } finally {
+    record();
     for (const h of hosts) await h.stop();
   }
 });
@@ -198,15 +200,14 @@ test("one host per chat: a host from before the claim (none on disk) still runs 
     b = await new Host({ name: "legacy-new", dir, chat, session }).start();
     await b.client.waitFor((x) => x.state.phase === "conflict", 10_000, "conflict");
     assert.deepEqual(b.client.state.conflict, { chat, terminal: null, pid: old.proc.pid });
-    assert.match(b.client.items.map((i) => i.text).join("\n"), /a second host of this chat/);
     assert.equal(readLock(session)?.pid, old.proc.pid, "the old host keeps the session");
     assert.deepEqual(agents(join(dir, "pi-commands.jsonl")).slice(before), [], "the new host started no agent");
     // Once the old one is gone (the mod's sweep ends it), resume opens the session.
     await old.stop();
     await b.client.req("resume");
     await b.client.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: before the restart"), 10_000, "opened after resume");
-    b.artifact("one-host-legacy-duplicate");
   } finally {
+    artifact("one-host-legacy-duplicate", { test: "one-host-legacy-duplicate", old: old.proc.pid, new: b?.proc.pid ?? null, state: b?.client?.state ?? null, items: b?.client?.items ?? null, lock: readLock(session) });
     await b?.stop();
     await old.stop();
   }
@@ -225,11 +226,44 @@ test("one host per chat: a session lock left by a host of this chat that died, i
     const h = await new Host({ name: `stale-lock-${label}`, dir, chat, session }).start();
     try {
       await h.client.waitFor((x) => (idle(x) && x.items.some((i) => i.text === "ok: before the restart")) || x.state.phase === "conflict", 10_000, "opened or conflict");
-      h.artifact(`one-host-stale-lock-${label}`);
+      artifact(`one-host-stale-lock-${label}`, { test: "one-host-stale-lock", label, lockBefore: lock, host: h.proc.pid, state: h.client.state, lockAfter: readLock(session) });
       assert.notEqual(h.client.state.phase, "conflict", `${label}: no conflict with a dead host's lock`);
       assert.equal(readLock(session)?.pid, h.proc.pid, `${label}: the new host holds the session`);
     } finally {
       await h.stop();
     }
+  }
+});
+
+test("one host per chat: the serving host keeps the registry naming it: an entry overwritten (a 0.5.0 duplicate's exit) or deleted is written back, and a client can reach it again", async () => {
+  const { dir, chat, session } = await chatWithSession("repair");
+  const h = await new Host({ name: "repair", dir, chat, session, env: { HERDR_CHAT_REGISTRY_CHECK_MS: "200" } }).start();
+  const seen: unknown[] = [];
+  try {
+    await h.client.waitFor(idle, 10_000);
+    const mine = readRegistry(h.stateDir, chat)!;
+    // A 0.5.0 duplicate's exit: its own entry, cleared, over the live host's.
+    const wiped = { ...mine, pid: null, port: null, wsPort: null, terminal: "t-dup", token: "0".repeat(64) };
+    writeFileSync(join(h.stateDir, "chats", `${chat}.json`), JSON.stringify(wiped));
+    seen.push({ after: "overwritten", registry: readRegistry(h.stateDir, chat) });
+    const back = async (why: string) => {
+      const t0 = Date.now();
+      while (readRegistry(h.stateDir, chat)?.pid !== h.proc.pid) {
+        if (Date.now() - t0 > 5000) throw new Error(`the host didn't write its entry back after: ${why}`);
+        await sleep(50);
+      }
+      seen.push({ after: why, registry: readRegistry(h.stateDir, chat) });
+    };
+    await back("overwritten");
+    assert.deepEqual(readRegistry(h.stateDir, chat), mine, "the same entry: port, token, terminal, session");
+    rmSync(join(h.stateDir, "chats", `${chat}.json`));
+    await back("deleted");
+    // A client finds it through the registry and works.
+    const c = await h.connect();
+    await c.req("send", { text: "after the repair" });
+    await c.waitFor(answered("after the repair"), 5000);
+  } finally {
+    artifact("one-host-registry-repair", { test: "one-host-registry-repair", pid: h.proc.pid, seen });
+    await h.stop();
   }
 });

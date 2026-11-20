@@ -117,6 +117,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   };
 
   let shuttingDown = false;
+  let registryCheck: NodeJS.Timeout | undefined;
   const attachments = new Attachments(join(stateDir, "attachments", chatId));
   const term = new Terminal(process.stdout, process.stdin, provider);
   const chat = new Chat({
@@ -169,6 +170,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     shuttingDown = true;
     log("shutting down");
     watch?.stop();
+    clearInterval(registryCheck);
     try {
       await chat.stopAgent();
     } catch {}
@@ -195,6 +197,15 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   });
 
   save(await server.listen());
+  // The claim says who the chat's host is; the registry is how clients find it, so it must agree.
+  // Anything else that wrote it (a host from before the claim, on its way out) or removed it would
+  // leave this host serving a chat nobody can reach, and the mod starting hosts that refuse.
+  registryCheck = setInterval(() => {
+    if (shuttingDown || readRegistry(stateDir, chatId)?.token === entry.token) return;
+    log("the registry didn't name this host: written back");
+    save({});
+  }, Number(process.env.HERDR_CHAT_REGISTRY_CHECK_MS) || 2000);
+  registryCheck.unref();
   term.line(`herdr-chat-host · chat ${chatId} · ${cwd}`);
   if (extra.hint) term.line(extra.hint);
   if (extra.warning) term.line(`! ${extra.warning}`);

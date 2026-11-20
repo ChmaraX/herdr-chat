@@ -8,6 +8,18 @@
 if want one-host; then
   step "one-host: restarts under mod reloads, the way an install does them"
   OH_ART="$ART/one-host.json"
+  # The artifact: every host terminal of the chat, and its host log lines. Written at the end and on a
+  # failure (lib.sh's fail exits: the EXIT trap runs it first).
+  oh_artifact() {
+    [ -n "${OH:-}" ] && [ -f "$STATE/logs/$OH.log" ] || return 0
+    python3 - "$OH_ART" "$OH" "$STATE" "$(hosts_of "$OH" | tr '\n' ';')" <<'PY'
+import json, sys
+out, chat, state, hosts = sys.argv[1:]
+log = [l.rstrip("\n") for l in open(f"{state}/logs/{chat}.log") if any(k in l for k in (" serve ", "refused", "shutting", "took over", "written back"))]
+json.dump({"chat": chat, "hosts": [h for h in hosts.split(";") if h], "log": log}, open(out, "w"), indent=1)
+PY
+  }
+  trap 'oh_artifact; cleanup' EXIT
   # Every host terminal of chat $1 the core knows (live or finished): address, state.
   hosts_of() { hc ls --all --json --label "herdr-chat.chat=$1" | python3 -c 'import json,sys; [print(t["address"], t["state"]) for t in json.load(sys.stdin)["terminals"]]'; }
   live_hosts() { hosts_of "$1" | awk '$2 == "live"' | wc -l | tr -d ' '; }
@@ -61,22 +73,21 @@ PY
   DUP=$(hc run --bg --json --keep --no-parent --cwd "$PROJ" --label "herdr-chat.chat=$OH" --label herdr-chat.role=host -- \
     /usr/bin/env HERDR_CHAT_NODE="$NODE" "$OLDHOST/bin/herdr-chat-host" serve --chat "$OH" --cwd "$PROJ" --state-dir "$STATE" --app-home "$HERDR_APP_HOME" --provider pi \
     --pi "$REPO/tests/fake-pi/fake-pi.mjs" 2>>"$LOG" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])') || fail "start the duplicate"
-  # It overwrites the registry (last writer wins, as 0.5.0's did): the registry names it now.
+  # It overwrites the registry (last writer wins, as 0.5.0's did). The claim holder writes its entry
+  # back within 2 s, and the duplicate overwrites it again on its own next save: either may be named
+  # when the sweep looks, so both orders happen. Whichever goes first, the claim holder is the one left.
   until_ '[ "$(reg "$OH" terminal)" = "$DUP" ]' 10 || note "the duplicate didn't write the registry"
   [ "$(live_hosts "$OH")" = 2 ] && ok "setup: two live hosts of one chat ($REG_TERM, $DUP)" || fail "setup: $(hosts_of "$OH" | tr '\n' ' ')"
-  # The registry names the duplicate; the original is the second host now. The sweep ends whichever
-  # isn't the registry's (two sweeps 30 s apart), and the chat goes on with the one left.
-  expect '[ "$(live_hosts "$OH")" = 1 ]' "the sweep ends the host the registry doesn't name" 75
+  expect '[ "$(reg "$OH" terminal)" = "$REG_TERM" ]' "the claim holder ($REG_TERM) writes its registry entry back" 10
+  expect '[ "$(live_hosts "$OH")" = 1 ]' "the sweep ends one of the two" 75
   LEFT=$(hosts_of "$OH" | awk '$2 == "live" {print $1}')
-  [ "$LEFT" = "$(reg "$OH" terminal)" ] && ok "the one left is the registry's ($LEFT)" || fail "left $LEFT, registry $(reg "$OH" terminal)"
+  [ "$LEFT" = "$REG_TERM" ] && ok "the one left is the claim holder ($LEFT), not the 0.5.0 duplicate" || fail "left $LEFT, the claim holder was $REG_TERM"
+  # The duplicate's 0.5.0 exit clears the registry with its own entry; the holder writes it back.
+  expect '[ "$(reg "$OH" terminal)" = "$REG_TERM" ] && [ -n "$(reg "$OH" port)" ]' "the registry names the holder after the duplicate's exit" 10
   expect connected "the chat is connected to it" 20
-  python3 - "$OH_ART" "$OH" "$STATE" "$ROUNDS" "$N_SERVED" "$N_REFUSED" "$LEFT" "$(hosts_of "$OH" | tr '\n' ';')" <<'PY'
-import json, sys
-out, chat, state, rounds, served, refused, left, hosts = sys.argv[1:]
-log = [l.rstrip("\n") for l in open(f"{state}/logs/{chat}.log") if " serve " in l or "refused" in l or "shutting" in l or "took over" in l]
-json.dump({"chat": chat, "restarts": int(rounds), "served": int(served), "refused": int(refused), "left": left,
-           "hosts": [h for h in hosts.split(";") if h], "log": log}, open(out, "w"), indent=1)
-PY
-  note "artifact: $OH_ART"
+  N_REFUSED=$(refused "$OH")
+  [ "$N_REFUSED" = 0 ] && ok "the chat never started a host the claim refused" || fail "$N_REFUSED hosts refused: the mod looked for a host it couldn't reach"
+  oh_artifact; note "artifact: $OH_ART"
+  trap cleanup EXIT
   do_ tab.close --id "$(d 'd["place"]["tab"]')"
 fi
