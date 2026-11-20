@@ -324,15 +324,37 @@ fi
 
 # --- flow `tui-under-command`: Continue as chat on a Pi its terminal's own command started -------------
 # A session restorer or a space's start command opens a terminal as `fish -ic 'claude --resume …; exec fish -i'`:
-# a shell without job control, so Herdr reports the shell as the foreground and the agent runs under it.
-# 1. Two Pis under one command (`pi & pi`): Continue as chat refuses (its pid gets SIGTERM, so no guessing),
-#    and both keep running.
-# 2. One Pi two levels down (zsh -c → sh -c → pi), run from a folder with a space ("My Tools/pi", a link to
-#    node): the chat takes its place as in tui-in-place, and the shell's `exec` leaves the pane to close.
+# a shell without job control, so Herdr reports the shell as the foreground and the agent runs under it, in the
+# shell's process group. The host finds it there (herdr-chat-host tui-session --foreground). The fake Pi sets
+# process.title "pi", as real Pi does. Continue as chat's toasts are logged (artifact tuc-toasts.jsonl).
+# 1. Two Pis under one command (`pi & pi`): refused, with the reason in a toast, and neither is signalled.
+# 2. One Pi two levels down (zsh -c → sh -c → "My Tools/pi", a path with a space): the chat takes its place as
+#    in tui-in-place, and the shell's `exec zsh -i` leaves the pane to close.
+# 3. The command goes on after Pi quits (`…; sleep 5; exec zsh -i`): the pane stays while `sleep` runs (a toast
+#    says so), and the shell's prompt is still there after it.
 if want tui-under-command; then
   step "tui-under-command: Pi TUIs started by their terminal's own command (zsh -c '…; exec zsh -i')"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
-  sleep 1
+  # The app has no list of its toasts: the private app's copy of new-chat logs each notify() it posts
+  # ({title, body, level}, one JSON line) to $TOASTS (where the mod may write), then posts it as before.
+  TOASTS="$STATE/debug/tuc-toasts.jsonl"; : >"$TOASTS"
+  python3 - "$HERDR_APP_HOME/mods/new-chat/main.js" "$TOASTS" <<'PY' || fail "add the toast log to the private new-chat"
+import re, sys
+path, out = sys.argv[1:]
+s = open(path).read()
+assert s.count("notify({") >= 2
+s = s.replace("notify({", "e2eNotify({")
+m = re.search(r'import \{[^}]*\} from "herdr";\n', s)
+s = s[:m.end()] + ('import * as e2eFs from "fs/promises";\nconst e2eLog = [];\n'
+    'const e2eNotify = (n) => { e2eLog.push(JSON.stringify({ title: n.title, body: n.body, level: n.level })); '
+    'e2eFs.writeFile(%r, e2eLog.join("\\n") + "\\n").catch(() => {}); return notify(n); };\n') % out + s[m.end():]
+open(path, "w").write(s)
+PY
+  sleep 1.5
+  toasts_since() { tail -n +"$(($1 + 1))" "$TOASTS"; }
+  toast_mark() { wc -l <"$TOASTS" | tr -d ' '; }
+  M=$(toast_mark); do_ "new-chat.continue:t999"
+  expect 'toasts_since "$M" | grep -q "not live"' "the toast log records Continue as chat's errors (probe: no terminal t999)" 8
   TS="$BASE/tuc-session.jsonl"
   python3 - "$TS" "$PROJ" <<'PY2'
 import json, sys
@@ -346,58 +368,66 @@ with open(path, "w") as f:
     f.write(json.dumps({"type": "message", "id": "m0", "parentId": None, "timestamp": ts, "message": u}) + "\n")
     f.write(json.dumps({"type": "message", "id": "m1", "parentId": "m0", "timestamp": ts, "message": a}) + "\n")
 PY2
-  # The fake Pi keeps its own program name (no process.title): "…/My Tools/pi", a link to node.
+  # "…/My Tools/pi", a link to node: a Pi run by a path with a space. It writes its pid to $PIDS (the test's own
+  # record of which processes are Pi, not a rule like the host's).
   mkdir -p "$BASE/My Tools"
   ln -sf "$NODE" "$BASE/My Tools/pi"
   PIBIN="$BASE/My Tools/pi"
+  PIDS="$BASE/tuc-pids"
   cat >"$BASE/fake-pi-under-cmd.mjs" <<'JS'
+import { appendFileSync } from "node:fs";
+process.title = "pi";
+appendFileSync(process.env.TUC_PIDS, `${process.env.TUC_TAG} ${process.pid}\n`);
 const report = () => process.stdout.write("\x1b]7501;state=idle:app=pi\x1b\\");
 report(); const every = setInterval(report, 500);
 console.log("fake Pi TUI (started by its terminal's command)");
 process.on("SIGTERM", () => { clearInterval(every); console.log("SIGTERM: quitting"); setTimeout(() => process.exit(0), 300); });
 JS
+  : >"$PIDS"
+  pis_of() { awk -v t="$1" '$1 == t {print $2}' "$PIDS"; }
   SP=$(app_ls | python3 -c 'import json,sys; print([s["id"] for s in json.load(sys.stdin)["spaces"] if s["active"]][0])')
-  # Pis under the terminal's own process ($1), as "pid" lines.
-  pis_under() { ps -A -o pid=,ppid=,comm= | python3 -c 'import sys
-rows = [l.split(None, 2) for l in sys.stdin if l.strip()]
-kids = {}
-for p, pp, c in rows: kids.setdefault(pp, []).append((p, c.strip()))
-todo = [sys.argv[1]]
-while todo:
-    for p, c in kids.get(todo.pop(), []):
-        if c.split("/")[-1] == "pi": print(p)
-        else: todo.append(p)' "$1"; }
+  tab_of() { app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])), ""))' "$1"; }
   idle_pi() { [ "$(term_field "$1" "(t.get(\"status\") or {}).get(\"state\")")" = idle ] && [ "$(term_field "$1" "t.get(\"agent\") or (t.get(\"status\") or {}).get(\"app\")")" = pi ]; }
+  # A terminal (new tab tbtuc000$2) running zsh -c "$3", its Pis tagged $1 in $PIDS, labeled with the session.
+  start_tuc() {
+    local out
+    out=$(hc run --bg --json --keep --no-parent --cwd "$PROJ" --label "herdr.space=$SP" --label "herdr.tab=tbtuc000$2" \
+      -- /bin/zsh -c "export TUC_PIDS='$PIDS' TUC_TAG=$1; $3" 2>>"$LOG") || fail "hc run ($1)"
+    note "hc run ($1): $out"
+    TERMADDR=$(echo "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
+    hc label "$TERMADDR" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
+  }
 
-  step "two Pis under one terminal's command: Continue as chat refuses, and signals neither"
-  OUT=$(hc run --bg --json --keep --no-parent --cwd "$PROJ" --label "herdr.space=$SP" --label herdr.tab=tbtuc0001 -- /bin/zsh -c "'$PIBIN' $BASE/fake-pi-under-cmd.mjs & '$PIBIN' $BASE/fake-pi-under-cmd.mjs; exec /bin/zsh -i" 2>>"$LOG") || fail "hc run the two TUIs"
-  TWO=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  hc label "$TWO" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
-  expect 'idle_pi "$TWO" && [ "$(pis_under "$(term_field "$TWO" "t[\"pid\"]")" | wc -l | tr -d " ")" = 2 ]' "Herdr reports an idle Pi; two Pis run under the terminal's shell" 10
-  TWOPIS=$(pis_under "$(term_field "$TWO" 't["pid"]')" | tr '\n' ' ')
-  [ "$(basename "$(term_field "$TWO" '(t.get("foreground") or {}).get("argv",[None])[0]')")" = zsh ] && ok "its foreground is the shell" || fail "foreground: $(term_field "$TWO" 't.get("foreground")')"
-  BEFORE=$(chat_dumps)
-  do_ "new-chat.continue:$TWO"
-  sleep 3
+  step "two Pis under one terminal's command: Continue as chat refuses, says why, and signals neither"
+  start_tuc two 1 "'$PIBIN' $BASE/fake-pi-under-cmd.mjs & '$PIBIN' $BASE/fake-pi-under-cmd.mjs; exec /bin/zsh -i"
+  AMBIG=$TERMADDR
+  expect 'idle_pi "$AMBIG" && [ "$(pis_of two | wc -l | tr -d " ")" = 2 ]' "Herdr reports an idle Pi; two Pis run under the terminal's shell" 10
+  AMBIGPIS=$(pis_of two | tr '\n' ' ')
+  expect '[ -n "$(tab_of "$AMBIG")" ]' "the app shows the terminal in a tab" 10
+  expect '[ "$(basename "$(term_field "$AMBIG" "(t.get(\"foreground\") or {}).get(\"argv\",[\"\"])[0]")")" = zsh ]' "its foreground is the shell" 5
+  BEFORE=$(chat_dumps); M=$(toast_mark)
+  do_ "new-chat.continue:$AMBIG"
+  until_ '[ -n "$(toasts_since "$M")" ]' 10 || true
+  toasts_since "$M" >"$ART/tuc-refusal-toast.jsonl"
+  note "toast: $(tr '\n' ' ' <"$ART/tuc-refusal-toast.jsonl")"
+  grep -q "2 Pi processes under the terminal's command (pids [0-9]*, [0-9]*): not sure which is the TUI, so none is stopped" "$ART/tuc-refusal-toast.jsonl" &&
+    ok "the toast says two Pis run under its command, so none is stopped" || fail "the refusal's toast: $(cat "$ART/tuc-refusal-toast.jsonl")"
   [ -z "$(new_chat_since "$BEFORE")" ] && ok "no chat opened" || fail "a chat opened for an ambiguous terminal"
-  for p in $TWOPIS; do kill -0 "$p" 2>/dev/null && ok "Pi $p still runs (no SIGTERM)" || fail "Pi $p was signalled"; done
-  hc kill "$TWO" >>"$LOG" 2>&1 || true
-  for p in $TWOPIS; do kill "$p" 2>/dev/null || true; done
+  for p in $AMBIGPIS; do kill -0 "$p" 2>/dev/null && ok "Pi $p still runs (no SIGTERM)" || fail "Pi $p was signalled"; done
+  hc kill "$AMBIG" >>"$LOG" 2>&1 || true
+  for p in $AMBIGPIS; do kill "$p" 2>/dev/null || true; done
 
   step "one Pi two levels under the terminal's command (zsh -c → sh -c → \"My Tools/pi\")"
   # `; true` keeps sh from exec'ing pi, so pi is the shell's grandchild.
-  OUT=$(hc run --bg --json --keep --no-parent --cwd "$PROJ" --label "herdr.space=$SP" --label herdr.tab=tbtuc0002 -- /bin/zsh -c "/bin/sh -c \"'$PIBIN' $BASE/fake-pi-under-cmd.mjs; true\"; exec /bin/zsh -i" 2>>"$LOG") || fail "hc run the TUI"
-  note "hc run: $OUT"
-  TUC=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
-  hc label "$TUC" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
-  expect 'idle_pi "$TUC" && [ -n "$(pis_under "$(term_field "$TUC" "t[\"pid\"]")")" ]' "Herdr reports an idle Pi; a Pi runs under the terminal's shell" 10
+  start_tuc one 2 "/bin/sh -c \"'$PIBIN' $BASE/fake-pi-under-cmd.mjs; true\"; exec /bin/zsh -i"
+  TUC=$TERMADDR
+  expect 'idle_pi "$TUC" && [ -n "$(pis_of one)" ]' "Herdr reports an idle Pi; a Pi runs under the terminal's shell" 10
   hc get "$TUC" --json >"$ART/tuc-term-before.json"
   SHPID=$(term_field "$TUC" '(t.get("foreground") or {}).get("pid")')
-  PIPID=$(pis_under "$(term_field "$TUC" 't["pid"]')" | head -1)
+  PIPID=$(pis_of one)
   [ "$(basename "$(term_field "$TUC" '(t.get("foreground") or {}).get("argv",[None])[0]')")" = zsh ] && [ "$SHPID" = "$(term_field "$TUC" 't["pid"]')" ] &&
     ok "its foreground is the terminal's own shell (pid $SHPID)" || fail "foreground: $(term_field "$TUC" 't.get("foreground")')"
-  [ "$(ps -o ppid= -p "$(ps -o ppid= -p "$PIPID" | tr -d ' ')" | tr -d ' ')" = "$SHPID" ] && ok "Pi ($PIPID, $(ps -o comm= -p "$PIPID")) is the shell's grandchild" || fail "Pi $PIPID isn't the shell's grandchild"
-  tab_of() { app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])), ""))' "$1"; }
+  [ "$(ps -o ppid= -p "$(ps -o ppid= -p "$PIPID" | tr -d ' ')" | tr -d ' ')" = "$SHPID" ] && ok "Pi ($PIPID, $(ps -o args= -p "$PIPID")) is the shell's grandchild" || fail "Pi $PIPID isn't the shell's grandchild"
   expect '[ -n "$(tab_of "$TUC")" ]' "the app shows the terminal in a tab" 10
   TUCTAB=$(tab_of "$TUC")
   do_ pane.focus --terminal "$TUC"
@@ -416,4 +446,28 @@ while todo:
   shot tuc-2-chat-in-place 0.6
   close_chat "$J"
   [ "$(term_field "$TUC" 't["state"]' 2>/dev/null)" != live ] || hc kill "$TUC" >>"$LOG" 2>&1 || true
+
+  step "the command goes on after Pi quits (…; sleep 5; exec zsh -i): the pane stays while it runs, and says so"
+  start_tuc slow 3 "'$PIBIN' $BASE/fake-pi-under-cmd.mjs; /bin/sleep 5; exec /bin/zsh -i"
+  SLOW=$TERMADDR
+  expect 'idle_pi "$SLOW" && [ -n "$(pis_of slow)" ]' "Herdr reports an idle Pi under the terminal's shell" 10
+  PIPID=$(pis_of slow)
+  expect '[ -n "$(tab_of "$SLOW")" ]' "the app shows the terminal in a tab" 10
+  SLOWTAB=$(tab_of "$SLOW")
+  BEFORE=$(chat_dumps); M=$(toast_mark)
+  do_ "new-chat.continue:$SLOW"
+  expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 15
+  J=$(new_chat_since "$BEFORE")
+  expect '! kill -0 '"$PIPID"' 2>/dev/null' "Pi (pid $PIPID) quit on SIGTERM" 10
+  until_ '[ -n "$(toasts_since "$M")" ]' 8 || true
+  toasts_since "$M" >"$ART/tuc-slow-toast.jsonl"
+  note "toast: $(tr '\n' ' ' <"$ART/tuc-slow-toast.jsonl")"
+  grep -q "now runs [^:]*sleep: its pane stays" "$ART/tuc-slow-toast.jsonl" && ok "a toast says the terminal now runs sleep, so its pane stays" || fail "the toast: $(cat "$ART/tuc-slow-toast.jsonl")"
+  pgrep -f "^/bin/sleep 5$" >/dev/null && ok "sleep still runs" || note "sleep already ended"
+  tab_panes "$SLOWTAB" | grep -q "$SLOW" && ok "the TUI's pane stays beside the chat (sleep wasn't cut short)" || fail "the TUI's pane closed while its command ran: $(tab_panes "$SLOWTAB" | tr '\n' '|')"
+  shot tuc-3-pane-stays 0.6
+  expect '[ "$(term_field "$SLOW" "t[\"foreground\"][\"pid\"]")" = "$(term_field "$SLOW" "t[\"pid\"]")" ] && ! pgrep -g "$(ps -o pgid= -p "$(term_field "$SLOW" "t[\"pid\"]")" | tr -d " ")" -f "^/bin/sleep" >/dev/null' "then sleep ends and the shell is at its prompt (exec zsh -i)" 10
+  close_chat "$J"
+  hc kill "$SLOW" >>"$LOG" 2>&1 || true
+  cp "$TOASTS" "$ART/tuc-toasts.jsonl"
 fi
