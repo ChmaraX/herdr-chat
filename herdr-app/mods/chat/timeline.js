@@ -29,6 +29,7 @@ export class Timeline {
     this.total = 0;
     this.shown = [];
     this.scale = 1; // px on_size_change reports per layout px: the UI zoom, measured by the probe
+    this.probed = false; // the probe has reported; until then measures are kept as reported (scale 1)
     this.viewRaw = 0; // the viewport's height as reported (zoomed)
     this.anchor = null; // history went in front: the rows on screen, to keep where they were [{id, dy}]
     this.heightsSeen = null; // debug only (trace()): row id → [[ms, height]…], the heights it was measured at
@@ -49,6 +50,13 @@ export class Timeline {
     if (this.top >= this.total - this.viewH - 2) this.sticky = true;
   }
 
+  // Debug: the row at the viewport's top and its y (layout px, 0 or above).
+  atTop() {
+    let at = null;
+    for (const [id, o] of this.offsets) if (o <= this.top + 0.5) at = { id, y: Math.round(o - this.top) };
+    return at;
+  }
+
   trace(debug) {
     this.heightsSeen = debug.trace();
   }
@@ -66,12 +74,25 @@ export class Timeline {
     this.anchor = this.shown.map((id) => ({ id, dy: (this.offsets.get(id) ?? 0) - this.top }));
   }
 
-  // The probe's report: the zoom changed (or was first measured).
+  // The probe's report: the zoom, first measured or changed. A row's height
+  // in layout px doesn't change with the zoom (a row that rewraps is measured
+  // again), so a later report only changes the viewport's height, and the rows
+  // on screen stay where they are. The first report converts what was
+  // measured before it, at scale 1, and what was laid out with those measures.
+  // The probe comes before the rows in the tree, so in a frame where the zoom
+  // changed it reports first and the rows' new measures use the new scale.
   rescale(k) {
-    if (!(k > 0) || Math.abs(k - this.scale) < 0.001) return false;
-    const r = this.scale / k;
-    for (const [id, h] of this.heights) this.heights.set(id, h * r);
-    this.top *= r;
+    if (!(k > 0)) return false;
+    const first = !this.probed;
+    this.probed = true;
+    if (Math.abs(k - this.scale) < 0.001) return false;
+    if (first) {
+      const r = this.scale / k;
+      for (const [id, h] of this.heights) this.heights.set(id, h * r);
+      for (const [id, o] of this.offsets) this.offsets.set(id, o * r);
+      for (const a of this.anchor ?? []) a.dy *= r;
+      this.top *= r;
+    }
     this.scale = k;
     this.viewH = this.viewRaw / k;
     return true;
