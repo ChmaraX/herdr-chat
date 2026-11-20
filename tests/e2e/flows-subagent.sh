@@ -342,7 +342,9 @@ if want tui-under-command; then
   TOASTS="$STATE/debug/new-chat-toasts.jsonl"; : >"$TOASTS"
   toasts_since() { tail -n +"$(($1 + 1))" "$TOASTS"; }
   toast_mark() { wc -l <"$TOASTS" | tr -d ' '; }
-  M=$(toast_mark); do_ "new-chat.continue:t999"
+  # The layout's new-chat block takes commands once the app has reloaded it.
+  M=$(toast_mark)
+  until_ '"$APP" do new-chat.continue:t999' 10 || fail "the layout's new-chat block takes no commands"
   expect 'toasts_since "$M" | grep -q "not live"' "the toast log records Continue as chat's errors (probe: no terminal t999)" 8
   TS="$BASE/tuc-session.jsonl"
   python3 - "$TS" "$PROJ" <<'PY2'
@@ -410,7 +412,7 @@ JS
   # `; true` keeps sh from exec'ing pi, so pi is the shell's grandchild.
   start_tuc one 2 "/bin/sh -c \"'$PIBIN' $BASE/fake-pi-under-cmd.mjs; true\"; exec /bin/zsh -i"
   TUC=$TERMADDR
-  expect 'idle_pi "$TUC" && [ -n "$(pis_of one)" ]' "Herdr reports an idle Pi; a Pi runs under the terminal's shell" 10
+  expect 'idle_pi "$TUC" && [ -n "$(pis_of one)" ] && [ -n "$(term_field "$TUC" "(t.get(\"foreground\") or {}).get(\"pid\")")" ]' "Herdr reports an idle Pi and the terminal's foreground; a Pi runs under the terminal's shell" 10
   hc get "$TUC" --json >"$ART/tuc-term-before.json"
   SHPID=$(term_field "$TUC" '(t.get("foreground") or {}).get("pid")')
   PIPID=$(pis_of one)
@@ -471,7 +473,9 @@ JS
   HSH=$(term_field "$HELP" 't["pid"]')
   BEFORE=$(chat_dumps); M=$(toast_mark)
   do_ "new-chat.continue:$HELP"
-  expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 15
+  until_ '[ -n "$(new_chat_since "$BEFORE")" ] || [ -n "$(toasts_since "$M")" ]' 15 || true
+  [ -z "$(toasts_since "$M")" ] || note "toast: $(toasts_since "$M" | tr '\n' ' ')"
+  expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 5
   J=$(new_chat_since "$BEFORE")
   expect '! kill -0 '"$PIPID"' 2>/dev/null' "Pi (pid $PIPID) quit on SIGTERM" 10
   expect 'pgrep -P "$HSH" -f "^/bin/sleep 600$" >/dev/null' "the shell's rc started its helper (sleep 600, the shell's child)" 10
