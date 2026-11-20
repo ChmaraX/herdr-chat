@@ -108,11 +108,8 @@ window to "add the mod at github.com/ChmaraX/herdr-chat".
 | ⇧⌘R | chat | Resume another session |
 | ⇧⌘N | chat | A new chat with the same agent, same folder |
 
-On Linux the chat's keys use Ctrl where macOS uses ⌘, on chords Herdr's own
-Linux keys leave free: Ctrl+Shift+M / Ctrl+Shift+I / Ctrl+Shift+A for the
-pickers, Ctrl+Alt+T for `/tui`, Ctrl+Shift+R to resume, Ctrl+Alt+N for a new
-chat. Ctrl+C copies in the composer and stops the run elsewhere in the chat;
-Esc stops it anywhere.
+On Linux the chat's keys use Ctrl where macOS uses ⌘: [the Linux
+keys](herdr-app/mods/chat/KEYS.md).
 
 Change them, or bind a key per agent, in
 `~/.config/herdr-app/data/herdr-chat/keys.json`:

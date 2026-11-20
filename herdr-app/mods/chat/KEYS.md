@@ -6,13 +6,29 @@ of Herdr's keys or a key in the shipped `keys.json`. The same actions work for
 every agent. An action the agent can't do (permission modes for Pi, effort for
 a model without levels) says so in the hint line under the composer.
 
-The defaults below are macOS's (`keys.default.json`). On Linux they come from
-`keys.default.linux.json`: Ctrl where macOS has ⌘, on chords Herdr's own Linux
-keys leave free (`model` Ctrl+Shift+M, `effort` Ctrl+Shift+I, `mode`
-Ctrl+Shift+A, `tui` Ctrl+Alt+T, `resume` Ctrl+Shift+R, `latest` Ctrl+End,
-`focusComposer` Ctrl+L, `newChat` Ctrl+Alt+N). There Ctrl+C is a text field's
-copy, so `stop` on Ctrl+C works only outside the composer and the pickers'
-fields; Esc stops the run anywhere.
+The defaults below are macOS's (`keys.default.json`).
+
+**On Linux** `keys.default.linux.json` replaces the chords that differ there:
+Ctrl where macOS has ⌘ (Super belongs to the desktop), on chords that Herdr's
+own Linux keys, the desktop and the chat's text fields leave free:
+
+| Action | Linux default |
+|---|---|
+| `model` / `effort` / `mode` | Ctrl+Shift+M / Ctrl+Shift+I / Ctrl+Shift+A |
+| `tui` | Ctrl+Alt+Shift+T |
+| `resume` | Ctrl+Shift+R |
+| `latest` | Ctrl+Shift+↓ |
+| `focusComposer` | Ctrl+L |
+| `newChat` | Ctrl+Alt+N |
+
+The others are the same as on macOS. Ctrl+C is a text field's copy there, so
+`stop` on Ctrl+C works outside the composer and the pickers' fields only (the
+Stop button's tooltip leaves it out); Esc stops the run anywhere. Checked
+against Herdr 0.1.16's Linux keys, gpui-kit's text fields
+(`crates/base/src/input/base/state.rs`), GNOME's defaults
+(`org.gnome.desktop.wm.keybindings`, gnome-shell, gnome-settings-daemon's
+media keys with Ubuntu's Ctrl+Alt+T) and KDE Plasma's (KWin, plasma-workspace,
+Konsole's Ctrl+Alt+T).
 
 | Action | Default | What it does |
 |---|---|---|
@@ -88,7 +104,8 @@ macOS turns ⌘. into Esc before an app sees it, so `stop` uses ⌃C.
 ## Your own keys
 
 Put your overrides in `~/.config/herdr-app/data/herdr-chat/keys.json`. It uses the
-same shape as `keys.default.json` in this folder:
+same shape as `keys.default.json` in this folder, and goes over the defaults
+(on Linux, over the Linux ones):
 
 ```json
 {
@@ -105,8 +122,9 @@ same shape as `keys.default.json` in this folder:
   A space separates the steps of a sequence. `cmd` is the platform key: ⌘ on
   macOS, Super on Linux (where the desktop often takes it), so on Linux you
   usually want `ctrl`. The chat and the installer show `cmd` as "Super" there.
-- On Linux a `ctrl-c` you bind (to `stop` or any action) works outside the
-  chat's text fields only: inside them Ctrl+C stays their copy.
+- On Linux a chord that is a text field's own key (Ctrl+C, Ctrl+A, Ctrl+Z,
+  Ctrl+End and the other Ctrl editing keys) works outside the chat's text
+  fields only, whatever action you bind it to: inside them it stays theirs.
 - A chord you give one action leaves the action that has it by default. For
   example `{"cycleEffort": "shift-tab"}` takes Shift+Tab from `cycleMode`, so
   you don't have to unbind `cycleMode` too.

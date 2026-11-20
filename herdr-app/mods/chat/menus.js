@@ -10,6 +10,7 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { icon, plural } from "./util.js";
 import { rank } from "./composer.js";
+import { PLATFORM } from "./platform.js";
 
 export const ROWS = 8;
 const ROW_H = 28;
@@ -221,6 +222,8 @@ export class Picker {
     const { start, list } = windowOf(items, this, 10);
     let wrap = div().id("picker-input").key_context("HerdrChatMenu");
     for (const a of ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape"]) wrap = wrap.on_action(a, (_e, cx) => actions(a, cx));
+    // The composer's extra paste keys (composer.js) bind in this context too: the filter takes the clipboard's text.
+    if (PLATFORM.pasteChords.length) wrap = wrap.on_action("herdrchat_paste", (_e, cx) => { const text = cx.read_from_clipboard(); if (text) this.input.replace(text); });
     wrap = wrap.child(Input.new(this.input).h(30).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12.5));
     const more = items.length > 10 ? ` · ${start + 1}–${start + list.length} of ${items.length}` : "";
     const p = this.progress;

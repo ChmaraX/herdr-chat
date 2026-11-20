@@ -19,15 +19,11 @@ import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
 import { alpha, fileChip, icon, thumbnail } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
-import { MAC } from "./platform.js";
+import { PLATFORM } from "./platform.js";
 
 const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatQuestions"];
 const CARDS = ["HerdrChatAsk", "HerdrChatQuestions"];
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
-// Linux: a terminal app's paste keys. Herdr's text fields paste on Ctrl+V only there, but dictation tools
-// and clipboard managers paste into a terminal app's window with Ctrl+Shift+V (or Shift+Insert),
-// whatever its pane shows; the composer takes them too.
-const PASTE_KEYS = MAC ? [] : ["ctrl-shift-v", "shift-insert"];
 export const ACTIONS = ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape", "herdrchat_space", ...DIGITS.map((d) => `herdrchat_digit_${d}`)];
 
 // The composer's bindings in the app's keymap (keymap.js says when).
@@ -42,7 +38,8 @@ export function bindComposerKeys(cx) {
     b.push({ keystroke: "escape", action: "herdrchat_escape", context: `${ctx} > Input` });
   }
   for (const ctx of CARDS) for (const d of DIGITS) b.push({ keystroke: d, action: `herdrchat_digit_${d}`, context: `${ctx} > Input` });
-  for (const ctx of CONTEXTS) for (const k of PASTE_KEYS) b.push({ keystroke: k, action: "herdrchat_paste", context: `${ctx} > Input` });
+  // Handled by the composer (pasteKey) and the picker's search field (menus.js), the two fields in these contexts.
+  for (const ctx of CONTEXTS) for (const k of PLATFORM.pasteChords) b.push({ keystroke: k, action: "herdrchat_paste", context: `${ctx} > Input` });
   b.push({ keystroke: "space", action: "herdrchat_space", context: "HerdrChatQuestions > Input" });
   for (const ctx of ["HerdrChatMenu", "HerdrChatEmpty", ...CARDS]) {
     b.push({ keystroke: "up", action: "herdrchat_up", context: `${ctx} > Input` });
@@ -53,7 +50,7 @@ export function bindComposerKeys(cx) {
   b.push({ keystroke: "enter", action: "herdrchat_dialog_enter", context: "HerdrChatDialog > Input" });
   b.push({ keystroke: "escape", action: "herdrchat_dialog_escape", context: "HerdrChatDialog" });
   b.push({ keystroke: "escape", action: "herdrchat_dialog_escape", context: "HerdrChatEditor" });
-  b.push({ keystroke: MAC ? "cmd-enter" : "ctrl-enter", action: "herdrchat_dialog_enter", context: "HerdrChatEditor > Input" });
+  b.push({ keystroke: PLATFORM.submitChord, action: "herdrchat_dialog_enter", context: "HerdrChatEditor > Input" });
   cx.bind_keys(b);
 }
 
@@ -101,17 +98,14 @@ export class Composer {
     });
     this.ta.on("focus", (_e, cx) => { this.focused = true; cx.notify(); });
     this.ta.on("blur", (_e, cx) => { this.focused = false; cx.notify(); });
-    this.ta.on("paste_other", (_e, cx) => onPasteOther?.(cx));
     this.onPasteOther = onPasteOther;
+    this.ta.on("paste_other", (_e, cx) => this.onPasteOther?.(cx));
   }
 
-  // A paste key of PASTE_KEYS: the clipboard's text where the cursor is, as Ctrl+V puts it (the
+  // One of PLATFORM.pasteChords: the clipboard's text where the cursor is, as Ctrl+V puts it (the
   // field's change event follows), else what a paste of no text does (an image).
   pasteKey(cx) {
-    let text;
-    try {
-      text = cx.read_from_clipboard();
-    } catch {}
+    const text = cx.read_from_clipboard();
     if (text) this.ta.replace(text);
     else this.onPasteOther?.(cx);
   }
@@ -292,17 +286,19 @@ export class Composer {
     });
     let wrap = div().id("composer-box").w_full().min_w(0).key_context(this.context());
     for (const a of ACTIONS) wrap = wrap.on_action(a, (_e, cx) => c.action(a, cx));
-    if (PASTE_KEYS.length) wrap = wrap.on_action("herdrchat_paste", (_e, cx) => this.pasteKey(cx));
+    if (PLATFORM.pasteChords.length) wrap = wrap.on_action("herdrchat_paste", (_e, cx) => this.pasteKey(cx));
     wrap = wrap.child(Textarea.new(this.ta).w_full().px(14).pt(12).pb(4).text_size(14).text_color(t.foreground).bg(alpha(t.background, 0))
       .token((tok, _cx) => skillPillEl(tok, t)));
     const working = c.working;
     const typed = Boolean(this.value.trim() || this.chips.length);
     const stop = working && !typed;
+    // The composer has the keyboard here: a stop key the field keeps (Ctrl+C off macOS) wouldn't stop.
+    const stopKey = keyHint("stop", { inFields: true });
     const btn = h_flex().id(stop ? "stop" : "send").flex_none().w(30).h(30).rounded(10).items_center().justify_center().cursor_pointer()
       .bg(stop ? t.foreground : typed ? t.solid : t.raised)
       .text_color(stop ? t.background : typed ? t.solid_foreground : t.dim)
       .hover((s) => s.opacity(0.85))
-      .tooltip(stop ? `Stop (Esc${keyHint("stop") ? ` · ${keyHint("stop")}` : ""})` : working ? "Steer (Enter)" : "Send (Enter)")
+      .tooltip(stop ? `Stop (Esc${stopKey ? ` · ${stopKey}` : ""})` : working ? "Steer (Enter)" : "Send (Enter)")
       .on_click((_e, cx) => c.action(stop ? "herdrchat_stop" : "herdrchat_enter", cx))
       .child(icon(stop ? "square" : "arrow-up", stop ? 11 : 15));
     return v_flex().w_full().rounded(14).border_1().border_color(this.focused ? alpha(t.accent, 0.55) : t.input).bg(t.surface)
