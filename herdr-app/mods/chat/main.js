@@ -14,7 +14,7 @@
 //
 // Commands (`chat.<c>`, also how E2E drives what a click does):
 //   focus · toggle:<id> (an item, a group `g-…`, `code:…`) · click:<control>
-//   · scroll:up|down · hover:<itemId> · svghover:<itemId>:<k> (a diagram's ⤢ hint) · key:<k> · drop:<paths> · clear · type:<text>
+//   · scroll:up|down · scroll:by:<dy> (the timeline, as one wheel event of dy does) · hover:<itemId> · svghover:<itemId>:<k> (a diagram's ⤢ hint) · key:<k> · drop:<paths> · clear · type:<text>
 //   · wheel:<dy> (the open menu or picker, as the mouse wheel does) · outside (a press outside it)
 //   · shortcut:<action> (keys.default.json's actions, as their keys do)
 //   controls: chip:model|thinking|permission, latest, send, stop, restart,
@@ -1707,6 +1707,7 @@ export default class HerdrChat extends View {
     }
     if (c === "focus") this.focusInput(); else if (c.startsWith("toggle:")) this.toggle(c.slice(7), cx);
     else if (c.startsWith("click:")) this.control(c.slice(6), cx);
+    else if (c.startsWith("scroll:by:")) this.timeline.scrollBy(Number(c.slice(10)));
     else if (c === "scroll:up") this.timeline.scrollBy(600);
     else if (c === "scroll:down") this.timeline.scrollBy(-600);
     else if (c.startsWith("key:")) this.action(`herdrchat_${c.slice(4)}`, cx);
