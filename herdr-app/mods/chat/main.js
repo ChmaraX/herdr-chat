@@ -50,7 +50,7 @@ import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readSvgSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
-import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, spinner, tildePath, typedText, unwrapHc } from "./util.js";
+import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, skillsOf, spinner, tildePath, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
@@ -249,7 +249,7 @@ export default class HerdrChat extends View {
     const s = this.store.state;
     if (s.sessionName) return s.sessionName;
     if (s.title) return s.title;
-    const first = this.store.items.find((it) => it.kind === "user" && (it.text?.trim() || it.skill));
+    const first = this.store.items.find((it) => it.kind === "user" && (it.text?.trim() || skillsOf(it).length));
     if (first) {
       const line = (first.text.trim() ? first.text : typedText(first)).replace(/<hc [^>]*>|<\/hc>/g, "").trim().split("\n")[0].replace(/\s+/g, " ");
       return line.length > 48 ? line.slice(0, 47).trimEnd() + "…" : line;
@@ -827,9 +827,7 @@ export default class HerdrChat extends View {
   send(cx, mode = "auto") {
     if (mode === "auto" && this.editingQueued?.lane === "followUp") mode = "followUp";
     this.editingQueued = null;
-    const message = this.composer.message();
-    if (message === null) return this.flash("One skill per message: remove the other pill", cx);
-    const text = message.replace(/\s+$/, "");
+    const text = this.composer.message().replace(/\s+$/, "");
     const images = this.composer.chips.map((c) => c.path);
     if (!text.trim() && !images.length) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
@@ -1991,7 +1989,7 @@ export default class HerdrChat extends View {
       widgets: s.widgets.map((w) => w.key), commands: s.commands.length, commandNames: s.commands.map((c) => c.name),
       items: this.store.items.map((it) => ({ id: it.id, kind: it.kind, ...(it.parent ? { parent: it.parent } : {}), ...(it.status ? { status: it.status } : {}), ...(it.streaming ? { streaming: true } : {}),
         ...(it.detail?.type === "agent" ? { live: cardLive(it, rows.children).map((x) => x.id) } : {}),
-        ...(it.kind === "user" ? { text: it.text.slice(0, 200), source: it.source, from: it.from ?? null, skill: it.skill?.name ?? null } : {}),
+        ...(it.kind === "user" ? { text: it.text.slice(0, 200), source: it.source, from: it.from ?? null, skills: skillsOf(it).map((s) => s.name) } : {}),
         ...(it.kind === "tool" ? { name: it.name, title: it.title, images: it.images ?? [] } : {}),
         ...(it.kind === "assistant" ? { len: it.text.length, stopReason: it.stopReason ?? null } : {}),
         ...(it.kind === "notice" ? { level: it.level, text: (it.text ?? "").slice(0, 200), source: it.source ?? null } : {}) })),

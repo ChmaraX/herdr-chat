@@ -11,7 +11,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { absTime, alpha, count, duration, fileChip, icon, money, plural, relTime, shortPath, spinner, thumbnail, typedText, unwrapHc } from "./util.js";
+import { absTime, alpha, count, duration, fileChip, icon, money, plural, relTime, shortPath, skillsOf, spinner, thumbnail, typedText, unwrapHc } from "./util.js";
 import { blocks, copyButton, diffView, outputBox, prose, textDiff } from "./rich.js";
 import { cardLive, defaultOpen, groupCards, groupSummary } from "./rows.js";
 import { SPACE } from "./space.js";
@@ -118,18 +118,20 @@ function user(it, c) {
   // The actions sit left of the bubble, on its last line: no extra height.
   const b = SPACE.bubble;
   const body = (key) => div().text_size(14).line_height(`${SPACE.lineH}px`).child(prose(`md-${it.id}${key}`, text || " "));
-  const skill = it.skill;
-  // What the agent got for the skill, under its pill once opened.
-  const skillBody = Boolean(skill?.body) && c.expanded.has(`skill:${it.id}`)
-    ? [div().pl(12).border_l_1().border_color(t.border).text_size(12.5).line_height("19px").text_color(t.muted).child(prose(`skill-${it.id}`, skill.body))]
-    : [];
-  // A skill: its pill, then the message: beside it when that is one short line,
-  // else under it (as the bubble's own rows: a nested column sizes the text too narrow).
+  const skills = skillsOf(it);
+  // What the agent got for each skill opened, under the pills.
+  const skillBody = skills.flatMap((s, i) => (s.body && c.expanded.has(skillKey(it, i))
+    ? [div().pl(12).border_l_1().border_color(t.border).text_size(12.5).line_height("19px").text_color(t.muted).child(prose(`skill-${it.id}-${i}`, s.body))]
+    : []));
+  // Skills: their pills, then the message: beside them when that is one short line,
+  // else under them (as the bubble's own rows: a nested column sizes the text too narrow).
+  const pills = () => h_flex().gap(6).flex_wrap().items_center().children(skills.map((s, i) => skillPill(it, s, i, c)));
   let content;
-  if (!skill) content = [body("")];
-  else if (!text) content = [h_flex().child(skillPill(it, c)), ...skillBody];
-  else if (!text.includes("\n") && text.length <= 80) content = [h_flex().gap(8).items_center().child(skillPill(it, c)).child(body("-i").flex_1().min_w(0)), ...skillBody];
-  else content = [h_flex().child(skillPill(it, c)), ...skillBody, body("-s")];
+  if (!skills.length) content = [body("")];
+  else if (!text) content = [pills(), ...skillBody];
+  // One pill sits beside a short line; several wrap as a row of their own (beside the text, it can't size itself).
+  else if (skills.length === 1 && !text.includes("\n") && text.length <= 80) content = [h_flex().gap(8).items_center().child(skillPill(it, skills[0], 0, c)).child(body("-i").flex_1().min_w(0)), ...skillBody];
+  else content = [pills(), ...skillBody, body("-s")];
   return hoverable(h_flex().gap(6).items_end().justify_end(), it, c)
     .child(div().flex_none().pb(2).child(actions(it, null, c, { align: "end", text: typedText(it, text) })))
     .child(v_flex().max_w(Math.round(c.colW * 0.85)).gap(6).px(b.x).py(b.y).rounded(b.r).bg(t.raised)
@@ -138,16 +140,19 @@ function user(it, c) {
       .children([images(it.imagePaths, it.imageSizes, it.id, c)].filter(Boolean)));
 }
 
-// The skill a message ran: a tinted pill with its name. Its file shows on
+// The key in `c.expanded` that opens a message's i-th skill.
+const skillKey = (it, i) => `skill:${it.id}:${i}`;
+
+// A skill a message ran: a tinted pill with its name. Its file shows on
 // hover; a click shows what the agent got (when the agent says).
-function skillPill(it, c) {
+function skillPill(it, s, i, c) {
   const t = c.t;
-  const s = it.skill;
-  const open = c.expanded.has(`skill:${it.id}`);
+  const key = skillKey(it, i);
+  const open = c.expanded.has(key);
   const tip = [s.path ? s.path.replace(/^\/Users\/[^/]+/, "~") : `/${s.command}`, s.body ? (open ? "click to hide it" : "click to read it") : null].filter(Boolean).join(" · ");
-  return h_flex().id(`skill-pill-${it.id}`).flex_none().h(22).px(7).gap(5).items_center().rounded(6)
+  return h_flex().id(`skill-pill-${it.id}-${i}`).flex_none().h(22).px(7).gap(5).items_center().rounded(6)
     .bg(alpha(t.accent, 0.14)).text_color(t.accent).text_size(12).font_medium().tooltip(tip)
-    .when(Boolean(s.body), (e) => e.cursor_pointer().hover((x) => x.bg(alpha(t.accent, 0.22))).on_click((_e, cx) => c.toggle(`skill:${it.id}`, cx)))
+    .when(Boolean(s.body), (e) => e.cursor_pointer().hover((x) => x.bg(alpha(t.accent, 0.22))).on_click((_e, cx) => c.toggle(key, cx)))
     .child(icon("book", 12)).child(s.name)
     .when(Boolean(s.body), (e) => e.child(icon(open ? "chevron-up" : "chevron-down", 10)));
 }

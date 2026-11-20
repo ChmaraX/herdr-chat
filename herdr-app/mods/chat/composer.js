@@ -111,13 +111,13 @@ export class Composer {
     this.ta.set_selected_range({ start: text.length, end: text.length });
   }
 
-  // Where `/command` of a known skill stands as a word in `text` (one per skill).
+  // Where `/command` of a known skill stands as a word in `text`.
   skillSpans(text) {
     const out = [];
     for (const s of this.skills()) {
       const word = `/${s.command}`;
-      const m = new RegExp(`(^|\\s)${escapeRe(word)}(?=\\s|$)`).exec(text);
-      if (m) out.push({ range: { start: m.index + m[1].length, end: m.index + m[1].length + word.length }, token: skillToken(s) });
+      const re = new RegExp(`(^|\\s)${escapeRe(word)}(?=\\s|$)`, "g");
+      for (const m of text.matchAll(re)) out.push({ range: { start: m.index + m[1].length, end: m.index + m[1].length + word.length }, token: skillToken(s) });
     }
     return out.sort((a, b) => a.range.start - b.range.start);
   }
@@ -126,24 +126,28 @@ export class Composer {
     return this.ta.tokens?.() ?? [];
   }
 
-  // What to send: a skill pill becomes the message's leading `/command`, the
-  // rest follows (a pill inside the text leaves its name there). Null when
-  // the text has more than one skill: an agent runs one skill per message.
+  // What to send: the skill pills become the message's leading `/command`s,
+  // in the order they stand, and the rest follows. A pill inside the text
+  // leaves its name there; the same skill twice runs once.
   message() {
     const text = this.value;
     const pills = this.skillPills();
-    if (pills.length > 1) return null;
     if (!pills.length) return text;
-    const { range, token } = pills[0];
-    const before = text.slice(0, range.start);
-    const after = text.slice(range.end);
-    const rest = (before.trim() ? `${before}${token.label ?? token.text.slice(1)}${after}` : after).trim();
-    return `${token.text}${rest ? ` ${rest}` : ""}`;
+    let rest = "";
+    let at = 0;
+    for (const { range, token } of pills) {
+      rest += text.slice(at, range.start);
+      if (rest.trim()) rest += token.label ?? token.text.slice(1);
+      at = range.end;
+    }
+    rest = (rest + text.slice(at)).trim();
+    const lead = [...new Set(pills.map((p) => p.token.text))].join(" ");
+    return `${lead}${rest ? ` ${rest}` : ""}`;
   }
 
-  // The skill pills in the text.
+  // The skill pills in the text, in order.
   skillPills() {
-    return this.tokens().filter((t) => t.token.id.startsWith("skill:"));
+    return this.tokens().filter((t) => t.token.id.startsWith("skill:")).sort((a, b) => a.range.start - b.range.start);
   }
 
   // A skill command typed out in full, then a space or newline: a pill.

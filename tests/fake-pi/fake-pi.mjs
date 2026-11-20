@@ -3,7 +3,7 @@
 // LF-framed JSONL on stdin/stdout, like Pi. See README.md for the scenario format.
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { randomUUID, randomBytes } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const VERSION = "1.5.0";
@@ -23,6 +23,8 @@ const LOG = process.env.FAKE_PI_LOG;
 const scenarioPath = process.env.FAKE_PI_SCENARIO;
 const replayPath = process.env.FAKE_PI_REPLAY;
 const scenario = scenarioPath ? JSON.parse(readFileSync(scenarioPath, "utf8")) : {};
+// A command's file given relative to its scenario (a skill the repo ships): absolute, as Pi gives it.
+for (const c of scenario.commands ?? []) if (c.sourceInfo?.path?.startsWith(".")) c.sourceInfo.path = resolve(dirname(scenarioPath), c.sourceInfo.path);
 
 // ---------- output ----------
 function out(rec) {

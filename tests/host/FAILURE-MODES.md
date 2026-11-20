@@ -33,6 +33,10 @@ the test that has to catch it; "not covered" rows are known gaps
 | The prompt shows only when the agent echoes it (Claude at `message_start`, Codex after its prompt hooks: 0.6–3.5 s) | `prompt-echo.test.ts`: the user item within 150 ms, before any answer (fake-claude scripted, the `extra.jsonl` and Codex `text.jsonl` replays); E2E `claude` "the prompt shows before the answer starts" |
 | The echo adds a second item instead of confirming the shown one | `prompt-echo.test.ts`: one user item, the same id, after the echo |
 | An expanded skill's echo is dropped or added beside the prompt | `prompt-echo.test.ts` "pi: a skill's echo": one item with Pi's text |
+| Several skills: the agent runs only the first (Pi and `claude -p` each expand one), the rest reach it as the first one's arguments | `skills.test.ts` "pi: three skills…" (the model gets one run of Pi's blocks), "claude: several skills…" (each a `/name` for the Skill tool, nothing slash-led in front), "codex: several skills…" (a `skill` input each) |
+| A later skill without a file (Pi gives none, or it's gone) is dropped and the message goes without it | `skills.test.ts` "pi: a later skill Pi gives no file for…": the send fails, Pi gets nothing, the item goes |
+| The pills shown and the skills sent differ (a skill named twice, a list the adapter splits by on its own) | `skills.test.ts`: `/skill:tdd /skill:tdd once` (Pi) and `/tdd /tdd once` (Claude) reach the agent once, shown once |
+| Several pills come back out of order, or a resumed session shows fewer | `skills.test.ts`: the three pills in order, live and resumed (Pi, Claude); `fork_points` and the session list give them as typed |
 | A rejected prompt stays on the timeline | `prompt-echo.test.ts` "pi: … a prompt Pi rejects" |
 | Esc before the turn starts loses the prompt or doubles it | `prompt-echo.test.ts` "claude: Esc before the turn starts" |
 | A fake echoes in an order the real agent doesn't (hiding the above) | `fake-fidelity.test.ts`: each fake against a real recording |
