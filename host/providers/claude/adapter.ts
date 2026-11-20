@@ -10,7 +10,7 @@ import { mcpFailureNotice } from "../mcp.ts";
 import { agentEnv } from "../env.ts";
 import type { Priority } from "./mapper.ts";
 import { historyEvents, hasMessages, forkPoints } from "./history.ts";
-import { sessionPath, sessionIdOf, sessionFiles, describeSession, liveHolder, readUserSettings } from "./sessions.ts";
+import { sessionPath, sessionIdOf, sessionFiles, describeSession, liveHolder, readUserSettings, codeModeSession } from "./sessions.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, ModelInfo,
   AgentCommand, AgentModel, SessionSource, UsageInfo, Prompt, Disposition, PermissionMode, PermissionChoice, ForkPoint, Question,
@@ -651,6 +651,8 @@ export class ClaudeAdapter implements ProviderAdapter {
   }
 
   async switchSession(path: string): Promise<void> {
+    // Claude Code would refuse it, and only once this chat's own agent had stopped.
+    if (codeModeSession(path)) throw new Error(`That session ran in Code Mode, which Claude Code resumes only in its terminal for now: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --resume ${sessionIdOf(path)}`);
     await this.restart(path);
   }
 

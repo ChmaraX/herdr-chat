@@ -64,6 +64,17 @@ export function readTranscript(path: string): Rec[] {
   return out;
 }
 
+/**
+ * Whether the session was started in Claude Code's Code Mode (experimental),
+ * whose `repl-mode` records say so. Claude Code resumes such a session only in
+ * its terminal (`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --resume <id>`):
+ * `claude -p --resume` exits with "This session was started in Code Mode …
+ * so it can't be resumed here" (2.1.329), so a chat can't take it over.
+ */
+export function codeModeSession(path: string): boolean {
+  return readTranscript(path).some((r) => r.type === "repl-mode" && r.replMode === true);
+}
+
 /** A user record that a person typed (not a tool result, a CLI marker or a meta record). */
 export function promptText(r: Rec): string | null {
   if (r.type !== "user" || r.isSidechain || r.isMeta || r.isCompactSummary) return null;
@@ -102,7 +113,8 @@ export function describeSession(path: string): SessionInfo | null {
     if (p !== null) {
       count++;
       if (!first) first = p.slice(0, 200);
-    } else if (r.type === "assistant" && typeof r.message?.id === "string" && !ids.has(r.message.id)) {
+    } else if (r.type === "assistant" && !r.isVirtual && typeof r.message?.id === "string" && !ids.has(r.message.id)) {
+      // (Code Mode records each call its code made as an assistant record of its own, `isVirtual`: not a message.)
       ids.add(r.message.id);
       count++;
     }

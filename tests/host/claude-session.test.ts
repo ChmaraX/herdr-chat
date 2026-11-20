@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { idle, strip, markers } from "./harness.ts";
 import { startClaude } from "../fake-claude/host.ts";
 import { lockPath } from "../../host/registry.ts";
@@ -378,6 +378,60 @@ test("claude: /compact, an image prompt, sessions + switch + new, and the TUI ha
     await c.waitFor((x) => idle(x) && x.state.sessionFile === first && x.items.some((i) => i.text === "Red."), 5000);
     assert.ok((c.items as any[]).some((i) => i.kind === "notice" && /^Compacted the conversation \(\d+k tokens before\)\.$/.test(i.text)), "the compaction shows in history");
     h.artifact("claude-session-ops");
+  } finally {
+    await h.stop();
+  }
+});
+
+/**
+ * A session started in Code Mode, in the shapes Claude Code 2.1.329 writes
+ * (made up, not copied): its `repl-mode` record, one round trip calling REPL
+ * and Poll, the REPL's "(dispatched #1)", the Poll's event, the call the code
+ * made as virtual records (no message of the model's), then the answer.
+ */
+function codeModeTranscript(id: string, cwd: string): string {
+  const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s)).toISOString();
+  const rec = (uuid: string, parentUuid: string | null, s: number, more: object) => ({ uuid, parentUuid, sessionId: id, cwd, isSidechain: false, timestamp: at(s), ...more });
+  const model = (mid: string, content: object[], stop_reason: string) => ({ type: "assistant", message: { id: mid, role: "assistant", model: "claude-opus-5-5", content, stop_reason } });
+  const rows = [
+    { type: "repl-mode", replMode: true, sessionId: id },
+    rec("u1", null, 0, { type: "user", message: { role: "user", content: "Count the files" } }),
+    rec("a1", "u1", 1, model("msg_1", [{ type: "tool_use", id: "toolu_repl", name: "REPL", input: { code: "const out = await $`ls`.text();\nout.split('\\n').length", description: "Count the files" } }], "tool_use")),
+    rec("a2", "a1", 1, model("msg_1", [{ type: "tool_use", id: "toolu_poll", name: "Poll", input: {} }], "tool_use")),
+    rec("u2", "a1", 2, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_repl", content: "(dispatched #1)", is_error: false }] }, toolUseResult: { code: "…", result: "(dispatched #1)", stdout: "", stderr: "", evalId: 1, asyncDispatched: true } }),
+    rec("u3", "a2", 3, { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_poll", content: '<event nonce="n1" kind="repl-eval" eval="1" status="settled">\n<result>2</result>\n</event>', is_error: false }] } }),
+    rec("v1", "u3", 3, { type: "assistant", isVirtual: true, madeBy: "other", message: { id: "virtual-1", role: "assistant", model: "<synthetic>", content: [{ type: "tool_use", id: "repl_1", name: "Bash", input: { command: "ls" } }], stop_reason: "stop_sequence" } }),
+    rec("v2", "v1", 3, { type: "user", isVirtual: true, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "repl_1", content: "", is_error: false }] }, toolUseResult: { stdout: "a.ts\nb.ts", stderr: "" } }),
+    rec("a3", "v2", 4, model("msg_2", [{ type: "text", text: "Two files." }], "end_turn")),
+  ];
+  return rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
+}
+
+test("claude: a Code Mode session is listed by its messages, and switching to it is refused (Claude Code resumes it only in its terminal)", async () => {
+  const h = await startClaude({ name: "claude-code-mode", speed: 4, scenario: { default: [{ text: "ok: {prompt}" }] } });
+  try {
+    const c = h.client;
+    await c.waitFor(idle, 10_000);
+    await c.req("send", { text: "plan the release" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: plan the release"), 5000);
+    const own = c.state.sessionFile;
+    const id = "c0de0000-0000-4000-8000-000000000001";
+    const file = join(dirname(own), `${id}.jsonl`);
+    writeFileSync(file, codeModeTranscript(id, h.cwd));
+
+    let listed: any;
+    for (let i = 0; i < 50 && !listed; i++) {
+      const d = await c.req("sessions", { refresh: i === 0 });
+      if (!d.loading) listed = d.sessions;
+      else await new Promise((r) => setTimeout(r, 100));
+    }
+    const row = listed.find((s: any) => s.path === file);
+    assert.deepEqual([row?.firstMessage, row?.messageCount], ["Count the files", 3], "the prompt and the model's two messages: the call its code made isn't one");
+
+    await assert.rejects(c.req("switch_session", { path: file }), new RegExp(`Code Mode, which Claude Code resumes only in its terminal for now: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --resume ${id}$`));
+    assert.equal(c.state.sessionFile, own, "the chat stays on its own session");
+    await c.req("send", { text: "still here" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: still here"), 5000, "the chat's agent still answers");
   } finally {
     await h.stop();
   }

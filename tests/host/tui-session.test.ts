@@ -19,7 +19,7 @@ function ask(provider: string, pid: number, cwd: string, env: Record<string, str
   return r.status === 0 ? { ok: JSON.parse(r.stdout) } : { error: r.stderr.trim() };
 }
 
-test("tui-session: Pi by its label (with the session's model and thinking), Claude Code by its registry, Codex by its newest rollout in the folder", async () => {
+test("tui-session: Pi by its label (with the session's model and thinking), Claude Code by its registry (a Code Mode session refused), Codex by its newest rollout in the folder", async () => {
   const d = realpathSync(mkdtempSync(join(tmpdir(), "herdr-chat-tui-")));
   const cwd = join(d, "repo");
   mkdirSync(cwd);
@@ -42,6 +42,10 @@ test("tui-session: Pi by its label (with the session's model and thinking), Clau
     mkdirSync(project, { recursive: true });
     writeFileSync(join(project, "abc-123.jsonl"), jsonl([{ type: "user", message: { role: "user", content: "hi" } }]));
     assert.equal(ask("claude", pid, cwd, { CLAUDE_CONFIG_DIR: claude }).ok?.session, join(project, "abc-123.jsonl"));
+    // A Code Mode session (its `repl-mode` record): Claude Code resumes it only in its terminal, so it's refused
+    // before the TUI is stopped.
+    writeFileSync(join(project, "abc-123.jsonl"), jsonl([{ type: "repl-mode", replMode: true, sessionId: "abc-123" }, { type: "user", message: { role: "user", content: "hi" } }]));
+    assert.match(ask("claude", pid, cwd, { CLAUDE_CONFIG_DIR: claude }).error!, /runs in Code Mode, which Claude Code resumes only in its terminal/);
     const other = spawn("sleep", ["30"], { stdio: "ignore" });
     try {
       assert.match(ask("claude", other.pid!, cwd, { CLAUDE_CONFIG_DIR: claude }).error!, /didn't register this process/);
