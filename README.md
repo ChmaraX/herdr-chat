@@ -136,7 +136,8 @@ another URL with GitHub's release JSON.
 
 ## Limitations
 
-- **macOS only.** Spaces on other machines still open the agent's TUI.
+- **macOS only.** Chats run on this computer only: in another machine's space,
+  New chat and Continue as chat say so.
 - **Run the install again after a Herdr update.** The agents list and the
   right-click menu are copies of Herdr's, made at install time.
 - **Continue as chat on Codex guesses the session** when Codex runs on its

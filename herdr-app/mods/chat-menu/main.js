@@ -6,7 +6,8 @@
 // Codex, idle or done), a sub-agent or a top-level TUI in its own pane:
 // Continue as chat, which hands it over to a chat on its session (new-chat's
 // continueAsChat, run by the layout's always-shown new-chat copy, since this
-// menu closes first); disabled, with "Wait for the run to end", while it works.
+// menu closes first); disabled, with "Wait for the run to end", while it works,
+// and with "On <machine>" for another machine's agent.
 // Every other menu is the shipped one, drawn by it. The layout's root
 // terminal_menu points here (install.sh).
 
@@ -28,34 +29,34 @@ const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
 const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex" };
 const agentOf = (t) => [t?.program?.key, t?.app, t?.status?.app, t?.report?.app, t?.agent].map((a) => HERDR_AGENTS[a]).find(Boolean) ?? null;
 
-/** Why a terminal can't continue as a chat (null: it can; `working`: once its run ends). A copy of new-chat's. */
+/** Why a terminal can't continue as a chat (null: it can; `note`: shown disabled with it). A copy of new-chat's. */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
-  // Another machine's terminal ("box/t7"): its agent runs there, and a chat's host would run here.
-  const machine = machineOf(t.address);
-  if (machine) return { why: `on ${machine}: chats run on this computer only`, machine };
   if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
   if (!agentOf(t)) return { why: "not an agent's TUI" };
+  // Another machine's agent ("box/t7"): it runs there, and a chat's host would run here.
+  const machine = machineOf(t.address);
+  if (machine) return { why: `This agent runs on ${machine}: chats run on this computer only.`, note: `On ${machine}` };
   const st = word(t.status);
-  if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
+  if (st === "working" || st === "blocked") return { why: "Wait for the run to end, then Continue as chat.", note: "Wait for the run to end" };
   if (!["idle", "done"].includes(st)) return { why: `status ${st}` };
   return null;
 }
 
-/** The machine of another computer's terminal address ("box" for "box/t7"), null for one of this computer's. A copy of new-chat's. */
+/** The machine of another computer's terminal address ("box" for "box/t7"), null for one of this computer's
+ *  (hc addresses this computer's terminals by bare ID). A copy of new-chat's. */
 export function machineOf(address) {
   const s = String(address ?? ""), at = s.indexOf("/");
   return at > 0 ? s.slice(0, at) : null;
 }
 
-/** An agent's TUI (sub-agent or top-level) the menu offers Continue as chat for: {address, working}, else null.
- *  `machine`: an agent of another computer's, shown with why it can't. */
+/** An agent's TUI (sub-agent or top-level) the menu shows Continue as chat for: {address, note}, else null.
+ *  `note`: why it's disabled (null: enabled). */
 export function tuiOf(p) {
   if (p?.tab !== "pane") return null;
   const t = terminals().find((x) => x.address === p.target?.terminal);
   const no = cantContinue(t);
-  if (no?.machine) return agentOf(t) ? { address: t.address, working: false, machine: no.machine } : null;
-  return !no ? { address: t.address, working: false } : no.working ? { address: t.address, working: true } : null;
+  return !no ? { address: t.address, note: null } : no.note ? { address: t.address, note: no.note } : null;
 }
 
 // With <appHome>/data/herdr-chat/debug/enabled (the E2E): the menu's terminal and why it isn't offered.
@@ -96,9 +97,8 @@ export default class ChatMenu extends Menu {
     if (c) return this.chatItems(c);
     const tui = tuiOf(props());
     if (!tui) return [];
-    // Another computer's agent, or while the agent works: shown, disabled (no action), with why.
-    if (tui.machine) return [["Continue as chat", null, `On ${tui.machine}`]];
-    return [tui.working ? ["Continue as chat", null, "Wait for the run to end"] : ["Continue as chat", () => run(`new-chat.continue:${tui.address}`)]];
+    // Another machine's agent, or while the agent works: shown, disabled (no action), with why.
+    return [tui.note ? ["Continue as chat", null, tui.note] : ["Continue as chat", () => run(`new-chat.continue:${tui.address}`)]];
   }
 
   pick(fn) {
