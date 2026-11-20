@@ -55,8 +55,7 @@ PY
     [ "$(d 'd["items"][0]["kind"]')" = tool ] && ok "the snapshot starts inside a tool group ($(d 'd["items"][0]["id"]'))" || note "the snapshot starts with a $(d 'd["items"][0]["kind"]'), not inside a tool group"
     visible
     if needs_frames "zoom $Z: the scroll steps"; then
-      ZWANT=$(python3 -c "print(round(float($Z), 3))")
-      expect '[ "$(d "round(d[\"scale\"], 3)")" = "$ZWANT" ]' "the timeline measured the zoom ($Z)" 5
+      expect '[ "$(d "abs(d[\"scale\"] - $Z) < 0.001")" = true ]' "the timeline measured the zoom ($Z)" 5
       zsteps bottom 20 "$Z" bottom
       if [ "$Z" = 1.2 ]; then
         step "zoom 1.2 → 1 → 1.5 → 1.2 while scrolled up: the row at the top stays"
