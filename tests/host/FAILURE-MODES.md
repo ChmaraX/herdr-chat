@@ -98,6 +98,10 @@ the test that has to catch it; "not covered" rows are known gaps
 | The chat resumes the old session after a fork or /resume in the TUI | `handoff.test.ts` "forks and exits" |
 | Resuming while the TUI still writes the session | `handoff.test.ts` "terminal is killed": waits for the TUI's pid |
 | Two chats write one session | `conflict.test.ts`: phase `conflict`, `take_over`; Claude's registry; `codex-lifecycle.test.ts` active writer |
+| Two hosts serve one chat (two starts at once: both register, both start an agent on the session) | `one-host.test.ts` "N hosts started at once": one serves, the registry names it, the rest exit 3 with the error, one agent process; E2E `one-host`: six restarts under mod reloads, one host each, none refused |
+| Two takers of a dead host's claim both win; a reused pid keeps a dead claim | `claim.test.ts`: 8 contenders at one instant, 12 rounds through fresh, released, SIGKILLed and pid-reused claims; `one-host.test.ts` "SIGKILL", "pid reuse" |
+| A restart can't start (the old host's claim not released) | `one-host.test.ts` "a restart": shutdown then a new host, SIGTERM then a new host; `after-pid.test.ts` |
+| A second host from before the claim shares the chat's session | `one-host.test.ts` "a host from before the claim": the new host is in `conflict`, starts no agent; E2E `one-host`: the sweep ends the host the registry doesn't name |
 
 ## Reconnect
 

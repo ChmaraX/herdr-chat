@@ -56,9 +56,39 @@ The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
 - `stateDir` is passed on the host command line (`--state-dir`). The mod uses
   `appHome() + "/data/herdr-chat"`.
 - **Atomic write:** write a temp file, then rename it over the old one.
-- `terminal` is `$HC_TERMINAL_ID` of the host's terminal.
+- `terminal` is `$HC_TERMINAL_ID` of the host's terminal. It is how the mod
+  knows which terminal is the chat's host (connection.js `registeredHost`):
+  the herdr-chat.chat label alone doesn't say, since a starting, refusing or
+  older second host carries it too.
+- Only the chat's host writes it: the one holding the chat's claim (below).
 - On clean exit the host rewrites the file with `pid: null, port: null, wsPort: null` and
   keeps `sessionFile`, so a client can restart the chat on the same session.
+  It does so only while the file still names it (a second host from before
+  the claim may have written it since).
+
+### One host per chat (the claim)
+
+A chat has one host process. Before anything else (the registry, the chat's
+images, the agent), `serve` claims the chat (`host/claim.ts`):
+
+- `<stateDir>/chats/<chat>.lock/` holds numbered generations `<n>.json`,
+  each `{pid, started, terminal, at}` (`started`: the process's start time as
+  `ps -o lstart` prints it). The highest is the chat's claim.
+- A host claims by reading the highest, n. If that host still runs (its pid
+  is alive with the same start time, and it hasn't written `<n>.released`),
+  it refuses: `herdr-chat-host: chat <id> already has a host (pid P,
+  terminal T): not starting a second one` on stderr, the same line (`refused:`)
+  in the chat's log, exit code 3. Otherwise it creates n + 1 with an
+  exclusive link of a file it wrote first. Of several racing hosts exactly
+  one creates n + 1; the rest read it, live, and refuse.
+- A host that dies without releasing (SIGKILL, a crash) leaves its
+  generation; the next host takes it over (its log says `took over the claim
+  of a host that died`). A pid reused by another process has another start
+  time, so it doesn't hold the chat.
+- On exit (any way but SIGKILL) the host writes `<n>.released`, last, after
+  the registry. A restart (the old host shuts down, then the mod starts a new
+  one) and `--after-pid` (the new host waits for the TUI's pid after it has
+  claimed the chat) are unaffected.
 - A client treats the host as alive only after a successful `hello`/`welcome`.
   A `pid` alone doesn't prove it.
 
@@ -459,7 +489,8 @@ phase: … | "conflict";               // new value: another live writer has the
 handoff: { argv: string[]; terminal: string | null; since: number } | null;
   // set by `handoff` (argv = the TUI command, terminal = null until `handoff_started`), cleared on resume
 conflict: { chat: string | null; terminal: string | null; pid: number | null } | null;
-  // chat/terminal/pid of the other chat's host (from its session lock);
+  // chat/terminal/pid of the other chat's host (from its session lock). chat may be this same chat: a
+  // second host of it from before the claim ("One host per chat"); the mod's sweep ends that one;
   // chat: null = an agent process outside any chat (Claude Code's ~/.claude/sessions registry, Codex "active writer"; pid null when Codex doesn't say)
 queue: { steering: string[]; followUp: string[];
          steeringFrom?: (string | null)[]; followUpFrom?: (string | null)[] };
