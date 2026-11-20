@@ -87,20 +87,47 @@ export function agentPid(info, agent) {
   return null;
 }
 
-/** The agent among a process's children ({pid, argv} from `ps`), else null: a terminal whose own command started
- *  the agent (`fish -ic 'claude --resume …; exec fish -i'`, `zsh -c 'claude'`) has that shell in its foreground. */
-export function agentChild(children, agent) {
-  return children.find((c) => c.pid > 0 && isAgent(c.argv, agent))?.pid ?? null;
+/**
+ * The agent among a process's descendants, from a process table (`ps`: [{pid, ppid, argv}]), as
+ * {pid} or {several: [pids]}, else null. A terminal whose own command started the agent
+ * (`fish -ic 'claude --resume …; exec fish -i'`, `zsh -c 'npx claude'`) has a shell in its foreground and the
+ * agent somewhere under it. An agent under another match (a launcher re-running itself) is that one, so only the
+ * topmost count; two of them (`claude & claude`) is ambiguous, and the caller refuses rather than signal either.
+ */
+export function agentUnder(table, root, agent) {
+  const kids = new Map();
+  for (const p of table) if (p.pid !== p.ppid) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p]);
+  const found = [];
+  const walk = (pid, depth) => {
+    for (const c of kids.get(pid) ?? []) {
+      if (isAgent(c.argv, agent)) found.push(c.pid);
+      else if (depth < 16) walk(c.pid, depth + 1);
+    }
+  };
+  walk(root, 0);
+  if (found.length > 1) return { several: found };
+  return found.length ? { pid: found[0] } : null;
 }
 
-/** A process's children as {pid, argv} (argv split on spaces: enough for the program's name), or []. */
-async function childrenOf(pid) {
-  const kids = await exec("pgrep", ["-P", String(pid)]);
-  const pids = kids.stdout.split("\n").map(Number).filter((n) => n > 0);
-  if (!pids.length) return [];
-  const ps = await exec("ps", ["-o", "pid=,command=", "-p", pids.join(",")]);
-  return ps.stdout.split("\n").map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter(Boolean)
-    .map((m) => ({ pid: Number(m[1]), argv: m[2].split(/\s+/) }));
+/**
+ * Every process as {pid, ppid, argv}: argv[0] from `comm` (the program's path, spaces and all), argv[1] the first
+ * word after it in `args` (a script: `node …/pi`). [] when `ps` fails.
+ */
+async function processTable() {
+  const [c, a] = await Promise.all([exec("ps", ["-A", "-o", "pid=,ppid=,comm="]), exec("ps", ["-A", "-o", "pid=,args="])]);
+  if (c.code !== 0) return [];
+  const args = new Map();
+  for (const l of a.stdout.split("\n")) { const m = l.match(/^\s*(\d+) (.*)$/); if (m) args.set(Number(m[1]), m[2]); }
+  const out = [];
+  for (const l of c.stdout.split("\n")) {
+    const m = l.match(/^\s*(\d+)\s+(\d+) (.*)$/);
+    if (!m) continue;
+    const [pid, ppid, comm] = [Number(m[1]), Number(m[2]), m[3].trim()];
+    const line = args.get(pid) ?? "";
+    const rest = line.startsWith(comm) ? line.slice(comm.length) : line.replace(/^\S+/, "");
+    out.push({ pid, ppid, argv: [comm, rest.trim().split(/\s+/)[0] ?? ""] });
+  }
+  return out;
 }
 
 async function chatConfig() {
@@ -140,9 +167,14 @@ export async function continueAsChat(addr, cx) {
   const g = await hc(["get", t.address, "--json"]);
   if (g.code !== 0) throw new Error(`hc get ${t.address}: ${g.stderr.trim()}`);
   const info = JSON.parse(g.stdout);
-  const shell = info.foreground?.pid ?? info.pid;
-  const pid = agentPid(info, agent) ?? (shell ? agentChild(await childrenOf(shell), agent) : null);
-  if (!pid) throw new Error(`no ${NAMES[agent]} process in ${t.address} (its foreground is ${info.foreground?.argv?.[0] ?? "unknown"})`);
+  let pid = agentPid(info, agent);
+  if (!pid) {
+    const shell = info.foreground?.pid ?? info.pid;
+    const under = shell ? agentUnder(await processTable(), shell, agent) : null;
+    if (under?.several) throw new Error(`${under.several.length} ${NAMES[agent]} processes under ${t.address}'s foreground (pids ${under.several.join(", ")}): not sure which is the TUI, so none is stopped`);
+    pid = under?.pid;
+  }
+  if (!pid) throw new Error(`no ${NAMES[agent]} process in ${t.address} (its foreground is ${info.foreground?.argv?.[0] ?? "unknown"}, and none runs under it)`);
   const cwd = info.foreground?.cwd || t.cwd || "/";
   const cfg = await chatConfig();
   const found = await tuiSession(cfg, agent, pid, cwd, t.labels?.["herdr-chat.session"] ?? null);
