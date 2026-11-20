@@ -22,6 +22,7 @@
 //   node install/keys.ts uninstall <app home>
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { keyLabel } from "../herdr-app/mods/chat/keylabel.js";
 
 type Json = any;
 export const NAMES = ["open", "pi", "claude", "codex", "continue"] as const;
@@ -36,17 +37,9 @@ export function defaults(platform: string): { open: string; fallback: string | n
   return platform === "darwin" ? { open: "cmd-i", fallback: "cmd-j a" } : { open: "ctrl-alt-shift-p", fallback: null };
 }
 
-/** "cmd-j a" → "⌘J A" (macOS), "Ctrl+Alt+Shift+P" elsewhere. */
+/** "cmd-j a" → "⌘J A" (macOS), "Super+J A" elsewhere: the chat's own key names (keylabel.js). */
 export function pretty(chord: string, platform: string): string {
-  const mac = platform === "darwin";
-  const SYM: Record<string, string> = mac ? { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" } : { cmd: "Ctrl+", ctrl: "Ctrl+", alt: "Alt+", shift: "Shift+" };
-  const KEY: Record<string, string> = { enter: "↩", escape: "Esc", space: "Space", tab: "⇥", backspace: "⌫", up: "↑", down: "↓", left: "←", right: "→" };
-  return chord.split(" ").map((step) => {
-    const parts = step.endsWith("--") ? [...step.slice(0, -2).split("-"), "-"] : step.split("-");
-    const key = parts.pop()!;
-    const k = KEY[key] ?? (key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1));
-    return parts.map((m) => SYM[m] ?? `${m}+`).join("") + k;
-  }).join(" ");
+  return keyLabel(chord, platform === "darwin");
 }
 
 /** The person's choices: chords per name (`null`: unbound, `undefined`: the default), and what's wrong in the file. */

@@ -11,6 +11,7 @@
 import { appHome, readTextFile } from "herdr";
 import { MOD } from "./util.js";
 import { MAC } from "./platform.js";
+import { keyLabel as label } from "./keylabel.js";
 
 export const DEFAULTS_FILE = MAC ? "keys.default.json" : "keys.default.linux.json";
 
@@ -119,24 +120,7 @@ export function keyHint(a) {
   return k ? keyLabel(k) : null;
 }
 
-const GLYPH = { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" };
-const ORDER = ["ctrl", "alt", "shift", "cmd"];
-const NAMES = { tab: "⇥", enter: "↩", escape: "Esc", up: "↑", down: "↓", left: "←", right: "→", space: "Space", backspace: "⌫" };
-
-// Off macOS, keys are written out as Herdr writes them there ("Ctrl+Shift+P").
-const WORD = { cmd: "Super", ctrl: "Ctrl", alt: "Alt", shift: "Shift" };
-const KEY_WORDS = { tab: "Tab", enter: "Enter", escape: "Esc", up: "↑", down: "↓", left: "←", right: "→", space: "Space", backspace: "Backspace" };
-
-export function keyLabel(chord, mac = MAC) {
-  return chord.split(" ").map((step) => {
-    const parts = step.split("-");
-    // "cmd--" (minus) splits into an empty last part
-    const key = parts[parts.length - 1] === "" ? "-" : parts.pop();
-    const mods = ORDER.filter((x) => parts.includes(x));
-    const name = (mac ? NAMES : KEY_WORDS)[key] ?? (key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1));
-    return mac ? mods.map((x) => GLYPH[x]).join("") + name : [...mods.map((x) => WORD[x]), name].join("+");
-  }).join(" ");
-}
+export const keyLabel = (chord, mac = MAC) => label(chord, mac);
 
 // "Model · /model · ⇧⌘M": a tooltip with the key when one is bound.
 export function withKey(text, a) {
