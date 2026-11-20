@@ -9,6 +9,7 @@ import { Attachments } from "./attachments.ts";
 import { ChatServer } from "./server.ts";
 import { Terminal } from "./terminal.ts";
 import { writeRegistry, readRegistry, pidAlive } from "./registry.ts";
+import { claimChat } from "./claim.ts";
 import type { RegistryEntry } from "./registry.ts";
 import { ChatClient, parseWait } from "./client.ts";
 import { createAdapter, DEFAULT_PROVIDER, providerNames, tuiSession } from "./providers/index.ts";
@@ -33,6 +34,9 @@ herdr-chat-host op      --chat <id> --state-dir <dir> <op> ['<json args>']
 herdr-chat-host build
   (this host's {version, build} as JSON: the install records it, so a chat can tell a host older than the install)`;
 
+/** serve's exit when another live host has the chat (claim.ts). */
+const EXIT_CHAT_TAKEN = 3;
+
 function die(msg: string): never {
   process.stderr.write(`herdr-chat-host: ${msg}\n`);
   process.exit(2);
@@ -49,9 +53,28 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   const stateDir = resolve(a.flags.get("state-dir")?.[0] ?? defaultStateDir());
   const sessionArg = a.flags.get("session")?.[0];
   const session = sessionArg ? resolve(sessionArg) : null;
+  const terminalId = process.env.HC_TERMINAL_ID ?? null;
+  const logDir = join(stateDir, "logs");
+  mkdirSync(logDir, { recursive: true, mode: 0o700 });
+  const logFile = join(logDir, `${chatId}.log`);
+  const log = (msg: string) => {
+    try {
+      appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`);
+    } catch {}
+  };
   const previous = readRegistry(stateDir, chatId);
   const provider = a.flags.get("provider")?.[0] ?? previous?.provider ?? DEFAULT_PROVIDER;
   if (!providerNames().includes(provider)) die(`unknown --provider ${provider} (known: ${providerNames().join(", ")})`);
+  // One host per chat (claim.ts): before the registry, the chat's files or the agent.
+  const claimed = claimChat(stateDir, chatId, terminalId);
+  if (!claimed.ok) {
+    const h = claimed.holder;
+    const msg = `chat ${chatId} already has a host (pid ${h.pid}${h.terminal ? `, terminal ${h.terminal}` : ""}): not starting a second one`;
+    log(`refused: ${msg} (pid=${process.pid}${terminalId ? ` terminal=${terminalId}` : ""})`);
+    process.stderr.write(`herdr-chat-host: ${msg}\n`);
+    process.exit(EXIT_CHAT_TAKEN);
+  }
+  if (claimed.tookOver) log(`took over the claim of a host that died (pid ${claimed.tookOver.pid})`);
   const agentCommand = a.flags.get(provider)?.[0];
   // --after-pid: the Pi TUI this chat takes over (chat-menu's Continue as
   // chat), waited for while it lives; --model provider/id and --thinking: the
@@ -62,16 +85,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   const handOver = Boolean(afterPid && session && (!previous || pidAlive(afterPid)));
   const handModel = handOver ? a.flags.get("model")?.[0] ?? null : null;
   const handThinking = handOver ? a.flags.get("thinking")?.[0] ?? null : null;
-  const terminalId = process.env.HC_TERMINAL_ID ?? null;
   const token = randomBytes(32).toString("hex");
-  const logDir = join(stateDir, "logs");
-  mkdirSync(logDir, { recursive: true, mode: 0o700 });
-  const logFile = join(logDir, `${chatId}.log`);
-  const log = (msg: string) => {
-    try {
-      appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`);
-    } catch {}
-  };
   const adapter = createAdapter(provider, { cwd, args: a.after, log, ...(agentCommand ? { command: agentCommand } : {}) });
   log(`serve chat=${chatId} cwd=${cwd} session=${session ?? "-"} provider=${provider} cmd=${agentCommand ?? "(default)"} pid=${process.pid}`);
 
@@ -85,13 +99,21 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     sessionFile: session ?? (previous?.provider === provider ? previous?.sessionFile ?? null : null),
     terminal: terminalId, startedAt, agentVersion: null, ...hostBuild(),
   };
+  // Only the chat's claim holder writes the registry: none after the claim is released.
+  let holding = true;
   const save = (patch: Partial<RegistryEntry>) => {
     entry = { ...entry, ...patch };
+    if (!holding) return;
     try {
       writeRegistry(stateDir, entry);
     } catch (e) {
       log(`registry write failed: ${e}`);
     }
+  };
+  // The claim goes last on the way out: the next host of this chat may start as soon as it does.
+  const release = () => {
+    holding = false;
+    claimed.release();
   };
 
   let shuttingDown = false;
@@ -152,13 +174,17 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     } catch {}
     chat.releaseLock();
     save({ pid: null, port: null, wsPort: null });
+    release();
     term.status("idle");
     term.close();
     await server.close().catch(() => {});
     process.exit(code);
   };
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(sig, () => void exit(0));
-  process.on("exit", () => chat.killAgent());
+  process.on("exit", () => {
+    chat.killAgent();
+    release();
+  });
   process.on("uncaughtException", (e) => {
     log(`uncaught: ${e?.stack ?? e}`);
   });

@@ -45,7 +45,7 @@ function log(rec) {
   if (LOG) appendFileSync(LOG, JSON.stringify(rec) + "\n");
 }
 // The first log line records how fake-pi was started (argv and the env a host sets).
-log({ type: "_start", argv, env: { HERDR_CHAT_HOST: process.env.HERDR_CHAT_HOST ?? null, HC_TERMINAL_ID: process.env.HC_TERMINAL_ID ?? null }, cwd: process.cwd() });
+log({ type: "_start", pid: process.pid, ppid: process.ppid, argv, env: { HERDR_CHAT_HOST: process.env.HERDR_CHAT_HOST ?? null, HC_TERMINAL_ID: process.env.HC_TERMINAL_ID ?? null }, cwd: process.cwd() });
 
 // ---------- stdin framing (LF only, never U+2028) ----------
 let stdinBuf = Buffer.alloc(0);
