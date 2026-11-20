@@ -12,7 +12,6 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT } from "./harness.ts";
 import { agentsBase, writeBases } from "../../install/mods.ts";
-import { defaults as keyDefaults, pretty } from "../../install/keys.ts";
 
 const LAYOUT = join(ROOT, "install", "layout.ts");
 
@@ -161,7 +160,8 @@ function keysHome(o: { keys?: object; mine?: object; record?: object } = {}) {
   writeFileSync(join(h, "data", "herdr-chat", "install.json"), JSON.stringify(o.record ?? { version: 2, global: { "cmd-j shift-p": { action: "mod.open:new-chat", was: null } } }));
   return h;
 }
-const keys = (cmd: string, h: string, ...a: string[]) => execFileSync(process.execPath, [KEYS, cmd, h, "--platform", "darwin", ...a], { encoding: "utf8" });
+const keysOn = (platform: string, cmd: string, h: string, ...a: string[]) => execFileSync(process.execPath, [KEYS, cmd, h, "--platform", platform, ...a], { encoding: "utf8" });
+const keys = (cmd: string, h: string, ...a: string[]) => keysOn("darwin", cmd, h, ...a);
 const global = (h: string) => JSON.parse(readFileSync(join(h, "keys.json"), "utf8")).global;
 
 test("keys: the default (⌘I opens the launcher), the older install's cmd-j shift-p taken out, a second install changes nothing", () => {
@@ -176,6 +176,13 @@ test("keys: the default (⌘I opens the launcher), the older install's cmd-j shi
   const once = readFileSync(join(h, "keys.json"), "utf8");
   keys("install", h);
   assert.equal(readFileSync(join(h, "keys.json"), "utf8"), once);
+});
+
+test("keys: each platform names the keys its own way: macOS glyphs in Apple's order, words with Super first on Linux", () => {
+  const mine = { global: { claude: "cmd-alt-k", codex: "shift-ctrl-x" } };
+  const last = (platform: string) => keysOn(platform, "install", keysHome({ mine })).trim().split("\n").at(-1);
+  assert.equal(last("darwin"), "New chat: ⌘I · Claude Code chat: ⌥⌘K · Codex chat: ⌃⇧X");
+  assert.equal(last("linux"), "New chat: Ctrl+Alt+Shift+P · Claude Code chat: Super+Alt+K · Codex chat: Ctrl+Shift+X");
 });
 
 test("keys: chords the person chose replace what had them; uninstall gives back exactly that keys.json (without the older install's key)", () => {
@@ -321,8 +328,7 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   const before = { layout: read(app, "mine"), keys: readFileSync(join(app, "keys.json"), "utf8") };
 
   const quiet = sh("--no-subagents");
-  // The launcher's default chord on this platform: ⌘I on macOS, Ctrl+Alt+Shift+P elsewhere.
-  const open = pretty(keyDefaults(process.platform).open, process.platform);
+  const open = process.platform === "darwin" ? "⌘I" : "Ctrl+Alt+Shift+P";
   assert.equal(quiet.trim().split("\n").at(-1), `  keys       New chat: ${open}`, "the summary's last line: the real chord");
   assert.match(quiet, /^ {2}templates  none \(--no-subagents\)$/m);
   assert.match(quiet, /^herdr-chat: Herdr 9\.0\.0 is newer than the tested .*\n/, "the warning first, then the install");
