@@ -8,9 +8,13 @@
 // A new row is drawn in the frame that makes room for it, with no fade: the
 // rows above move at once, so a fade would show a blank hole first (#16).
 //
-// Every height here is in layout px, the unit top() and bottom() take. With
-// the app's UI zoom other than 1, on_size_change reports zoomed px instead, so
-// a 100 px probe measures the ratio and each measure is divided by it (#28).
+// Every height and offset here is in layout px, the unit top() and bottom()
+// take. What the window reports (on_size_change, a wheel's delta) is in window
+// pt, layout px × the UI zoom: `scale()` (the mod's, util.js uiScale) converts
+// each one where it's read (#28). A row's height in layout px doesn't change
+// with the zoom (its text sizes are layout px), so a stored height stays right
+// across a zoom change; the viewport's doesn't, so viewH is derived from its
+// reported height at the current scale.
 
 import { div } from "gpui-kit";
 import { v_flex } from "gpui-base";
@@ -19,20 +23,23 @@ const OVERSCAN = 400;
 const EST = { user: 80, assistant: 120, thinking: 34, tool: 44, notice: 32, custom: 56, group: 40, footer: 32, activity: 38 };
 
 export class Timeline {
-  constructor(id) {
+  // scale(): window pt per layout px, read when a size or a wheel event comes in.
+  constructor(id, scale) {
     this.id = id;
+    this.scale = scale;
     this.heights = new Map();
     this.offsets = new Map();
     this.sticky = true;
     this.top = 0;
-    this.viewH = 0;
     this.total = 0;
     this.shown = [];
-    this.scale = 1; // px on_size_change reports per layout px: the UI zoom, measured by the probe
-    this.probed = false; // the probe has reported; until then measures are kept as reported (scale 1)
-    this.viewRaw = 0; // the viewport's height as reported (zoomed)
+    this.viewPt = 0; // the viewport's height as reported (window pt)
     this.anchor = null; // history went in front: the rows on screen, to keep where they were [{id, dy}]
     this.heightsSeen = null; // debug only (trace()): row id → [[ms, height]…], the heights it was measured at
+  }
+
+  get viewH() {
+    return this.viewPt / this.scale();
   }
 
   h(r) {
@@ -50,11 +57,9 @@ export class Timeline {
     if (this.top >= this.total - this.viewH - 2) this.sticky = true;
   }
 
-  // Debug: the row at the viewport's top and its y (layout px, 0 or above).
-  atTop() {
-    let at = null;
-    for (const [id, o] of this.offsets) if (o <= this.top + 0.5) at = { id, y: Math.round(o - this.top) };
-    return at;
+  // Debug: the rows built, in order, each with its y in the viewport (layout px).
+  rowsAt() {
+    return [...this.offsets].map(([id, o]) => ({ id, y: Math.round(o - this.top) }));
   }
 
   trace(debug) {
@@ -74,30 +79,6 @@ export class Timeline {
     this.anchor = this.shown.map((id) => ({ id, dy: (this.offsets.get(id) ?? 0) - this.top }));
   }
 
-  // The probe's report: the zoom, first measured or changed. A row's height
-  // in layout px doesn't change with the zoom (a row that rewraps is measured
-  // again), so a later report only changes the viewport's height, and the rows
-  // on screen stay where they are. The first report converts what was
-  // measured before it, at scale 1, and what was laid out with those measures.
-  // The probe comes before the rows in the tree, so in a frame where the zoom
-  // changed it reports first and the rows' new measures use the new scale.
-  rescale(k) {
-    if (!(k > 0)) return false;
-    const first = !this.probed;
-    this.probed = true;
-    if (Math.abs(k - this.scale) < 0.001) return false;
-    if (first) {
-      const r = this.scale / k;
-      for (const [id, h] of this.heights) this.heights.set(id, h * r);
-      for (const [id, o] of this.offsets) this.offsets.set(id, o * r);
-      for (const a of this.anchor ?? []) a.dy *= r;
-      this.top *= r;
-    }
-    this.scale = k;
-    this.viewH = this.viewRaw / k;
-    return true;
-  }
-
   // items: the rows (rows.js); row(r): its element; onNearTop(): page older
   // items; thumb: the scrollbar's color (drawn at the pane's edge while scrolled up).
   view(items, row, { onNearTop, thumb } = {}) {
@@ -109,9 +90,9 @@ export class Timeline {
     }
     this.total = total;
     if (this.anchor) {
-      const at = new Map(items.map((it, i) => [it.id, i]));
-      const a = this.anchor.find((x) => at.has(x.id));
-      if (a && !this.sticky) this.top = offs[at.get(a.id)] - a.dy;
+      const indexById = new Map(items.map((it, i) => [it.id, i]));
+      const kept = this.anchor.find((x) => indexById.has(x.id));
+      if (kept && !this.sticky) this.top = offs[indexById.get(kept.id)] - kept.dy;
       this.anchor = null;
     }
     const rows = [];
@@ -137,7 +118,7 @@ export class Timeline {
     else if (this.sticky && total < this.viewH && onNearTop) onNearTop();
     const measured = (it) => div().id(`row-${it.id}`).w_full()
       .child(row(it)).on_size_change((s, cx) => {
-      const h = s.height / this.scale;
+      const h = s.height / this.scale();
       const old = this.heights.get(it.id);
       if (old !== undefined && Math.abs(old - h) < 0.01) return;
       const was = this.h(it); // the height it was laid out with: its last measure, else the estimate
@@ -151,17 +132,15 @@ export class Timeline {
     });
     return div().id(this.id).relative().flex_1().min_h(0).w_full().overflow_hidden()
       .on_size_change((s, cx) => {
-        if (s.height === this.viewRaw) return;
-        this.viewRaw = s.height;
-        this.viewH = s.height / this.scale;
+        if (s.height === this.viewPt) return;
+        this.viewPt = s.height;
         cx.notify();
       })
       .on_scroll_wheel((e, cx) => {
         const before = [this.top, this.sticky];
-        this.scrollBy(e.delta.y);
+        this.scrollBy(e.delta.y / this.scale()); // window pt: the content follows the finger
         if (before[0] !== this.top || before[1] !== this.sticky) cx.notify();
       })
-      .child(div().absolute().top(0).left(0).w(1).h(100).on_size_change((s, cx) => this.rescale(s.height / 100) && cx.notify()))
       .child(place(v_flex().absolute().left(0).right(0)).children(rows.map((i) => measured(items[i]))))
       .when(!this.sticky && total > this.viewH && Boolean(thumb), (e) => {
         const h = Math.max(28, (this.viewH * this.viewH) / total);
