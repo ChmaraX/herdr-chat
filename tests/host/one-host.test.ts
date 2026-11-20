@@ -4,7 +4,7 @@
 // before they touch the registry or start an agent on the session.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { Host, idle, sleep, ARTIFACTS } from "./harness.ts";
 import { readRegistry, readLock } from "../../host/registry.ts";
@@ -183,5 +183,31 @@ test("one host per chat: a restart (the old host shuts down, then a new one star
     }
   } finally {
     for (const h of hosts) await h.stop();
+  }
+});
+
+test("one host per chat: a host from before the claim (none on disk) still runs the chat: a new host of it doesn't open the session beside it", async () => {
+  const { dir, chat, session } = await chatWithSession("legacy");
+  const old = await new Host({ name: "legacy-old", dir, chat, session }).start();
+  let b: Host | null = null;
+  try {
+    await old.client.waitFor(idle, 10_000);
+    // A host before 0.6 made no claim: the old host's goes, as if it never made one.
+    rmSync(claimDir(old.stateDir, chat), { recursive: true, force: true });
+    const before = agents(join(dir, "pi-commands.jsonl")).length;
+    b = await new Host({ name: "legacy-new", dir, chat, session }).start();
+    await b.client.waitFor((x) => x.state.phase === "conflict", 10_000, "conflict");
+    assert.deepEqual(b.client.state.conflict, { chat, terminal: null, pid: old.proc.pid });
+    assert.match(b.client.items.map((i) => i.text).join("\n"), /a second host of this chat/);
+    assert.equal(readLock(session)?.pid, old.proc.pid, "the old host keeps the session");
+    assert.deepEqual(agents(join(dir, "pi-commands.jsonl")).slice(before), [], "the new host started no agent");
+    // Once the old one is gone (the mod's sweep ends it), resume opens the session.
+    await old.stop();
+    await b.client.req("resume");
+    await b.client.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: before the restart"), 10_000, "opened after resume");
+    b.artifact("one-host-legacy-duplicate");
+  } finally {
+    await b?.stop();
+    await old.stop();
   }
 });
