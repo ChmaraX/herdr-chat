@@ -325,32 +325,21 @@ fi
 # --- flow `tui-under-command`: Continue as chat on a Pi its terminal's own command started -------------
 # A session restorer or a space's start command opens a terminal as `fish -ic 'claude --resume …; exec fish -i'`:
 # a shell without job control, so Herdr reports the shell as the foreground and the agent runs under it, in the
-# shell's process group. The host finds it there (herdr-chat-host tui-session --foreground). The fake Pi sets
-# process.title "pi", as real Pi does. Continue as chat's toasts are logged (artifact tuc-toasts.jsonl).
+# shell's process group. The host finds it there (herdr-chat-host tui-session). The fake Pi sets
+# process.title "pi", as real Pi does. new-chat's debug toast log is kept (artifact tuc-toasts.jsonl).
 # 1. Two Pis under one command (`pi & pi`): refused, with the reason in a toast, and neither is signalled.
 # 2. One Pi two levels down (zsh -c → sh -c → "My Tools/pi", a path with a space): the chat takes its place as
 #    in tui-in-place, and the shell's `exec zsh -i` leaves the pane to close.
 # 3. The command goes on after Pi quits (`…; sleep 5; exec zsh -i`): the pane stays while `sleep` runs (a toast
 #    says so), and the shell's prompt is still there after it.
+# 4. The shell after `exec zsh -i` starts a helper of its own (its rc runs `sleep 600 &`, a job in a group of its
+#    own, as a prompt's daemon): the shell is idle at its prompt, so the pane closes.
 if want tui-under-command; then
   step "tui-under-command: Pi TUIs started by their terminal's own command (zsh -c '…; exec zsh -i')"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
-  # The app has no list of its toasts: the private app's copy of new-chat logs each notify() it posts
-  # ({title, body, level}, one JSON line) to $TOASTS (where the mod may write), then posts it as before.
-  TOASTS="$STATE/debug/tuc-toasts.jsonl"; : >"$TOASTS"
-  python3 - "$HERDR_APP_HOME/mods/new-chat/main.js" "$TOASTS" <<'PY' || fail "add the toast log to the private new-chat"
-import re, sys
-path, out = sys.argv[1:]
-s = open(path).read()
-assert s.count("notify({") >= 2
-s = s.replace("notify({", "e2eNotify({")
-m = re.search(r'import \{[^}]*\} from "herdr";\n', s)
-s = s[:m.end()] + ('import * as e2eFs from "fs/promises";\nconst e2eLog = [];\n'
-    'const e2eNotify = (n) => { e2eLog.push(JSON.stringify({ title: n.title, body: n.body, level: n.level })); '
-    'e2eFs.writeFile(%r, e2eLog.join("\\n") + "\\n").catch(() => {}); return notify(n); };\n') % out + s[m.end():]
-open(path, "w").write(s)
-PY
-  sleep 1.5
+  # The app keeps no list of its toasts: with debug/enabled (lib.sh), new-chat appends each of its own to
+  # debug/new-chat-toasts.jsonl ({title, body, level}, one JSON line).
+  TOASTS="$STATE/debug/new-chat-toasts.jsonl"; : >"$TOASTS"
   toasts_since() { tail -n +"$(($1 + 1))" "$TOASTS"; }
   toast_mark() { wc -l <"$TOASTS" | tr -d ' '; }
   M=$(toast_mark); do_ "new-chat.continue:t999"
@@ -469,5 +458,29 @@ JS
   expect '[ "$(term_field "$SLOW" "t[\"foreground\"][\"pid\"]")" = "$(term_field "$SLOW" "t[\"pid\"]")" ] && ! pgrep -g "$(ps -o pgid= -p "$(term_field "$SLOW" "t[\"pid\"]")" | tr -d " ")" -f "^/bin/sleep" >/dev/null' "then sleep ends and the shell is at its prompt (exec zsh -i)" 10
   close_chat "$J"
   hc kill "$SLOW" >>"$LOG" 2>&1 || true
+
+  step "the interactive shell after Pi starts a helper (its rc: sleep 600 &): the shell is idle, so the pane closes"
+  ZD="$BASE/tuc-zdotdir"; mkdir -p "$ZD"
+  printf '/bin/sleep 600 &\n' >"$ZD/.zshrc"
+  start_tuc helper 4 "'$PIBIN' $BASE/fake-pi-under-cmd.mjs; ZDOTDIR='$ZD' exec /bin/zsh -i"
+  HELP=$TERMADDR
+  expect 'idle_pi "$HELP" && [ -n "$(pis_of helper)" ]' "Herdr reports an idle Pi under the terminal's shell" 10
+  PIPID=$(pis_of helper)
+  expect '[ -n "$(tab_of "$HELP")" ]' "the app shows the terminal in a tab" 10
+  HELPTAB=$(tab_of "$HELP")
+  HSH=$(term_field "$HELP" 't["pid"]')
+  BEFORE=$(chat_dumps); M=$(toast_mark)
+  do_ "new-chat.continue:$HELP"
+  expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 15
+  J=$(new_chat_since "$BEFORE")
+  expect '! kill -0 '"$PIPID"' 2>/dev/null' "Pi (pid $PIPID) quit on SIGTERM" 10
+  expect 'pgrep -P "$HSH" -f "^/bin/sleep 600$" >/dev/null' "the shell's rc started its helper (sleep 600, the shell's child)" 10
+  HPID=$(pgrep -P "$HSH" -f "^/bin/sleep 600$" | head -1)
+  note "helper $HPID: pgid $(ps -o pgid= -p "$HPID" | tr -d ' '); the shell $HSH: pgid $(ps -o pgid= -p "$HSH" | tr -d ' ')"
+  expect '! tab_panes "$HELPTAB" | grep -q "$HELP"' "the TUI's pane closed: the helper doesn't keep it" 10
+  [ -z "$(toasts_since "$M")" ] && ok "no toast" || fail "a toast: $(toasts_since "$M")"
+  close_chat "$J"
+  hc kill "$HELP" >>"$LOG" 2>&1 || true
+  [ -n "$HPID" ] && kill "$HPID" 2>/dev/null || true
   cp "$TOASTS" "$ART/tuc-toasts.jsonl"
 fi
