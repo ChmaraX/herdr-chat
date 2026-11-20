@@ -46,6 +46,19 @@ async function openChat(provider) {
   await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
 }
 
+// Each toast this mod posts, also as a JSON line in <appHome>/data/herdr-chat/debug/new-chat-toasts.jsonl while
+// debug/enabled exists (the E2E: the app keeps no list of its toasts). fs/promises has no append: one writer, in order.
+let toastLog = Promise.resolve();
+function toast(n) {
+  notify(n);
+  const dir = `${appHome()}/data/herdr-chat/debug`;
+  const line = JSON.stringify({ title: n.title, body: n.body, level: n.level }) + "\n";
+  toastLog = toastLog.then(async () => {
+    if ((await readTextFile(`${dir}/enabled`)) === null) return;
+    await fs.writeFile(`${dir}/new-chat-toasts.jsonl`, ((await readTextFile(`${dir}/new-chat-toasts.jsonl`)) ?? "") + line);
+  }).catch(() => {});
+}
+
 const term = (addr) => terminals().find((t) => t.address === addr);
 const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
 const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
@@ -84,20 +97,19 @@ async function chatConfig() {
 }
 
 /**
- * The TUI's process and the session it has open, from the host, given the terminal (`hc get --json`): {pid, session,
- * model, thinking, args}. The host finds the agent's process (host/providers/tui.ts tuiProcess): the foreground program,
- * the terminal's own, or one its command started under the foreground; then the session, each agent its own way
- * (host/providers/<agent>/tui.ts).
+ * The TUI's process and the session it has open, from the host, given the terminal (`hc get --json`): {pid, group,
+ * session, model, thinking, args}. The host finds the agent's process (host/providers/tui.ts tuiProcess): the
+ * foreground program, the terminal's own, or one its command started under the foreground (then `group` is that
+ * command's process group, for tui-busy); then the session, each agent its own way (host/providers/<agent>/tui.ts).
  */
 async function tuiSession(cfg, agent, info, cwd, label) {
-  const foreground = info.foreground?.pid || info.pid;
-  if (!foreground) throw new Error("its terminal reports no process");
-  const r = await exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, "tui-session",
-    "--provider", agent, "--foreground", String(foreground), ...(info.pid ? ["--terminal-pid", String(info.pid)] : []),
-    "--cwd", cwd, ...(label ? ["--label", label] : [])]);
+  const terminal = { pid: info.pid, argv: info.argv, foreground: info.foreground && { pid: info.foreground.pid, argv: info.foreground.argv } };
+  const r = await host(cfg, ["tui-session", "--provider", agent, "--terminal", JSON.stringify(terminal), "--cwd", cwd, ...(label ? ["--label", label] : [])]);
   if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().replace(/^herdr-chat-host: /, "") || "the host couldn't tell the TUI's session");
   return JSON.parse(r.stdout);
 }
+
+const host = (cfg, args) => exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, ...args]);
 
 const alive = async (pid) => (await exec("kill", ["-0", String(pid)])).code === 0;
 
@@ -124,7 +136,7 @@ export async function continueAsChat(addr, cx) {
   const cwd = info.foreground?.cwd || t.cwd || "/";
   const cfg = await chatConfig();
   const found = await tuiSession(cfg, agent, info, cwd, t.labels?.["herdr-chat.session"] ?? null);
-  if (!t.parent) return continueInPlace(t, agent, info, cwd, found, cx);
+  if (!t.parent) return continueInPlace(t, agent, cfg, cwd, found, cx);
   const launcher = cfg.host.replace(/herdr-chat-host$/, "herdr-chat-subagent");
   const kill = await hc(["kill", t.address]);
   if (kill.code !== 0) throw new Error(`hc kill ${t.address}: ${kill.stderr.trim()}`);
@@ -153,9 +165,9 @@ export async function continueAsChat(addr, cx) {
  * terminal's own command (`fish -ic 'claude --resume …; exec fish -i'`): only
  * the host's pid (found.pid) is signalled, never the shell. Once it is gone the
  * TUI's pane closes, so the chat takes its place, unless its shell runs
- * something else then (it stays, and says so). `info`: the terminal, `hc get --json`.
+ * something else then (it stays, and says so).
  */
-export async function continueInPlace(t, agent, info, cwd, found, cx) {
+export async function continueInPlace(t, agent, cfg, cwd, found, cx) {
   const pid = found.pid;
   const pane = panes().find((p) => p.terminal === t.address);
   if (!pane) throw new Error(`${t.address} has no pane in a tab`);
@@ -171,21 +183,14 @@ export async function continueInPlace(t, agent, info, cwd, found, cx) {
   if (k.code !== 0) throw new Error(`kill -TERM ${pid}: ${k.stderr.trim()}`);
   for (let i = 0; i < 100 && (await alive(pid)); i++) await cx.sleep(100);
   if (await alive(pid)) {
-    notify({ title: "Continue as chat", body: `${NAMES[agent]} (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
+    toast({ title: "Continue as chat", body: `${NAMES[agent]} (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
     return mine.pane;
   }
   // A shell left with its prompt: nothing else runs in it, so it goes. A program
-  // that ended with the agent: the pane shows its exit, so it goes too. A prompt's own
-  // commands (git status, an rc file) come and go: up to 3 s for the shell to
-  // be alone in its terminal.
-  const busy = await shellBusy(info, pid);
-  let running = null;
-  for (let i = 0; i < 15; i++) {
-    await cx.sleep(200);
-    if (!(running = await busy(t.address))) break;
-  }
+  // that ended with the agent: the pane shows its exit, so it goes too.
+  const running = await stillRuns(t.address, cfg, found.group, cx);
   if (running) {
-    notify({ title: "Continue as chat", body: `The TUI's terminal now runs ${running}: its pane stays.`, level: "info" });
+    toast({ title: "Continue as chat", body: `The TUI's terminal now runs ${running}: its pane stays.`, level: "info" });
     return mine.pane;
   }
   if (panes().some((p) => p.pane === pane.pane)) run("pane.close", { pane: pane.pane });
@@ -194,27 +199,28 @@ export async function continueInPlace(t, agent, info, cwd, found, cx) {
 }
 
 /**
- * How to tell, once the agent `pid` is gone, what the TUI's terminal still runs: busy(address) → a program's
- * name, or null when its shell is idle (at its prompt, or the terminal ended).
- * - The agent was the shell's foreground job: the foreground is the shell again (Herdr's foreground).
- * - The terminal's command ran it, in a shell without job control: that shell is the foreground all along, so
- *   it's idle only once no other process is left in its process group (`pgrep -g`), as after `exec fish -i`.
+ * Once the agent is gone, what its terminal still runs (a program's name), or null when its shell is idle (at its
+ * prompt, or the terminal ended). A prompt's own commands (git status, an rc file) come and go: up to 3 s for it to be idle.
+ * - The agent was the shell's foreground job, or the terminal's own program (`group` null): Herdr's foreground is
+ *   the shell again.
+ * - The terminal's command ran it, in a shell without job control (`group`: tui-session's): that shell is the
+ *   foreground all along, so the host tells (`tui-busy`: what the shell went on to run).
  */
-async function shellBusy(info, pid) {
-  const shell = info.foreground?.pid || info.pid;
-  const g = shell && shell !== pid ? await exec("ps", ["-o", "pgid=", "-p", String(shell)]) : null;
-  const group = g?.code === 0 ? Number(g.stdout.trim()) : 0;
-  return async (address) => {
+async function stillRuns(address, cfg, group, cx) {
+  if (group) {
+    const r = await host(cfg, ["tui-busy", "--group", JSON.stringify(group), "--within", "3000"]);
+    if (r.code !== 0) throw new Error(`can't tell whether the TUI's terminal is idle: ${(r.stderr || r.stdout).trim().replace(/^herdr-chat-host: /, "")}`);
+    return JSON.parse(r.stdout).running;
+  }
+  let running = null;
+  for (let i = 0; i < 15; i++) {
+    await cx.sleep(200);
     const after = await hc(["get", address, "--json"]);
     const a = after.code === 0 ? JSON.parse(after.stdout) : null;
-    if (!a || a.state !== "live" || !a.foreground?.pid) return null;
-    if (a.foreground.pid !== a.pid) return a.foreground.argv?.[0] ?? "something";
-    if (!group) return null;
-    // pgrep exits 1 when nothing matches: the group (and the shell) is gone.
-    const p = await exec("pgrep", ["-l", "-g", String(group)]);
-    const others = p.stdout.split("\n").map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter((m) => m && Number(m[1]) !== a.pid);
-    return others.length ? others[0][2] : null;
-  };
+    running = !a || a.state !== "live" || !a.foreground?.pid || a.foreground.pid === a.pid ? null : a.foreground.argv?.[0] ?? "something";
+    if (!running) break;
+  }
+  return running;
 }
 
 // The floating block: commands only, nothing drawn.
@@ -227,7 +233,7 @@ class Commands {
         await checkRunning();
         if (!(await checkHosts())) await checkRelease({ now });
       } catch (e) {
-        notify({ title: "herdr-chat update", body: String(e?.message ?? e), level: "error" });
+        toast({ title: "herdr-chat update", body: String(e?.message ?? e), level: "error" });
       }
     };
     cx.timer.after(3000, () => void updates());
@@ -244,7 +250,7 @@ class Commands {
           else if (c === "continue" || c.startsWith("continue:")) await continueAsChat(c.slice(9), cx);
           else if (c === "update-check") await updates(true);
         } catch (e) {
-          notify({ title: c.startsWith("continue") ? "Continue as chat" : "New chat", body: String(e?.message ?? e), level: "error" });
+          toast({ title: c.startsWith("continue") ? "Continue as chat" : "New chat", body: String(e?.message ?? e), level: "error" });
         }
       }
     });
@@ -315,7 +321,7 @@ export default class NewChat extends View {
       try {
         await openChat(provider);
       } catch (e) {
-        notify({ title: "New chat", body: String(e?.message ?? e), level: "error" });
+        toast({ title: "New chat", body: String(e?.message ?? e), level: "error" });
       } finally {
         if (overlay) closeOverlay(overlay);
       }

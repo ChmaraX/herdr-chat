@@ -6,12 +6,13 @@ import { piTuiSession } from "./pi/tui.ts";
 import { claudeTuiSession } from "./claude/tui.ts";
 import { codexTuiSession } from "./codex/tui.ts";
 import type { ProviderAdapter, AdapterOptions } from "./types.ts";
-import { processTable, tuiProcess, type TuiQuery, type TuiSession } from "./tui.ts";
+import { processTable, tuiProcess, type TerminalView, type TuiFound, type TuiQuery, type TuiSession } from "./tui.ts";
 
 type Factory = {
   /** The agent's CLI, also its program's name (a TUI's process is found by it). */
   command: string;
-  /** For messages: "Pi", "Claude Code", "Codex". */
+  /** For the host's messages: "Pi", "Claude Code", "Codex". The new-chat mod has its own copy (CHOICES): it runs in
+   *  the app, which can't import host code. */
   label: string;
   create: (opts: AdapterOptions) => ProviderAdapter;
   /** Continue as chat: the session a running TUI of this agent has open (throws why not). */
@@ -28,10 +29,10 @@ export function tuiSession(provider: string, q: TuiQuery): TuiSession {
   return factory(provider).tuiSession(q);
 }
 
-/** The agent's TUI process in a terminal, from its foreground's and its own pid (tui.ts `tuiProcess`; throws why not). */
-export function findTui(provider: string, foreground: number, terminal: number | null): number {
+/** The agent's TUI process in a terminal, from what Herdr reports of it (tui.ts `tuiProcess`; throws why not). */
+export function findTui(provider: string, terminal: TerminalView): TuiFound {
   const f = factory(provider);
-  return tuiProcess(processTable(), foreground, terminal, f.command, f.label);
+  return tuiProcess({ terminal, command: f.command, label: f.label, processes: processTable });
 }
 
 function factory(provider: string): Factory {

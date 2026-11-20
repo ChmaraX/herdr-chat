@@ -88,14 +88,17 @@ the row under the parent is.
 `chat-menu` offers **Continue as chat** on an agent's TUI (Herdr reports the
 agent: Pi, Claude Code or Codex) that is idle or done. `new-chat`
 asks the host for the TUI's process and the session it has open,
-`herdr-chat-host tui-session --provider <agent> --foreground <pid>
---terminal-pid <pid>` (the terminal's foreground and own program). The
-process (`host/providers/tui.ts` `tuiProcess`) is the foreground when that's
-the agent (typed in a shell), else the terminal's own program, else one
-under the foreground in the terminal's foreground process group: a terminal
+`herdr-chat-host tui-session --provider <agent> --terminal <hc get json>`.
+The process (`host/providers/tui.ts` `tuiProcess`) is the foreground when
+Herdr's argv for it names the agent (argv[0] or argv[1]: typed in a shell),
+else the terminal's own program, likewise. Else it's one under the foreground,
+from the process table, in the terminal's foreground process group: a terminal
 whose own command started it (`fish -ic 'claude --resume …; exec fish -i'`).
-A background or stopped job is in a group of its own, so it doesn't count;
-two agents there is refused (none is stopped). Each agent's module then
+There a process is the agent when its program is (`pi`), or when it's
+`node`/`bun` running a script that is. A background or stopped job is in a
+group of its own, so it doesn't count; two agents there is refused (none is
+stopped). The answer then also has the `group`: its id, the shell, and what
+else ran in it. Each agent's module then
 finds the session its own way (`host/providers/<agent>/tui.ts`):
 
 - **Pi:** the lock extension labels the TUI's terminal with its session file
@@ -116,9 +119,12 @@ Then:
   (`--after-pid`), so the two never write it at once; while the agent still
   holds it (Codex's daemon keeps a thread up to a minute), the host tries
   again every 5 s for 90 s. Then the TUI's pane closes, once its shell is
-  idle: at its prompt, or, for a shell that ran the agent as its command, no
-  other process left in its process group (else the pane stays, and a toast
-  says what runs). The model and
+  idle (else the pane stays, and a toast says what runs). A shell's job:
+  Herdr's foreground is the shell again. A shell that ran the agent as its
+  command: `herdr-chat-host tui-busy --group <json>` reads the table and finds
+  a process that was in the group before, or a new child of the shell (`claude;
+  other`). The interactive shell's helpers after `exec fish -i` run in jobs of
+  their own, so they don't count. The model and
   thinking level are passed as `--model` and `--thinking`.
 - **A sub-agent** (`hc run … -- pi`): a terminal runs one program, so the
   TUI ends and a chat host starts in its place, with the same parent, name
