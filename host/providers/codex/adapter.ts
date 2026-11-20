@@ -12,6 +12,7 @@ import { homedir, tmpdir } from "node:os";
 import { CodexProcess, CodexRpcError } from "./rpc.ts";
 import type { RequestId } from "./rpc.ts";
 import { CodexMapper, userContent } from "./map.ts";
+import { typedText } from "../../skill.ts";
 import { rolloutPlans } from "./rollout.ts";
 import type { RolloutPlan } from "./rollout.ts";
 import type { TokenUsage } from "./map.ts";
@@ -23,7 +24,7 @@ import { agentEnv } from "../env.ts";
 import type { McpFailure } from "../mcp.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, Ask,
-  ModelInfo, AgentCommand, AgentModel, SessionInfo, SessionScope, SessionSource, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, Question, ForkPoint,
+  ModelInfo, AgentCommand, AgentModel, SessionInfo, SessionScope, SessionSource, UsageInfo, Prompt, Disposition, SkillLead, PermissionMode, PermissionChoice, Question, ForkPoint,
 } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -194,7 +195,7 @@ export class CodexAdapter implements ProviderAdapter {
   private aborting = false;
   private interruptPending = false;
   private steering: { text: string; clientId: string }[] = [];
-  private followUps: { id: string; text: string; images: ImageBlock[] }[] = [];
+  private followUps: { id: string; text: string; lead?: SkillLead; images: ImageBlock[] }[] = [];
   private retryAttempt = 0;
   private compacting: { resolve: () => void; reject: (e: Error) => void; turn: string | null; ended: boolean } | null = null;
 
@@ -665,7 +666,7 @@ export class CodexAdapter implements ProviderAdapter {
     const next = this.followUps.shift();
     if (!next) return false;
     this.emitQueue();
-    this.sendTurn(next.text, next.images, next.id).catch((e) => {
+    this.sendTurn(next, next.images, next.id).catch((e) => {
       this.emit({ type: "notice", level: "error", source: "queue", text: `Codex rejected a queued message: ${errText(e)}` });
       this.settle(false);
     });
@@ -950,18 +951,25 @@ export class CodexAdapter implements ProviderAdapter {
 
   // ---------------------------------------------------------------- commands
 
-  /** Text and images → Codex `UserInput[]`; `/skill` and `/prompt` lines are expanded like Codex's TUI. */
-  private buildInput(text: string, images: ImageBlock[]): Rec[] {
-    let body = text;
+  /**
+   * Text and images → Codex `UserInput[]`, expanded like Codex's TUI: the
+   * leading `/skill`s become `$skill` mentions, each with its skill input, and
+   * a leading `/prompt` its text.
+   */
+  private buildInput(p: Pick<Prompt, "text" | "lead">, images: ImageBlock[]): Rec[] {
+    let body = p.text;
     const extra: Rec[] = [];
-    const m = /^\/([\w:.-]+)(?:\s+([\s\S]*))?$/.exec(text.trim());
-    if (m) {
-      const skill = this.skills.find((s) => s.name === m[1]);
-      const prompt = skill ? null : readPrompts().find((p) => p.name === m[1]);
-      if (skill) {
-        body = `$${skill.name}${m[2] ? ` ${m[2]}` : ""}`;
-        extra.push({ type: "skill", name: skill.name, path: skill.path });
-      } else if (prompt) body = expandPrompt(prompt.body, (m[2] ?? "").trim());
+    if (p.lead) {
+      const { skills, rest } = p.lead;
+      body = `${skills.map((s) => `$${s.command}`).join(" ")}${rest ? ` ${rest}` : ""}`;
+      for (const s of skills) {
+        const path = this.skills.find((x) => x.name === s.command)?.path;
+        extra.push({ type: "skill", name: s.command, ...(path ? { path } : {}) });
+      }
+    } else {
+      const m = /^\/([\w:.-]+)(?:\s+([\s\S]*))?$/.exec(p.text.trim());
+      const prompt = m && readPrompts().find((x) => x.name === m[1]);
+      if (prompt) body = expandPrompt(prompt.body, (m[2] ?? "").trim());
     }
     const input: Rec[] = [];
     if (body) input.push({ type: "text", text: body, text_elements: [] });
@@ -979,10 +987,10 @@ export class CodexAdapter implements ProviderAdapter {
   }
 
   /** turn/start; resolves with the turn id once Codex accepted it. `id`: the host's message id, which Codex puts on the echo as `clientId`. */
-  private async sendTurn(text: string, images: ImageBlock[], id: string): Promise<string | null> {
+  private async sendTurn(m: Pick<Prompt, "text" | "lead">, images: ImageBlock[], id: string): Promise<string | null> {
     const proc = this.require();
     const threadId = this.requireThread();
-    const params: Rec = { threadId, input: this.buildInput(text, images), clientUserMessageId: id, ...this.turnOverrides };
+    const params: Rec = { threadId, input: this.buildInput(m, images), clientUserMessageId: id, ...this.turnOverrides };
     // Thinking is invisible unless a summary is asked for; ask once (it sticks), unless the user chose one.
     if (!this.settings.summary) params.summary = "auto";
     const p = proc.request("turn/start", params, 60_000);
@@ -1005,10 +1013,10 @@ export class CodexAdapter implements ProviderAdapter {
     }
   }
 
-  async prompt(p: { id: string; text: string; images: ImageBlock[]; mode: PromptMode; busy: boolean }): Promise<{ disposition: Disposition }> {
+  async prompt(p: Prompt): Promise<{ disposition: Disposition }> {
     this.require();
     if (this.compacting || (p.busy && p.mode === "followUp")) {
-      this.followUps.push({ id: p.id, text: p.text, images: p.images });
+      this.followUps.push({ id: p.id, text: p.text, ...(p.lead ? { lead: p.lead } : {}), images: p.images });
       this.emitQueue();
       return { disposition: "queued" };
     }
@@ -1020,7 +1028,7 @@ export class CodexAdapter implements ProviderAdapter {
         this.steering.push({ text: p.text, clientId });
         this.emitQueue();
         try {
-          await this.require().request("turn/steer", { threadId: this.thread, expectedTurnId: turn, input: this.buildInput(p.text, p.images), clientUserMessageId: clientId }, 30_000);
+          await this.require().request("turn/steer", { threadId: this.thread, expectedTurnId: turn, input: this.buildInput(p, p.images), clientUserMessageId: clientId }, 30_000);
           return { disposition: "queued" };
         } catch (e) {
           const i = this.steering.findIndex((s) => s.clientId === clientId);
@@ -1032,12 +1040,12 @@ export class CodexAdapter implements ProviderAdapter {
           this.emit({ type: "run_cause", text: "Started by a message sent as the last turn ended." });
         }
       } else if (this.runOpen) {
-        this.followUps.push({ id: p.id, text: p.text, images: p.images });
+        this.followUps.push({ id: p.id, text: p.text, ...(p.lead ? { lead: p.lead } : {}), images: p.images });
         this.emitQueue();
         return { disposition: "queued" };
       }
     }
-    await this.sendTurn(p.text, p.images, p.id);
+    await this.sendTurn(p, p.images, p.id);
     return { disposition: "started" };
   }
 
@@ -1376,7 +1384,7 @@ export class CodexAdapter implements ProviderAdapter {
       const id = str(t.id);
       if (!item || !id) continue;
       const u = userContent(item.content);
-      out.push({ id, text: u.skill ? `/${u.skill.command}${u.text ? ` ${u.text}` : ""}` : u.text });
+      out.push({ id, text: typedText(u.text, u.skills) });
     }
     return out;
   }

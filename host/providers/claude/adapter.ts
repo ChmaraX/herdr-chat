@@ -13,9 +13,10 @@ import { historyEvents, hasMessages, forkPoints } from "./history.ts";
 import { sessionPath, sessionIdOf, sessionFiles, describeSession, liveHolder, readUserSettings } from "./sessions.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, ModelInfo,
-  AgentCommand, AgentModel, SessionSource, UsageInfo, PromptMode, Disposition, PermissionMode, PermissionChoice, ForkPoint, Question,
+  AgentCommand, AgentModel, SessionSource, UsageInfo, Prompt, Disposition, PermissionMode, PermissionChoice, ForkPoint, Question,
 } from "../types.ts";
 import { CLAUDE_TOOLS } from "./tools.ts";
+import { asSent } from "./skills.ts";
 
 type Rec = Record<string, any>;
 
@@ -482,15 +483,16 @@ export class ClaudeAdapter implements ProviderAdapter {
 
   // ---------------------------------------------------------------- commands
 
-  async prompt(p: { id: string; text: string; images: ImageBlock[]; mode: PromptMode; busy: boolean }): Promise<{ disposition: Disposition }> {
+  async prompt(p: Prompt): Promise<{ disposition: Disposition }> {
     const proc = this.require();
     const uuid = p.id; // the CLI replays it on the echo
     // The CLI's default priority sits behind a feature flag: always set it.
     const priority: Priority = p.busy && p.mode === "followUp" ? "later" : "next";
     this.mapper.sent.set(uuid, { uuid, text: p.text, images: p.images, priority, queued: p.busy, echoed: false, cancelled: false });
+    const text = asSent(p);
     const content = p.images.length
-      ? [...p.images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.mimeType, data: i.data } })), ...(p.text ? [{ type: "text", text: p.text }] : [])]
-      : p.text;
+      ? [...p.images.map((i) => ({ type: "image", source: { type: "base64", media_type: i.mimeType, data: i.data } })), ...(text ? [{ type: "text", text }] : [])]
+      : text;
     if (!proc.write({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, uuid, priority })) throw new Error("Claude Code is not running");
     if (p.busy) this.emit(this.mapper.queueEvent());
     return { disposition: p.busy ? "queued" : "started" };

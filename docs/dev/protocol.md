@@ -159,7 +159,8 @@ type Item =
   | { id; kind: "user"; ts; text: string; images: number; imagePaths?: string[];
       imageSizes?: ({ w: number; h: number } | null)[];   // v3.7: pixel size of each of imagePaths
       source: "composer" | "external" | "queued" | "extension"; from?: string;
-      skill?: { name: string; command: string; path?: string; body?: string } }
+      skills?: { name: string; command: string; path?: string; body?: string }[];   // v3.8
+      skill?: { name: string; command: string; path?: string; body?: string } }     // the first of skills, for mods before v3.8
   | { id; kind: "assistant"; ts; text: string; streaming: boolean;
       stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted"; error?: string; autonomous?: true;
       blocks?: Block[];           // v2: `text` split for rendering; absent = one markdown block
@@ -224,13 +225,34 @@ type ToolDetail =
   - The folder goes only when the chat closes, which is when its pane is gone. The host's pane watch removes it before the host exits. Every other end of a host keeps it, because the chat's composer may still hold its files: `shutdown` (a restart, a take-over), a signal (a restart that falls back to a kill), a crash.
   - A chat whose pane closed while its host was down (crashed, killed, between a restart's two hosts) has no host left to see it go. Every open chat's view asks its host to sweep (`sweep_attachments`, with the mod's orphan sweep, every 30 s): a folder whose chat has no pane in the layout and no live host (its registry pid) goes once two sweeps in a row agree. So the attachments on disk are bounded by the open chats' composers and sent messages, plus at most a minute for a closed one.
   - Not bounded within an open chat: every image sent stays, as the original bytes (up to 64 MiB each), until the chat closes. Downscaling the copies is a later change.
-- **Skills:** a message that runs a skill carries `skill`, and `text` is only
-  what the person wrote after it. The mod draws the skill as a pill (a click
-  shows `body`, what the agent got). `command` is what the person types to run
-  it again, without the slash: Pi `skill:<name>`, Claude Code and Codex
-  `<name>`. The host takes it from Pi's expanded `<skill …>` block, Codex's
-  `skill` input item, or a leading `/<command>` that names one of the chat's
-  `skill` commands (`host/skill.ts`). The transcript prints `/<command> text`.
+- **Skills** (`skills`, v3.8; see "v3.8" below):
+  - A message that runs skills carries `skills`, in the order typed, and
+    `text` is only what the person wrote after them. The mod draws each skill
+    as a pill (a click shows `body`, what the agent got).
+  - `command` is what the person types to run it again, without the slash: Pi
+    `skill:<name>`, Claude Code and Codex `<name>`.
+  - As sent and as typed again (Edit and resend, `fork_points`, the session
+    list, the transcript), a message names its skills first: `/a /b text`.
+    The mod's composer puts every skill pill there, wherever it stands; a pill
+    inside the text also leaves its name in the text.
+  - The core splits the skills off once (`host/skill.ts`, by the chat's
+    `skill` commands) and gives the adapter that split (`Prompt.lead`). Each
+    agent gets them its own way, since none runs several from one leading
+    line in the mode the host drives:
+    - **Pi** expands only the first `/skill:` itself; the adapter adds the
+      others' `<skill …>` blocks after it, read from the files Pi lists
+      (`get_commands` → `sourceInfo.path`, asked again for a skill it doesn't
+      know yet), in Pi's format. A skill without a file, or one it can't
+      read, refuses the message (nothing is sent without a skill).
+    - **Claude Code** `-p` loads only the first stacked skill. A message with
+      several asks the model to run each with the Skill tool, every one named
+      as `/name` (which is also the person's permission for a skill with
+      `disable-model-invocation`). One skill stays a plain `/name`.
+    - **Codex** gets `$a $b text` and a `skill` input item for each.
+  - The host reads them back from Pi's run of `<skill …>` blocks, Codex's
+    `skill` input items, Claude Code's request (`host/providers/claude/skills.ts`),
+    or the leading `/<command>`s that name the chat's `skill` commands
+    (`host/skill.ts`). The transcript prints `/a /b text`.
 - **Autonomous runs:** an assistant response whose run the user didn't start
   gets `autonomous: true`, preceded by a notice (`source: "host"`) naming the
   cause when known. Examples: an extension wake, a queued follow-up, a
@@ -633,3 +655,10 @@ The mod shows the plan as a strip above the composer (`2/5`, a progress bar, the
 - The mod draws each thumbnail at that aspect ratio from the first frame (`cards.js` `images()`), within 320 × 320 points and 60 % of the column, never enlarged. A row with images then has its final height when it first appears, so the rows above it never jump. The size also goes to the viewer when a thumbnail is enlarged.
 - The composer's images carry theirs too: `clipboard_image` and `attach_image` answer `{path, size}`, the size read from the attachment's bytes. A chip keeps its fixed 64 × 48 box (the composer's height doesn't wait on the host's answer), so its size only goes to the viewer when the chip is enlarged. A message sent with chips gets sizes as any user item does, from the images the host saved for it.
 - The mod can't read raster files itself (the manifest grants no `fs.read`). An image without a size (a `null`, or a host older than v3.7) gets a 16:10 box as wide as a thumbnail may be, and the viewer opens it at a 1600 × 1000 guess. SVGs (mermaid blocks) are still sized by the mod, from the file's `viewBox`.
+
+## v3.8: several skills per message
+
+- A user item names its skills as `skills`, in the order typed; before, one as `skill`. `text` is what the person wrote after all of them. The host still sends the first as `skill`, so a mod older than v3.8 shows one pill instead of none; it drops the others, and nothing else changes for it. A mod at v3.8 reads `skills` and falls back to `skill` from an older host (`util.js` `skillsOf`).
+- Not additive for an old mod: a message with several skills shows only its first there. Mod and host ship together (the installer updates both), so this lasts only while an old mod still runs against a newer host, until the app reloads it.
+- `send` takes any number of leading skill commands (`/a /b text`). The core splits them once, by the chat's `skill` commands, and the adapter gets that split with the message (`Prompt.lead`, providers/types.ts): what the timeline shows and what the agent runs are the same skills. A skill named twice runs once.
+- How each agent gets them is under **Skills** in "Item (timeline)". A Pi skill whose file Pi doesn't give or can't be read refuses the message (`send` fails, the item goes): it is never sent without it.

@@ -226,7 +226,7 @@ export class Terminal {
       case "user": {
         const from = it.from ? `[${it.from}] ` : "";
         const img = it.images ? ` [${it.images} image${it.images > 1 ? "s" : ""}]` : "";
-        const text = typedText(it.text, it.skill);
+        const text = typedText(it.text, it.skills);
         return "> " + from + text.split("\n").join("\n  ") + img;
       }
       case "assistant":

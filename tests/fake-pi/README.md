@@ -59,7 +59,7 @@ Behaviour that mirrors Pi 1.5:
   "models": [Model, ...],                   // get_available_models; a default list of 4 if absent
   "thinkingLevel": "low",
   "sessionName": null,
-  "commands": [{"name","description","source"}],  // get_commands; a default list of 3 if absent
+  "commands": [{"name","description","source","sourceInfo"?}],  // get_commands; a default list of 3 if absent. A relative sourceInfo.path is resolved against the scenario file
   "history": [AgentMessage, ...],           // seeds a new session given with --session (or always, with "historyAlways": true)
   "sessions": {"/abs/path.jsonl": {"history": [...], "name": "x"}},  // extra sessions for switch_session
   "startup": [Step, ...],                   // runs at start
@@ -110,7 +110,7 @@ Behaviour that mirrors Pi 1.5:
 | `scenarios/abort.json` | A bash that ticks every 100 ms until aborted. Prompts containing `quick` answer at once (use them to queue follow-ups and steers) |
 | `scenarios/steer.json` | A 1.5 s bash; a steer sent meanwhile arrives as a user message before the next model call |
 | `scenarios/autonomous.json` | 300 ms after start, an extension posts a `subagent-notify` custom message and Pi runs on its own, with an auto-retry and a threshold compaction |
-| `scenarios/skills.json` | `/skill:diagnose [text]` expands like Pi does (a `<skill …>` block with a location, then the text); a short answer |
+| `scenarios/skills.json` | `/skill:diagnose [text]` expands like Pi does (a `<skill …>` block with a location, then the text); a short answer. `skill:verify` lists a real file (`skills/verify/SKILL.md`), for messages with two skills |
 | `scenarios/crash.json` | Exit 1 mid-tool for prompts starting with "Run". `/die` makes Pi exit 3 while idle |
 | `scenarios/oversized.json` | A 9 MiB `tool_execution_update` mid-tool, then the tool and the answer finish normally |
 | `scenarios/accounts.json` | Six model providers, two of them Claude Code logins (`claude-code`, `claude-code-2`) serving the same model id: the model picker's widest tab strip, and a pick from one account's tab |
