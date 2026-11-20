@@ -5,7 +5,7 @@
 # moved on screen. Every check here is on frames:
 #   - bottom: chat.scroll:by:<dy> steps from the bottom move it dy × zoom pt (the
 #     first unstick, rows measured for the first time);
-#   - wheel: real wheel events of 48 pt (wheel.py, at the session's event tap)
+#   - wheel (E2E_WHEEL=1): real wheel events of 48 pt (wheel.py, at the session's event tap; moves the pointer for a moment)
 #     move it 48 pt at any zoom: the content follows the finger;
 #   - history: the step where older history pages in, whose first row splits a
 #     tool group (the group's row id changes; another row on screen holds the view).
@@ -66,8 +66,8 @@ PY
     fi
   }
   by() { cmd "scroll:by:$ZSTEP"; }
-  # Over the transcript, at the first point no other window covers (exit 2: all covered).
-  wheel_up() { "$PY" "$E2E/wheel.py" "$APP_PID" 290:1180 300 "$ZWHEEL" >>"$LOG"; }
+  # Over the transcript column (shift.py's box: left of x 420 is the pane's margin, which doesn't scroll), at the first point no other window covers (exit 2: all covered).
+  wheel_up() { "$PY" "$E2E/wheel.py" "$APP_PID" 420:1180 300 "$ZWHEEL" >>"$LOG"; }
 
   for Z in 1.2 1; do
     step "zoom $Z: a long chat scrolled up in equal steps (#28)"
@@ -82,7 +82,9 @@ PY
     if needs_frames "zoom $Z: every pixel check (scroll and wheel steps, zoom changes, group open, history) NOT checked"; then
       expect '[ "$(d "abs(d[\"scale\"] - $Z) < 0.001")" = true ]' "the mod's UI scale is the zoom ($Z)" 5
       zsteps bottom 20 "$(python3 -c "print($ZSTEP * $Z)")" by
-      if wheel_up; then
+      if [ -z "${E2E_WHEEL:-}" ]; then
+        skip "zoom $Z, wheel: real wheel events move your pointer for a moment; E2E_WHEEL=1 runs them (NOT checked)"
+      elif wheel_up; then
         zsteps wheel 10 "$ZWHEEL" wheel_up
       else
         skip "zoom $Z, wheel: other windows cover the whole transcript row, so no real wheel event was posted (NOT checked)"

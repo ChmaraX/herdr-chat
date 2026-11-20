@@ -3,13 +3,16 @@
 One wheel event of DY pt (kCGScrollEventUnitPixel; positive = up, toward
 history) at the first point X0, X0 + 10, … X1 on row Y of PID's window that no
 other window covers (window pt, as in `herdr-app shot`). Prints the X used.
-GPUI takes no scroll event posted to its pid (CGEventPostToPid, click.py), so
-this one goes to the session's event tap at that screen point, where the
-window server hands it to the window there. The pointer doesn't move. It
-refuses (exit 2, nothing posted) when another window covers every point, so
-it can never scroll one of your windows.
+GPUI takes no scroll event posted to its pid (CGEventPostToPid, click.py), and
+one posted at the session's event tap reaches the window under the pointer
+only, so the pointer is moved there for the event and put back right after
+(about 0.1 s). That is the one thing here that touches the person's pointer:
+the flow runs it only with E2E_WHEEL=1. It refuses (exit 2, nothing posted)
+when another window covers every point, so it can never scroll one of your
+windows.
 Needs pyobjc (Quartz)."""
 import sys
+import time
 
 import Quartz
 
@@ -35,7 +38,13 @@ while x <= x1:
 else:
     print(f"refused: other windows cover row {y:g} from x {x0:g} to {x1:g}", file=sys.stderr)
     sys.exit(2)
+pt = Quartz.CGPointMake(bx + x, by + y)
+was = Quartz.CGEventGetLocation(Quartz.CGEventCreate(None))
+Quartz.CGWarpMouseCursorPosition(pt)
+time.sleep(0.05)
 ev = Quartz.CGEventCreateScrollWheelEvent(None, Quartz.kCGScrollEventUnitPixel, 1, dy)
-Quartz.CGEventSetLocation(ev, Quartz.CGPointMake(bx + x, by + y))
+Quartz.CGEventSetLocation(ev, pt)
 Quartz.CGEventPost(Quartz.kCGSessionEventTap, ev)
+time.sleep(0.05)
+Quartz.CGWarpMouseCursorPosition(was)
 print(f"{x:g}")
