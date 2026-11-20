@@ -31,7 +31,7 @@ const titled = join(d, "titled.cjs");
 writeFileSync(titled, `process.title = "pi"; ${record} setInterval(() => {}, 1000);\n`);
 // The same, leaving a child behind when it quits (an MCP server outliving it).
 const leaver = join(d, "leaver.cjs");
-writeFileSync(leaver, `process.title = "pi"; require("node:child_process").spawn("/bin/sleep", ["600"], { stdio: "ignore" }); ${record} setInterval(() => {}, 1000);\n`);
+writeFileSync(leaver, `process.title = "pi"; const k = require("node:child_process").spawn("/bin/sleep", ["600"], { stdio: "ignore" }); require("node:fs").appendFileSync(process.env.TUC_PIDS, \`\${k.pid} leftover\\n\`); ${record} setInterval(() => {}, 1000);\n`);
 // No title: found by its program's name or its script's.
 const idle = join(d, "pi.cjs");
 writeFileSync(idle, `${record} setInterval(() => {}, 1000);\n`);
@@ -42,6 +42,12 @@ symlinkSync(HOST_NODE, join(d, "less"));
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const node = q(HOST_NODE);
 const roots: ChildProcess[] = [];
+const pidFiles: string[] = [];
+/** Every shell's group, and each recorded process's group: a `set -m` job, or a helper, has one of its own. */
+function cleanup() {
+  for (const r of roots) try { process.kill(-r.pid!, "SIGKILL"); } catch {}
+  for (const f of pidFiles) for (const p of recorded(f)) try { process.kill(-p, "SIGKILL"); } catch { try { process.kill(p, "SIGKILL"); } catch {} }
+}
 const LOG = join(ARTIFACTS, "tui-process.log");
 mkdirSync(ARTIFACTS, { recursive: true });
 writeFileSync(LOG, "");
@@ -51,6 +57,7 @@ let n = 0;
 async function terminal(script: string, count: number): Promise<{ sh: number; pids: string }> {
   const pids = join(d, `pids-${++n}`);
   writeFileSync(pids, "");
+  pidFiles.push(pids);
   const sh = spawn("/bin/sh", ["-c", script], { detached: true, stdio: "ignore", env: { ...process.env, TUC_PIDS: pids } });
   roots.push(sh);
   for (let i = 0; i < 200 && readFileSync(pids, "utf8").split("\n").filter(Boolean).length < count; i++) await new Promise((r) => setTimeout(r, 50));
@@ -82,7 +89,7 @@ const gone = async (pid: number) => {
 const comm = (pid: number) => spawnSync("ps", ["-o", "comm=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
 
 test("tui-session --terminal: the agent its terminal's command started, in the terminal's foreground group only", async (t) => {
-  t.after(() => { for (const r of roots) try { process.kill(-r.pid!, "SIGKILL"); } catch {} });
+  t.after(cleanup);
 
   // viewer: a Pi with its title, two levels down (sh → sh → pi), and a viewer naming a pi.cjs beside it.
   let s = `TUC_TAG=viewer ${q(join(d, "less"))} ${q(idle)} & TUC_TAG=pi /bin/sh -c "${node} ${titled}; true"; wait`;
@@ -128,7 +135,7 @@ test("tui-session --terminal: the agent its terminal's command started, in the t
 });
 
 test("tui-busy: once the agent is gone, what its terminal's command went on to run, not the shell's helpers or the agent's leftovers", async (t) => {
-  t.after(() => { for (const r of roots) try { process.kill(-r.pid!, "SIGKILL"); } catch {} });
+  t.after(cleanup);
   const stop = async (name: string, script: string, count = 1) => {
     const fg = await terminal(script, count);
     const r = ask(name, fg.sh, script);
@@ -152,8 +159,8 @@ test("tui-busy: once the agent is gone, what its terminal's command went on to r
 
   // idle: the shell, after `exec`, at its prompt with a helper in a job of its own (as `zsh -i` starts its rc's
   // `… &`); and a Pi that left a child behind (reparented, no longer the shell's).
-  s = `${node} ${q(leaver)}; exec /bin/sh -c 'set -m; /bin/sleep 600 & echo > "$TUC_PIDS.helper"; wait'`;
-  fg = await stop("idle", s);
+  s = `${node} ${q(leaver)}; exec /bin/sh -c 'set -m; /bin/sleep 600 & echo "$! helper" >> "$TUC_PIDS"; echo > "$TUC_PIDS.helper"; wait'`;
+  fg = await stop("idle", s, 2);
   for (let i = 0; i < 100 && !existsSync(`${fg.pids}.helper`); i++) await new Promise((r) => setTimeout(r, 50));
   assert.ok(existsSync(`${fg.pids}.helper`), "the shell started its helper");
   assert.deepEqual(busy("idle", fg.group).ok, { running: null });
