@@ -97,8 +97,8 @@ export function bindShortcuts(cx) {
     const b = [];
     const ctxs = ONLY[a] ?? ["HerdrChat", ...INPUTS.map((c) => `${c} > Input`)];
     // A text field's own key (Ctrl+C, its copy, off macOS) stays the field's: bound outside the inputs only.
-    const where = (k) => (PLATFORM.fieldOwns(k) ? ctxs.filter((c) => !c.endsWith("> Input")) : ctxs);
-    for (const k of list) for (const context of where(k)) b.push({ keystroke: k, action: actionName(a), context });
+    const contextsFor = (k) => (PLATFORM.fieldOwns(k) ? ctxs.filter((c) => !c.endsWith("> Input")) : ctxs);
+    for (const k of list) for (const context of contextsFor(k)) b.push({ keystroke: k, action: actionName(a), context });
     try {
       cx.bind_keys(b);
     } catch (e) {
