@@ -48,7 +48,6 @@ async function openChat(provider) {
 
 const term = (addr) => terminals().find((t) => t.address === addr);
 const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
-const base = (p) => String(p ?? "").split("/").pop();
 const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
 
 // Herdr's names for the agents (its status reports Claude Code as claude-code) → ours.
@@ -77,59 +76,6 @@ export function cantContinue(t) {
   return null;
 }
 
-const isAgent = (argv, agent) => base(argv?.[0]) === agent || base(argv?.[1]) === agent;
-
-/** The agent's process in a terminal (`hc get --json`): its foreground program when that's the agent (started from a shell), else the terminal's own. */
-export function agentPid(info, agent) {
-  const is = (p) => p?.pid && isAgent(p.argv, agent);
-  if (is(info?.foreground)) return info.foreground.pid;
-  if (is(info)) return info.pid;
-  return null;
-}
-
-/**
- * The agent among a process's descendants, from a process table (`ps`: [{pid, ppid, argv}]), as
- * {pid} or {several: [pids]}, else null. A terminal whose own command started the agent
- * (`fish -ic 'claude --resume …; exec fish -i'`, `zsh -c 'npx claude'`) has a shell in its foreground and the
- * agent somewhere under it. An agent under another match (a launcher re-running itself) is that one, so only the
- * topmost count; two of them (`claude & claude`) is ambiguous, and the caller refuses rather than signal either.
- */
-export function agentUnder(table, root, agent) {
-  const kids = new Map();
-  for (const p of table) if (p.pid !== p.ppid) kids.set(p.ppid, [...(kids.get(p.ppid) ?? []), p]);
-  const found = [];
-  const walk = (pid, depth) => {
-    for (const c of kids.get(pid) ?? []) {
-      if (isAgent(c.argv, agent)) found.push(c.pid);
-      else if (depth < 16) walk(c.pid, depth + 1);
-    }
-  };
-  walk(root, 0);
-  if (found.length > 1) return { several: found };
-  return found.length ? { pid: found[0] } : null;
-}
-
-/**
- * Every process as {pid, ppid, argv}: argv[0] from `comm` (the program's path, spaces and all), argv[1] the first
- * word after it in `args` (a script: `node …/pi`). [] when `ps` fails.
- */
-async function processTable() {
-  const [c, a] = await Promise.all([exec("ps", ["-A", "-o", "pid=,ppid=,comm="]), exec("ps", ["-A", "-o", "pid=,args="])]);
-  if (c.code !== 0) return [];
-  const args = new Map();
-  for (const l of a.stdout.split("\n")) { const m = l.match(/^\s*(\d+) (.*)$/); if (m) args.set(Number(m[1]), m[2]); }
-  const out = [];
-  for (const l of c.stdout.split("\n")) {
-    const m = l.match(/^\s*(\d+)\s+(\d+) (.*)$/);
-    if (!m) continue;
-    const [pid, ppid, comm] = [Number(m[1]), Number(m[2]), m[3].trim()];
-    const line = args.get(pid) ?? "";
-    const rest = line.startsWith(comm) ? line.slice(comm.length) : line.replace(/^\S+/, "");
-    out.push({ pid, ppid, argv: [comm, rest.trim().split(/\s+/)[0] ?? ""] });
-  }
-  return out;
-}
-
 async function chatConfig() {
   let cfg = {};
   try { cfg = JSON.parse((await readTextFile(`${appHome()}/mods/chat/config.json`)) ?? "{}"); } catch {}
@@ -137,10 +83,18 @@ async function chatConfig() {
   return cfg;
 }
 
-/** The session the TUI has open, from the host (each agent's way: host/providers/<agent>/tui.ts): {session, model, thinking, args}. */
-async function tuiSession(cfg, agent, pid, cwd, label) {
+/**
+ * The TUI's process and the session it has open, from the host, given the terminal (`hc get --json`): {pid, session,
+ * model, thinking, args}. The host finds the agent's process (host/providers/tui.ts tuiProcess): the foreground program,
+ * the terminal's own, or one its command started under the foreground; then the session, each agent its own way
+ * (host/providers/<agent>/tui.ts).
+ */
+async function tuiSession(cfg, agent, info, cwd, label) {
+  const foreground = info.foreground?.pid || info.pid;
+  if (!foreground) throw new Error("its terminal reports no process");
   const r = await exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, "tui-session",
-    "--provider", agent, "--pid", String(pid), "--cwd", cwd, ...(label ? ["--label", label] : [])]);
+    "--provider", agent, "--foreground", String(foreground), ...(info.pid ? ["--terminal-pid", String(info.pid)] : []),
+    "--cwd", cwd, ...(label ? ["--label", label] : [])]);
   if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().replace(/^herdr-chat-host: /, "") || "the host couldn't tell the TUI's session");
   return JSON.parse(r.stdout);
 }
@@ -167,18 +121,10 @@ export async function continueAsChat(addr, cx) {
   const g = await hc(["get", t.address, "--json"]);
   if (g.code !== 0) throw new Error(`hc get ${t.address}: ${g.stderr.trim()}`);
   const info = JSON.parse(g.stdout);
-  let pid = agentPid(info, agent);
-  if (!pid) {
-    const shell = info.foreground?.pid ?? info.pid;
-    const under = shell ? agentUnder(await processTable(), shell, agent) : null;
-    if (under?.several) throw new Error(`${under.several.length} ${NAMES[agent]} processes under ${t.address}'s foreground (pids ${under.several.join(", ")}): not sure which is the TUI, so none is stopped`);
-    pid = under?.pid;
-  }
-  if (!pid) throw new Error(`no ${NAMES[agent]} process in ${t.address} (its foreground is ${info.foreground?.argv?.[0] ?? "unknown"}, and none runs under it)`);
   const cwd = info.foreground?.cwd || t.cwd || "/";
   const cfg = await chatConfig();
-  const found = await tuiSession(cfg, agent, pid, cwd, t.labels?.["herdr-chat.session"] ?? null);
-  if (!t.parent) return continueInPlace(t, agent, pid, cwd, found, cx);
+  const found = await tuiSession(cfg, agent, info, cwd, t.labels?.["herdr-chat.session"] ?? null);
+  if (!t.parent) return continueInPlace(t, agent, info, cwd, found, cx);
   const launcher = cfg.host.replace(/herdr-chat-host$/, "herdr-chat-subagent");
   const kill = await hc(["kill", t.address]);
   if (kill.code !== 0) throw new Error(`hc kill ${t.address}: ${kill.stderr.trim()}`);
@@ -203,11 +149,14 @@ export async function continueAsChat(addr, cx) {
  * A top-level TUI (its own pane in a tab): the chat opens beside it
  * (pane.split with the chat mod, focused), then the agent gets SIGTERM (it
  * saves its session; the host waits for that pid: --after-pid). The agent may
- * be a shell's foreground program (`claude` typed in zsh): only that pid is
- * signalled, never the terminal. Once it is gone the TUI's pane closes, so the
- * chat takes its place, unless its shell runs something else then (it stays, and says so).
+ * be a shell's foreground program (`claude` typed in zsh), or run under the
+ * terminal's own command (`fish -ic 'claude --resume …; exec fish -i'`): only
+ * the host's pid (found.pid) is signalled, never the shell. Once it is gone the
+ * TUI's pane closes, so the chat takes its place, unless its shell runs
+ * something else then (it stays, and says so). `info`: the terminal, `hc get --json`.
  */
-export async function continueInPlace(t, agent, pid, cwd, found, cx) {
+export async function continueInPlace(t, agent, info, cwd, found, cx) {
+  const pid = found.pid;
   const pane = panes().find((p) => p.terminal === t.address);
   if (!pane) throw new Error(`${t.address} has no pane in a tab`);
   const before = new Set(panes().map((p) => p.pane));
@@ -229,20 +178,43 @@ export async function continueInPlace(t, agent, pid, cwd, found, cx) {
   // that ended with the agent: the pane shows its exit, so it goes too. A prompt's own
   // commands (git status, an rc file) come and go: up to 3 s for the shell to
   // be alone in its terminal.
-  let a = null, idleShell = false;
-  for (let i = 0; i < 15 && !idleShell; i++) {
+  const busy = await shellBusy(info, pid);
+  let running = null;
+  for (let i = 0; i < 15; i++) {
     await cx.sleep(200);
-    const after = await hc(["get", t.address, "--json"]);
-    a = after.code === 0 ? JSON.parse(after.stdout) : null;
-    idleShell = !a || a.state !== "live" || !a.foreground?.pid || a.foreground.pid === a.pid;
+    if (!(running = await busy(t.address))) break;
   }
-  if (!idleShell) {
-    notify({ title: "Continue as chat", body: `The TUI's terminal now runs ${a.foreground?.argv?.[0] ?? "something"}: its pane stays.`, level: "info" });
+  if (running) {
+    notify({ title: "Continue as chat", body: `The TUI's terminal now runs ${running}: its pane stays.`, level: "info" });
     return mine.pane;
   }
   if (panes().some((p) => p.pane === pane.pane)) run("pane.close", { pane: pane.pane });
   run("pane.focus", { pane: mine.pane });
   return mine.pane;
+}
+
+/**
+ * How to tell, once the agent `pid` is gone, what the TUI's terminal still runs: busy(address) → a program's
+ * name, or null when its shell is idle (at its prompt, or the terminal ended).
+ * - The agent was the shell's foreground job: the foreground is the shell again (Herdr's foreground).
+ * - The terminal's command ran it, in a shell without job control: that shell is the foreground all along, so
+ *   it's idle only once no other process is left in its process group (`pgrep -g`), as after `exec fish -i`.
+ */
+async function shellBusy(info, pid) {
+  const shell = info.foreground?.pid || info.pid;
+  const g = shell && shell !== pid ? await exec("ps", ["-o", "pgid=", "-p", String(shell)]) : null;
+  const group = g?.code === 0 ? Number(g.stdout.trim()) : 0;
+  return async (address) => {
+    const after = await hc(["get", address, "--json"]);
+    const a = after.code === 0 ? JSON.parse(after.stdout) : null;
+    if (!a || a.state !== "live" || !a.foreground?.pid) return null;
+    if (a.foreground.pid !== a.pid) return a.foreground.argv?.[0] ?? "something";
+    if (!group) return null;
+    // pgrep exits 1 when nothing matches: the group (and the shell) is gone.
+    const p = await exec("pgrep", ["-l", "-g", String(group)]);
+    const others = p.stdout.split("\n").map((l) => l.trim().match(/^(\d+)\s+(.*)$/)).filter((m) => m && Number(m[1]) !== a.pid);
+    return others.length ? others[0][2] : null;
+  };
 }
 
 // The floating block: commands only, nothing drawn.

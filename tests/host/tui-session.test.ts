@@ -30,7 +30,7 @@ test("tui-session: Pi by its label (with the session's model and thinking), Clau
     // Pi: the label is the session; no label, a reason.
     const pi = join(d, "pi.jsonl");
     writeFileSync(pi, jsonl([{ type: "session", id: "s" }, { type: "model_change", provider: "anthropic", modelId: "claude-haiku-4-5" }, { type: "thinking_level_change", thinkingLevel: "low" }]));
-    assert.deepEqual(ask("pi", pid, cwd, {}, pi).ok, { session: pi, model: "anthropic/claude-haiku-4-5", thinking: "low", args: ["--model", "anthropic/claude-haiku-4-5", "--thinking", "low"] });
+    assert.deepEqual(ask("pi", pid, cwd, {}, pi).ok, { pid, session: pi, model: "anthropic/claude-haiku-4-5", thinking: "low", args: ["--model", "anthropic/claude-haiku-4-5", "--thinking", "low"] });
     assert.match(ask("pi", pid, cwd, {}).error!, /restart it to load the herdr-chat-lock extension/);
 
     // Claude Code: <config>/sessions/<pid>.json → its transcript; none written yet, a reason.
@@ -66,7 +66,7 @@ test("tui-session: Pi by its label (with the session's model and thinking), Clau
     rollout("other", join(d, "elsewhere"), "gpt-other", 0); // another folder
     const mine = rollout("mine", cwd, "gpt-5.6-luna", 0);
     assert.deepEqual(ask("codex", pid, cwd, { CODEX_HOME: codex }).ok, {
-      session: mine, model: "openai/gpt-5.6-luna", thinking: "high", args: ["-c", 'model="gpt-5.6-luna"', "-c", 'model_reasoning_effort="high"'],
+      pid, session: mine, model: "openai/gpt-5.6-luna", thinking: "high", args: ["-c", 'model="gpt-5.6-luna"', "-c", 'model_reasoning_effort="high"'],
     });
   } finally {
     tui.kill();

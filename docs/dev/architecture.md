@@ -87,9 +87,16 @@ the row under the parent is.
 
 `chat-menu` offers **Continue as chat** on an agent's TUI (Herdr reports the
 agent: Pi, Claude Code or Codex) that is idle or done. `new-chat`
-asks the host which session it has open, `herdr-chat-host tui-session
---provider <agent> --pid <its pid>`; each agent's module answers its own way
-(`host/providers/<agent>/tui.ts`):
+asks the host for the TUI's process and the session it has open,
+`herdr-chat-host tui-session --provider <agent> --foreground <pid>
+--terminal-pid <pid>` (the terminal's foreground and own program). The
+process (`host/providers/tui.ts` `tuiProcess`) is the foreground when that's
+the agent (typed in a shell), else the terminal's own program, else one
+under the foreground in the terminal's foreground process group: a terminal
+whose own command started it (`fish -ic 'claude --resume …; exec fish -i'`).
+A background or stopped job is in a group of its own, so it doesn't count;
+two agents there is refused (none is stopped). Each agent's module then
+finds the session its own way (`host/providers/<agent>/tui.ts`):
 
 - **Pi:** the lock extension labels the TUI's terminal with its session file
   (`herdr-chat.session`); the model and thinking level are the session's last
@@ -108,7 +115,10 @@ Then:
   The chat's host waits for that pid to exit before it opens the session
   (`--after-pid`), so the two never write it at once; while the agent still
   holds it (Codex's daemon keeps a thread up to a minute), the host tries
-  again every 5 s for 90 s. Then the TUI's pane closes. The model and
+  again every 5 s for 90 s. Then the TUI's pane closes, once its shell is
+  idle: at its prompt, or, for a shell that ran the agent as its command, no
+  other process left in its process group (else the pane stays, and a toast
+  says what runs). The model and
   thinking level are passed as `--model` and `--thinking`.
 - **A sub-agent** (`hc run … -- pi`): a terminal runs one program, so the
   TUI ends and a chat host starts in its place, with the same parent, name
