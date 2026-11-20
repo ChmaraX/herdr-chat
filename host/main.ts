@@ -173,7 +173,9 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
       await chat.stopAgent();
     } catch {}
     chat.releaseLock();
-    save({ pid: null, port: null, wsPort: null });
+    // Cleared only while the registry names this host: a second host from before the claim may have
+    // written it since, and the chat (connected to that one) must keep finding it.
+    if (readRegistry(stateDir, chatId)?.pid === process.pid) save({ pid: null, port: null, wsPort: null });
     release();
     term.status("idle");
     term.close();
