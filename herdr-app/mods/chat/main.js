@@ -666,7 +666,7 @@ export default class HerdrChat extends View {
       this.docAt = Date.now();
       const chats = new Set(this.docPanes.map((x) => x.props?.chat).filter(Boolean));
       const registries = new Map(); // chat → its registry entry, read once per sweep
-      const missing = new Map(); // terminal → why it goes
+      const toEnd = new Map(); // terminal → why it goes
       for (const t of terminals()) {
         const chat = t.labels?.["herdr-chat.chat"];
         if (t.state !== "live" || !chat) continue;
@@ -681,12 +681,12 @@ export default class HerdrChat extends View {
           if (host && host.address !== t.address) why = `${t.address} is a second host of chat ${chat} (its registry names ${host.address})`;
         }
         if (!why) continue;
-        missing.set(t.address, why);
+        toEnd.set(t.address, why);
         if (this.orphans?.get(t.address) !== why) continue;
         this.log(`${why}: ending it`);
         run("terminal.kill", { terminal: t.address });
       }
-      this.orphans = missing;
+      this.orphans = toEnd;
       // The host removes the attachments of chats closed while their host was down (protocol.md
       // "Attachments"). An older host has no sweep_attachments: req logs it.
       if (this.conn.status === "connected") this.req("sweep_attachments", { open: [...chats] }).catch(() => {});

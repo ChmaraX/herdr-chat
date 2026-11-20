@@ -56,7 +56,7 @@ export function newer(a, b) {
  */
 const older = (reg, cfg) => Boolean(cfg.build) && reg.build !== cfg.build && !(reg.startedAt > Number(cfg.installedAt ?? 0));
 
-/** Chats on older hosts: live hosts of chats (sub-agents are their parents': not counted), each the one its registry names. */
+/** Chats on older hosts: live hosts of chats (sub-agents are their parents': not counted), each the one its registry names (as chat/connection.js registeredHost). */
 async function olderChats(cfg) {
   const hosts = terminals().filter((t) => t.state === "live" && t.labels?.["herdr-chat.role"] === "host" && t.labels?.["herdr-chat.chat"]);
   const out = [];

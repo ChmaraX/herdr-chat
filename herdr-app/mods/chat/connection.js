@@ -55,13 +55,14 @@ export function runsHost(t) {
   return !Array.isArray(t.argv) || t.argv.some((a) => HOST_BIN.test(a));
 }
 
-// The chat's host: the live terminal its registry names (`terminal`). A chat
-// has one host (host/claim.ts), and only that host writes the registry, so a
-// terminal that only carries the chat's label (a second host from before that,
-// one that is starting or refusing) is not it.
+// The chat's host: the live terminal its registry names (`terminal`), still
+// labelled with the chat (a core restart reuses addresses). A chat has one host
+// (host/claim.ts), and only that host writes the registry, so a terminal that
+// only carries the chat's label (a second host from before that, one that is
+// starting or refusing) is not it. new-chat/update.js pairs them the same way.
 export function registeredHost(entry) {
   const a = entry?.terminal;
-  return (a && terminals().find((t) => t.address === a && t.state === "live" && runsHost(t))) || null;
+  return (a && terminals().find((t) => t.address === a && t.state === "live" && runsHost(t) && t.labels?.["herdr-chat.chat"] === entry.chat)) || null;
 }
 
 // hc run's error, for the person. The host starts as /usr/bin/env, which is
@@ -75,11 +76,12 @@ export function startError(text, cwd) {
 }
 
 const BACKOFF = [250, 500, 1000, 2000, 2000];
-// A host this chat started counts as its host while its terminal runs, and for this long
-// after the start whatever happened (terminals() lists a new terminal a moment after hc
-// run returns; a host that dies at once isn't restarted in a loop).
+// A host this chat started is pending (none other is started) for START_GRACE after the
+// start whatever happened (terminals() lists a new terminal a moment after hc run returns;
+// a host that dies at once isn't restarted in a loop), then while its terminal runs a host,
+// up to START_MAX: one that never registers (hung) is given up on.
 const START_GRACE = 8000;
-const HC_RUN_MAX = 60000; // an hc run that never returned: given up on
+const START_MAX = 60000;
 
 export class Connection {
   // opts: {chat, cwd, attachOnly (never start a host), place: () => ({space, tab}) | null (a host starts only once the chat's tab is known), session, hostEnv, handOver ({pid, model, thinking} | null), onRecord(rec, cx), onChange(cx), log}
@@ -92,7 +94,7 @@ export class Connection {
     this.nextId = 1;
     this.closed = false;
     this.attempt = 0;
-    this.entry = null; // the chat's registry entry, as last read
+    this.entry = null; // the chat's registry entry as of the last connection attempt (hostTerminal)
     this.started = null; // {address, at}: the host this connection started last (address null while hc run is out)
     this.welcome = null;
     this.connects = 0;
@@ -102,27 +104,26 @@ export class Connection {
   }
 
   // Start a host when none runs (after Restart, or the old host of a replacement ended).
-  // A start already under way stays one: restart() never forgets it (startPending).
+  // A start already under way is not reset: it stays pending (startPending).
   restart() {
     this.startFailed = false;
     this.autoStart = true;
     this.attempt = 0;
   }
 
-  /** The chat's host terminal (the registry's), while it runs; null otherwise. */
+  /** The chat's host terminal (the registry's, as of the last connection attempt), while it runs; null otherwise. */
   hostTerminal() {
     return registeredHost(this.entry);
   }
 
-  /** A host this connection started that may not be in the registry or terminals() yet. */
+  /** Whether a host this connection started may still become the chat's (not in the registry or terminals() yet). */
   startPending() {
     const s = this.started;
     if (!s) return false;
     const age = Date.now() - s.at;
-    const live = s.address && terminals().some((t) => t.address === s.address && t.state === "live");
-    if (live || age < START_GRACE || (!s.address && age < HC_RUN_MAX)) return true;
-    this.started = null;
-    return false;
+    if (age < START_GRACE) return true;
+    const runs = !s.address || terminals().some((t) => t.address === s.address && t.state === "live" && runsHost(t));
+    return runs && age < START_MAX;
   }
 
   set(status, error, cx) {
@@ -234,6 +235,7 @@ export class Connection {
       this.set(this.connects ? "reconnecting" : "starting", null, cx);
       return;
     }
+    this.started = null;
     if (!this.autoStart) {
       this.set("stopped", "The chat's host stopped", cx);
       return;
