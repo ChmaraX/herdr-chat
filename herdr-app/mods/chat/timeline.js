@@ -34,7 +34,8 @@ export class Timeline {
     this.total = 0;
     this.shown = [];
     this.viewPt = 0; // the viewport's height as reported (window pt)
-    this.anchor = null; // history went in front: the rows on screen, to keep where they were [{id, dy}]
+    this.anchor = null; // history went in front: {rows: [{id, dy}] on screen then, laid: `laid` then}
+    this.laid = null; // the last view()'s layout: {items, offs (layout px)}
     this.heightsSeen = null; // debug only (trace()): row id → [[ms, height]…], the heights it was measured at
   }
 
@@ -73,10 +74,24 @@ export class Timeline {
   // Items were put in front (history): keep what's on screen where it is. The
   // next view() finds one of the rows shown now and puts it back at the same
   // y. (The items themselves don't say how much room they take: tools and
-  // thinking fold into groups, and some items draw nothing.)
+  // thinking fold into groups, and some items draw nothing.) When none of them
+  // is left (all regrouped), top moves by as much as the first row that was
+  // there before did: the estimated height of the new rows in front of it.
   prepended() {
     if (this.sticky) return;
-    this.anchor = this.shown.map((id) => ({ id, dy: (this.offsets.get(id) ?? 0) - this.top }));
+    this.anchor = { rows: this.shown.map((id) => ({ id, dy: (this.offsets.get(id) ?? 0) - this.top })), laid: this.laid };
+  }
+
+  // The view's top after a prepend, laid out at `offs` now (null: leave it).
+  anchored(items, offs) {
+    const index = new Map(items.map((it, i) => [it.id, i]));
+    const kept = this.anchor.rows.find((x) => index.has(x.id));
+    if (kept) return offs[index.get(kept.id)] - kept.dy;
+    const was = this.anchor.laid;
+    if (!was) return null;
+    const before = new Map(was.items.map((it, i) => [it.id, i]));
+    const i = items.findIndex((it) => before.has(it.id));
+    return i < 0 ? null : this.top + offs[i] - was.offs[before.get(items[i].id)];
   }
 
   // items: the rows (rows.js); row(r): its element; onNearTop(): page older
@@ -90,11 +105,11 @@ export class Timeline {
     }
     this.total = total;
     if (this.anchor) {
-      const indexById = new Map(items.map((it, i) => [it.id, i]));
-      const kept = this.anchor.find((x) => indexById.has(x.id));
-      if (kept && !this.sticky) this.top = offs[indexById.get(kept.id)] - kept.dy;
+      const top = this.sticky ? null : this.anchored(items, offs);
+      if (top != null) this.top = top;
       this.anchor = null;
     }
+    this.laid = { items, offs };
     const rows = [];
     let place;
     if (this.sticky || total <= this.viewH) {
@@ -124,9 +139,13 @@ export class Timeline {
       const was = this.h(it); // the height it was laid out with: its last measure, else the estimate
       this.heights.set(it.id, h);
       this.heightsSeen?.add(it.id, Math.round(h));
-      // A row above the viewport changed size: keep the view still.
+      // A row above the viewport changed size: keep the view still. The rows
+      // after it move by as much, so their offsets (a prepend's anchor) do too.
       const off = this.offsets.get(it.id);
-      if (!this.sticky && off !== undefined && off < this.top) this.top += h - was;
+      if (!this.sticky && off !== undefined && off < this.top) {
+        this.top += h - was;
+        for (const [id, o] of this.offsets) if (o > off) this.offsets.set(id, o + h - was);
+      }
       // Sticky, a known row growing needs no redraw: it's pinned to the bottom.
       if (!this.sticky || old === undefined) cx.notify();
     });
