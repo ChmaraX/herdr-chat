@@ -31,14 +31,21 @@ const agentOf = (t) => [t?.program?.key, t?.app, t?.status?.app, t?.report?.app,
 /** Why a terminal can't continue as a chat (null: it can; `working`: once its run ends). A copy of new-chat's. */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
-  const at = String(t.address ?? "").indexOf("/");
-  if (at > 0) return { why: `on ${t.address.slice(0, at)}: chats run on this computer only`, machine: t.address.slice(0, at) };
+  // Another machine's terminal ("box/t7"): its agent runs there, and a chat's host would run here.
+  const machine = machineOf(t.address);
+  if (machine) return { why: `on ${machine}: chats run on this computer only`, machine };
   if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
   if (!agentOf(t)) return { why: "not an agent's TUI" };
   const st = word(t.status);
   if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
   if (!["idle", "done"].includes(st)) return { why: `status ${st}` };
   return null;
+}
+
+/** The machine of another computer's terminal address ("box" for "box/t7"), null for one of this computer's. A copy of new-chat's. */
+export function machineOf(address) {
+  const s = String(address ?? ""), at = s.indexOf("/");
+  return at > 0 ? s.slice(0, at) : null;
 }
 
 /** An agent's TUI (sub-agent or top-level) the menu offers Continue as chat for: {address, working}, else null.
