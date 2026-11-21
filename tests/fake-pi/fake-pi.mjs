@@ -3,7 +3,7 @@
 // LF-framed JSONL on stdin/stdout, like Pi. See README.md for the scenario format.
 import { readFileSync, writeFileSync, appendFileSync, existsSync, mkdirSync, renameSync } from "node:fs";
 import { randomUUID, randomBytes } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 const VERSION = "1.5.0";
@@ -23,6 +23,8 @@ const LOG = process.env.FAKE_PI_LOG;
 const scenarioPath = process.env.FAKE_PI_SCENARIO;
 const replayPath = process.env.FAKE_PI_REPLAY;
 const scenario = scenarioPath ? JSON.parse(readFileSync(scenarioPath, "utf8")) : {};
+// A command's file given relative to its scenario (a skill the repo ships): absolute, as Pi gives it.
+for (const c of scenario.commands ?? []) if (c.sourceInfo?.path?.startsWith(".")) c.sourceInfo.path = resolve(dirname(scenarioPath), c.sourceInfo.path);
 
 // ---------- output ----------
 function out(rec) {
@@ -43,7 +45,7 @@ function log(rec) {
   if (LOG) appendFileSync(LOG, JSON.stringify(rec) + "\n");
 }
 // The first log line records how fake-pi was started (argv and the env a host sets).
-log({ type: "_start", argv, env: { HERDR_CHAT_HOST: process.env.HERDR_CHAT_HOST ?? null, HC_TERMINAL_ID: process.env.HC_TERMINAL_ID ?? null }, cwd: process.cwd() });
+log({ type: "_start", pid: process.pid, ppid: process.ppid, argv, env: { HERDR_CHAT_HOST: process.env.HERDR_CHAT_HOST ?? null, HC_TERMINAL_ID: process.env.HC_TERMINAL_ID ?? null }, cwd: process.cwd() });
 
 // ---------- stdin framing (LF only, never U+2028) ----------
 let stdinBuf = Buffer.alloc(0);

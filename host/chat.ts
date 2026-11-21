@@ -10,10 +10,10 @@ import type { Item, WireItem, UserSource, ImageBlock, ToolDetail, NoticeItem, Pl
 import { toSpans, toSpanLines, stripAnsi } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 import { mergeCommands, parseBuiltin, builtins } from "./commands.ts";
-import { splitSkill, typedText } from "./skill.ts";
-import type { SkillRef } from "./skill.ts";
+import { splitSkills, typedText } from "./skill.ts";
+import type { SkillLead, SkillRef } from "./skill.ts";
 import type { Command } from "./commands.ts";
-import { takeLock, releaseLock, readLock, pidAlive, readRegistry } from "./registry.ts";
+import { takeLock, releaseLock, readLock, pidAlive, processRuns, processStamp, readRegistry, servesChat } from "./registry.ts";
 import { ChatClient } from "./client.ts";
 import { FileIndex } from "./files.ts";
 import { GitWatch } from "./git.ts";
@@ -403,10 +403,17 @@ export class Chat {
 
   // ---------------------------------------------------------------- one writer per session
 
-  /** Another live chat's host holding the session lock. An older host of this same chat doesn't count. */
+  /**
+   * Another live host holding the session lock: its pid runs, with the start time the lock
+   * recorded (a host that died leaves its lock; its pid may go to another process). One of this
+   * same chat counts too: a chat has one host (claim.ts), so a live one that isn't this process is
+   * a second writer, a host from before the claim (the mod's orphan sweep ends it). Such a host's
+   * lock records no start time: its pid must still run this chat's host (its command line).
+   */
   private lockHolder(file: string): Conflict | null {
     const l = readLock(file);
-    if (!l || !Number.isInteger(l.pid) || l.pid === process.pid || l.chat === this.opts.chat || !pidAlive(l.pid)) return null;
+    if (!l || !Number.isInteger(l.pid) || l.pid === process.pid || !processRuns(l.pid, l.stamp)) return null;
+    if (l.chat === this.opts.chat && !l.stamp && !servesChat(l.pid, this.opts.chat)) return null;
     return { chat: l.chat ?? null, terminal: l.terminal ?? null, pid: l.pid };
   }
 
@@ -416,9 +423,6 @@ export class Chat {
     if (!agentGuard) return null;
     const tui = this.opts.afterPid;
     if (tui && tui !== process.pid && file === this.opts.session && pidAlive(tui)) return { chat: null, terminal: null, pid: tui };
-    // A live lock of this same chat is an older instance of it; its agent is not a stranger.
-    const own = readLock(file);
-    if (own && own.chat === this.opts.chat && own.pid !== process.pid && pidAlive(own.pid)) return null;
     const agent = this.adapter.sessionHolder?.(file);
     return agent ? { chat: null, terminal: null, pid: agent.pid } : null;
   }
@@ -437,11 +441,13 @@ export class Chat {
   }
 
   private conflictText(c: Conflict): string {
+    if (c.chat === this.opts.chat) return `This session is open in a second host of this chat (pid ${c.pid}), one started before herdr-chat kept one host per chat.`;
     if (c.chat) return `This session is open in another chat${c.terminal ? ` (terminal ${c.terminal})` : ""}.`;
     return `This session is open in ${this.agent} outside a chat${c.pid ? ` (pid ${c.pid})` : ""}.`;
   }
 
   private conflictWayOut(c: Conflict): string {
+    if (c.chat === this.opts.chat) return "The chat ends that host within a minute; then use resume.";
     return c.chat ? "Go to that chat, or use take_over to move it here." : "Quit it there, then use resume.";
   }
 
@@ -557,7 +563,7 @@ export class Chat {
 
   /** History's user messages with their skills split off, as live ones are. */
   private historyWithSkills(events: NormalizedEvent[]): NormalizedEvent[] {
-    return events.map((ev) => (ev.type === "user_message" ? { ...ev, ...this.withSkill(ev.text, ev.skill) } : ev));
+    return events.map((ev) => (ev.type === "user_message" ? { ...ev, ...this.withSkills(ev.text, ev.skills) } : ev));
   }
 
   private loadHistory(events: NormalizedEvent[]): void {
@@ -577,7 +583,8 @@ export class Chat {
     if (this.lockedFile) releaseLock(this.lockedFile);
     this.lockedFile = file;
     if (file) {
-      const other = takeLock(file, { pid: process.pid, chat: this.opts.chat, terminal: this.opts.terminal, startedAt: Date.now() });
+      const stamp = processStamp(process.pid);
+      const other = takeLock(file, { pid: process.pid, chat: this.opts.chat, terminal: this.opts.terminal, startedAt: Date.now(), stamp: stamp === "gone" ? null : stamp });
       if (other) this.notice("warning", `This session is also open in another chat (pid ${other.pid}${other.terminal ? `, terminal ${other.terminal}` : ""}). Two writers can corrupt it.`);
     }
     this.opts.onSessionFile?.(file);
@@ -667,7 +674,7 @@ export class Chat {
         return;
       case "user_message":
         if (ev.source || ev.parent) {
-          this.timeline.apply({ ...ev, ...this.withSkill(ev.text, ev.skill), source: ev.source ?? "extension" });
+          this.timeline.apply({ ...ev, ...this.withSkills(ev.text, ev.skills), source: ev.source ?? "extension" });
           this.schedule();
         } else this.onUserEcho(ev);
         return;
@@ -878,10 +885,16 @@ export class Chat {
     this.timeline.updateNotice(this.autonomousNotice, { text });
   }
 
-  /** A user message's skill: the adapter's, else the one its text starts with (by the chat's skill commands). */
-  private withSkill(text: string, skill?: SkillRef): { text: string; skill?: SkillRef } {
-    if (skill) return { text, skill };
-    return splitSkill(text, this.state.commands.filter((c) => c.source === "skill").map((c) => c.name)) ?? { text };
+  /** A user message's skills: the adapter's, else the ones its text starts with (by the chat's skill commands). */
+  private withSkills(text: string, skills?: SkillRef[]): { text: string; skills?: SkillRef[] } {
+    if (skills?.length) return { text, skills };
+    const lead = this.skillLead(text);
+    return lead ? { text: lead.rest, skills: lead.skills } : { text };
+  }
+
+  /** The skills `text` starts with, by the chat's skill commands. */
+  private skillLead(text: string): SkillLead | null {
+    return splitSkills(text, this.state.commands.filter((c) => c.source === "skill").map((c) => c.name));
   }
 
   /** The echo of a message: confirms (and enriches) the item `send` showed, adds a queued one's, or adds one from elsewhere. */
@@ -889,9 +902,9 @@ export class Chat {
     const p = ev.clientId ? this.unconfirmed.get(ev.clientId) : undefined;
     if (p) this.unconfirmed.delete(ev.clientId!);
     const shown = p?.item ? this.timeline.get(p.item) : undefined;
-    const { text, skill } = this.withSkill(ev.text, ev.skill);
-    if (shown?.kind === "user") this.timeline.confirmUser(shown, text, ev.imageBlocks ?? [], ev.ts, skill);
-    else this.timeline.addUser(text, ev.images, p ? p.source : "extension", p?.from, ev.ts ?? Date.now(), ev.imageBlocks ?? [], skill);
+    const { text, skills } = this.withSkills(ev.text, ev.skills);
+    if (shown?.kind === "user") this.timeline.confirmUser(shown, text, ev.imageBlocks ?? [], ev.ts, skills);
+    else this.timeline.addUser(text, ev.images, p ? p.source : "extension", p?.from, ev.ts ?? Date.now(), ev.imageBlocks ?? [], skills);
     if (p?.from) this.setCause(`Started by a message from ${p.from}.`);
     else if (!p && this.adapter.unsentMessageCause) this.setCause(this.adapter.unsentMessageCause);
     this.schedule();
@@ -1000,7 +1013,7 @@ export class Chat {
     const name = pick(this.state.sessionName) || pick(this.state.title);
     if (name) return name;
     const first = this.timeline.items.find((i) => i.kind === "user");
-    const text = first && first.kind === "user" ? pick(first.text) || pick(first.skill && `/${first.skill.command}`) : "";
+    const text = first && first.kind === "user" ? pick(first.text) || pick(typedText("", first.skills)) : "";
     if (text) return text.length > 60 ? text.slice(0, 59) + "…" : text;
     return this.agent;
   }
@@ -1119,9 +1132,10 @@ export class Chat {
     // The message is on the timeline at once (the agent may echo it seconds later, when its turn starts); the echo confirms it.
     const id = randomUUID();
     const sent: Sent = { source, text, images: imagePaths, ...(args.from ? { from: args.from } : {}) };
+    // One split: the pills shown and the skills the agent gets.
+    const lead = this.skillLead(message);
     if (!working) {
-      const shown = this.withSkill(message);
-      sent.item = this.timeline.addUser(shown.text, images.length, source, args.from, Date.now(), images, shown.skill).id;
+      sent.item = this.timeline.addUser(lead ? lead.rest : message, images.length, source, args.from, Date.now(), images, lead?.skills).id;
       this.urgent();
     }
     this.unconfirmed.set(id, sent);
@@ -1153,7 +1167,7 @@ export class Chat {
         }
       }
     };
-    const reply = agent.prompt({ id, text: message, images, mode, busy: working }).then((d) => {
+    const reply = agent.prompt({ id, text: message, ...(lead ? { lead } : {}), images, mode, busy: working }).then((d) => {
       if (isCommand) this.clearCommandHint();
       if (d.disposition === "handled") {
         undo();
@@ -1408,8 +1422,8 @@ export class Chat {
 
   /** A message as the person would type it again: a skill as its `/command`. */
   private asTyped(text: string): string {
-    const s = this.withSkill(text);
-    return typedText(s.text, s.skill);
+    const s = this.withSkills(text);
+    return typedText(s.text, s.skills);
   }
 
   /** A new session holding what came before that message; its text goes back to the client's composer. */

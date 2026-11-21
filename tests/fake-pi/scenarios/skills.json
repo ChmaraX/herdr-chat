@@ -1,5 +1,5 @@
 {
-  "description": "Skills: `/skill:diagnose <text>` expands like Pi (agent-session.js _expandSkillCommand), with or without text after it; the answer is short.",
+  "description": "Skills: `/skill:diagnose <text>` expands like Pi (agent-session.js _expandSkillCommand), with or without text after it; the answer is short. A second skill, `verify`, has a real SKILL.md (tests/fake-pi/skills/verify), so a message with both gets its block from the host.",
   "expandPrompts": {
     "^/skill:diagnose$": "<skill name=\"diagnose\" location=\"/Users/me/.pi/agent/skills/diagnose/SKILL.md\">\nReferences are relative to /Users/me/.pi/agent/skills/diagnose.\n\n# Diagnose\n\nA loop for hard bugs.\n\n1. **Reproduce** the bug with a failing test.\n2. **Bisect** until one change explains it.\n3. Fix it, then run the test again.\n</skill>",
     "^/skill:diagnose\\s+([\\s\\S]*)$": "<skill name=\"diagnose\" location=\"/Users/me/.pi/agent/skills/diagnose/SKILL.md\">\nReferences are relative to /Users/me/.pi/agent/skills/diagnose.\n\n# Diagnose\n\nA loop for hard bugs.\n\n1. **Reproduce** the bug with a failing test.\n2. **Bisect** until one change explains it.\n3. Fix it, then run the test again.\n</skill>\n\n$1"
@@ -10,5 +10,10 @@
         "text": "On it: I'll reproduce it first."
       }
     }
+  ],
+  "commands": [
+    { "name": "review", "description": "Review the current diff", "source": "prompt", "sourceInfo": { "path": "/prompts/review.md", "source": "local", "scope": "user", "origin": "top-level" } },
+    { "name": "skill:diagnose", "description": "Diagnose a bug", "source": "skill", "sourceInfo": { "path": "/Users/me/.pi/agent/skills/diagnose/SKILL.md", "source": "local", "scope": "user", "origin": "top-level" } },
+    { "name": "skill:verify", "description": "Verify a fix end to end", "source": "skill", "sourceInfo": { "path": "../skills/verify/SKILL.md", "source": "local", "scope": "user", "origin": "top-level" } }
   ]
 }

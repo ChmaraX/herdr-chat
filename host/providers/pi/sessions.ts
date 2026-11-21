@@ -4,7 +4,7 @@ import { eachLine, realDir, subdirs } from "../../jsonl.ts";
 import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { typedText } from "../../skill.ts";
-import { parsePiSkill, fileArgsAsTyped } from "./skill.ts";
+import { userText, fileArgsAsTyped } from "./skill.ts";
 import type { SessionInfo, SessionScope } from "../types.ts";
 
 export function agentDir(): string {
@@ -81,8 +81,8 @@ export function describeSession(path: string): SessionInfo | null {
       count++;
       if (e.message.role === "user" && !first) {
         const text = textOf(e.message.content);
-        const skill = parsePiSkill(text);
-        first = fileArgsAsTyped(skill ? typedText(skill.text, skill.skill) : text).slice(0, 200);
+        const u = userText(text);
+        first = fileArgsAsTyped(typedText(u.text, u.skills)).slice(0, 200);
       }
     }
   };
