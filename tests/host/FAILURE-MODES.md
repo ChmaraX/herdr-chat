@@ -74,7 +74,11 @@ the test that has to catch it; "not covered" rows are known gaps
 |---|---|
 | A pasted or dropped image the chat can't show before it's sent (the app shows only files under its home) | `attach_image` answers a path under `<stateDir>/attachments/<chat>`, a copy of the file; E2E `thumb`: the chip draws it, a click enlarges it |
 | An enlarged chip opening at a guessed size (the mod can't read raster files) | `attach_image` answers the copy's pixel size; E2E `misc`: the chips of a 600×200 and a 400×900 drop carry their sizes |
-| `clipboard_image` saving a paste outside the chat's attachments | not covered: a test machine's clipboard holds no image |
+| `clipboard_image` saving a paste outside the chat's attachments | macOS: not covered (a test machine's clipboard holds no image). Linux: `clipboard-linux.test.ts` "on Wayland": a stand-in `wl-paste`'s PNG lands in `<stateDir>/attachments/<chat>` with its size |
+| Linux: text, a fake PNG or a failing `wl-paste` taken for an image, or a file left behind | `clipboard-linux.test.ts` "on Wayland": each answers `{path: null}`, and no file is written |
+| Linux: `xclip` never asked when Wayland's tool is missing (XWayland), or asked instead of `wl-paste` on Wayland | `clipboard-linux.test.ts`: with only xclip installed and both displays set, xclip's PNG; with both installed and only `WAYLAND_DISPLAY`, wl-paste's |
+| Linux: no `wl-paste`/`xclip`, or a host with no display variables (herdr-core started outside the session), shown as "no image" | `clipboard-linux.test.ts` "on X11": `clipboard_image` fails with "Image paste needs wl-paste (wl-clipboard) or xclip (xclip)" / "…a Wayland or X11 session…"; the mod shows that message |
+| Linux: a large image not shrunk when ImageMagick is there, or a failing or garbage-writing `magick`/`convert` sending a broken image | `clipboard-linux.test.ts` "shrink": stand-ins on PATH; `magick` first, `convert` when it fails, the original when both fail or write a non-PNG or empty file. "with the real ImageMagick" runs where `magick` is installed |
 | A dropped file that isn't an image (or can't be read) staged anyway, or refused without a word | `attach_image` rejects a `.txt`, a `.png` that isn't one, a missing file, with `send`'s messages; E2E `thumb`: the drop shows the reason at once and makes no chip |
 | A dropped file whose name is too long for the copy's prefix | `attach_image` shortens the name and keeps its extension |
 | A drop, then Enter before the copy is made: the message goes without the image, which lands in the next one | E2E `thumb`: with the host paused, drop then send: the message carries the image, the composer stays empty |
@@ -82,6 +86,8 @@ the test that has to catch it; "not covered" rows are known gaps
 | ✕ deleting a file a held follow-up or a queued steer still sends | both keep their images through `detach_image`; after `queue_edit` takes the follow-up back, ✕ removes it |
 | A host that ends while the chat stays open deleting the composer's images (a take-over's `shutdown`, a restart that falls back to a kill) | `take_over` from another chat, then SIGTERM: the files stay, and the next host has them; E2E `thumb`: `hc kill` on the host, Restart, the chip's image is sent |
 | Attachments left behind when the chat closes | E2E `thumb`: closing the pane of a chat with a live host removes its folder at once; a chat whose host was killed, then its pane closed: another chat's host removes the folder (`sweep_attachments`, from that chat's orphan sweep), and keeps its own |
+
+All of the Linux rows run on any OS (`HERDR_CHAT_PLATFORM=linux`, stand-ins on PATH). What only a Linux machine shows: the real `wl-paste`/`xclip` reading a real session's clipboard, and the chat's Linux keys and paste keys in a Linux Herdr app (no e2e there; `tests/e2e/` drives macOS).
 
 ## Crashes and lifecycle
 

@@ -32,7 +32,7 @@ import { agents, appHome, closeOverlay, focused, hc, home, nextCommand, notify, 
 import { randomBytes } from "crypto";
 import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
-import { SHORTCUTS, actionName, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
+import { SHORTCUTS, actionName, chordOf, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
 import { keepKeys } from "./keymap.js";
 import { Connection, readConfig, readRegistry, registeredHost, runsHost } from "./connection.js";
 import { Store } from "./store.js";
@@ -910,11 +910,19 @@ export default class HerdrChat extends View {
     this.fire("send", { text: `/${name}${rest ? " " + rest : ""}`, mode: "auto" }, cx);
   }
 
+  // A clipboard the host can't read at all (Linux: no wl-paste or xclip, no display) answers an
+  // error that says why, shown as it is; an empty one, "no image".
   pasteImage(cx) {
-    this.fire("clipboard_image", {}, cx, (d, cx) => {
-      if (d?.path) this.composer.addChip(d.path, { size: d.size ?? null });
-      else this.flash("The clipboard has no image", cx);
+    cx.spawn(async (cx) => {
+      try {
+        const d = await this.req("clipboard_image", {}, cx);
+        if (d?.path) this.composer.addChip(d.path, { size: d.size ?? null });
+        else this.flash("The clipboard has no image", cx);
+      } catch (e) {
+        this.flash(message(e), cx);
+      }
       this.debug.mark();
+      cx.notify();
     });
   }
 
@@ -1148,8 +1156,7 @@ export default class HerdrChat extends View {
         for (const p of d?.images ?? []) this.composer.addChip(p);
         this.editingQueued = { lane };
         this.composer.focus();
-        const hint = keyHint("steer");
-        const k = !hint || hint === "↩" ? "Enter" : hint;
+        const k = chordOf("steer") === "enter" || !chordOf("steer") ? "Enter" : keyHint("steer");
         this.flash(lane === "followUp" ? `Editing a follow-up: ${k} queues it again` : `Editing a steer: ${k} steers with it`, cx);
         this.debug.mark();
       });
@@ -2210,7 +2217,7 @@ export default class HerdrChat extends View {
         onOutside: (cx) => this.outside(cx), keys: (name) => this.slashKey(name) });
     const working = this.store.working();
     const footer = footerControls(this, t, { width: this.colW() - 50 });
-    const keyName = (a, plain) => { const k = keyHint(a); return k === "↩" ? plain : k; };
+    const keyName = (a, plain) => (chordOf(a) === "enter" ? plain : keyHint(a));
     const sendKey = keyName("steer", "Enter");
     const followKey = keyName("followUp", null);
     const hintText = this.flashText?.text ?? (s.dialog ? (s.dialog.method === "permission" ? "Answer above · Esc denies" : "Answer above · Esc cancels") : working

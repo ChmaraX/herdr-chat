@@ -4,7 +4,13 @@ import { deflateSync, crc32 } from "node:zlib";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { startHost, idle, Host } from "./harness.ts";
+
+// The host shrinks with sips on macOS, and elsewhere with ImageMagick when this machine has it.
+// clipboard-linux.test.ts checks the ImageMagick path on any machine.
+const onPath = (cmd: string) => spawnSync("sh", ["-c", `command -v ${cmd}`]).status === 0;
+const SHRINKS = process.platform === "darwin" || (process.platform !== "win32" && (onPath("magick") || onPath("convert")));
 
 /** A w×h grayscale PNG, no dependencies. */
 function makePng(w: number, h: number): Buffer {
@@ -60,7 +66,7 @@ test("images: prompts downscaled to 2000 px, tool-result and user images saved a
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "assistant" && i.text === "It's a gradient."), 10_000);
 
     const sent = Buffer.from(h.piCommands().find((x) => x.type === "prompt").images[0].data, "base64");
-    if (process.platform === "darwin") {
+    if (SHRINKS) {
       const { w, h: ht } = pngSize(sent);
       assert.ok(w === 2000 && (ht === 26 || ht === 27), `longest edge 2000 px, aspect kept: ${w}×${ht}`);
     }
@@ -73,7 +79,7 @@ test("images: prompts downscaled to 2000 px, tool-result and user images saved a
     assert.equal(userImage, join(h.stateDir, "images", "c-test", `${user.id}-1.png`));
     assert.deepEqual(readFileSync(userImage), sent, "the user item shows what Pi got");
     const [size] = user.imageSizes;
-    if (process.platform === "darwin") assert.ok(size.w === 2000 && (size.h === 26 || size.h === 27), `the user item has the sent image's size: ${JSON.stringify(size)}`);
+    if (SHRINKS) assert.ok(size.w === 2000 && (size.h === 26 || size.h === 27), `the user item has the sent image's size: ${JSON.stringify(size)}`);
     else assert.deepEqual(size, { w: 3000, h: 40 }, "the user item has the sent image's size");
     userSizes = user.imageSizes;
 
