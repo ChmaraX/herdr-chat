@@ -13,8 +13,14 @@
 //    key; each chat (mods/chat/update.js) restarts its host on the same
 //    session as soon as it is quiet. Later leaves a bar in each of them.
 //
-// The floating block (main.js Commands) checks; the dialog is an overlay of
-// this mod with props {role: "update", …}.
+// The floating block (main.js Commands) checks; the question is an overlay of
+// this mod with props {role: "update", …}: a window, not a dialog. A dialog
+// dims the whole app and a modal one ignores clicks beside it, so a question
+// nobody had seen (an install while the person was away, asked by each reload
+// of the install: four copies once) left + and every menu dead until answered.
+// A window leaves the app usable, and its key keeps one question: asking
+// again replaces it in place. It doesn't take the keyboard: typing elsewhere
+// and Enter would answer it.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -67,7 +73,9 @@ async function olderChats(cfg) {
   return out;
 }
 
-const dialog = (p) => openOverlay({ mod: "new-chat", kind: "dialog", modal: true, width: 460, props: { role: "update", ...p } });
+/** The overlay key: one question at a time, whichever step. */
+export const QUESTION_KEY = "herdr-chat.update";
+const dialog = (p) => openOverlay({ mod: "new-chat", kind: "window", key: QUESTION_KEY, width: 460, height: 188, props: { role: "update", ...p } });
 
 /** Question 2, after an install (or at start): asked once per build; not while an update runs (its end asks). */
 export async function checkHosts() {
