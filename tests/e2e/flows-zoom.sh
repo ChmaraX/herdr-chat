@@ -5,7 +5,8 @@
 # moved on screen. Every check here is on frames:
 #   - bottom: chat.scroll:by:<dy> steps from the bottom move it dy × zoom pt (the
 #     first unstick, rows measured for the first time);
-#   - wheel (E2E_WHEEL=1): real wheel events of 48 pt (wheel.py, at the session's event tap; moves the pointer for a moment)
+#   - wheel: real wheel events. macOS (E2E_WHEEL=1): 48 pt each (wheel.py, at the session's event tap; moves the
+#     pointer for a moment). Linux test box (always): one notch each on the box's own pointer (wheel_x11.py)
 #     move it 48 pt at any zoom: the content follows the finger;
 #   - history: the step where older history pages in, whose first row splits a
 #     tool group (the group's row id changes; another row on screen holds the view).
@@ -16,8 +17,8 @@
 #   - a tool group opened grows to its height with no overshoot (its open
 #     animation takes its measured height in layout px);
 #   - after an answer streamed at the bottom, the steps up from it are even.
-# A locked screen or an undrawn window renders nothing: every pixel check is
-# then a SKIP that says so (not a pass).
+# An app that draws no frames for the chat: every pixel check is then a SKIP
+# that says so (not a pass).
 
 if want zoom; then
   ZSTEP=40         # one scroll:by step, layout px
@@ -34,9 +35,13 @@ PY
     expect '[ "$("$APP" status | python3 -c "import json,sys; print(round(json.load(sys.stdin)[\"zoom\"], 3))")" = "$want" ]' "the app's UI zoom is $1 (settings.json, live)" 10
   }
   # The dump is written after a render: a hover forces one, then wait for it.
-  settle() { local w; w=$(d 'd["writes"]'); cmd hover:; until_ '[ "$(d "d[\"writes\"]")" -gt "$w" ]' 2 || true; }
+  settle() { local w; w=$(d 'd["writes"]'); cmd hover:; draw; until_ '[ "$(d "d[\"writes\"]")" -gt "$w" ]' 2 || true; }
   zstate() { d 'json.dumps({"top": d["top"], "sticky": d["sticky"], "items": len(d["items"]), "first": d["shown"][0] if d["shown"] else None, "scale": d["scale"], "atTop": next((r for r in reversed(d["rowsAt"]) if r["y"] <= 0), None)})'; }
   top_row() { d 'json.dumps(next((r for r in reversed(d["rowsAt"]) if r["y"] <= 0), None))'; }
+  # The first row wholly in view: what a person sees at the top. The row cut by the top edge can
+  # change height with the zoom (on Linux text lays out a few px taller or shorter at some zooms);
+  # the mod then keeps the rows below it still, so this one is the stable reference.
+  view_row() { d 'json.dumps(next((r for r in d["rowsAt"] if r["y"] >= 0), None))'; }
   # A frame once the view is steady: renders forced until top and the items stop
   # changing (a history page in flight has landed, and rows first measured have
   # corrected top). The frame in which a row above the screen is first measured
@@ -68,6 +73,22 @@ PY
   by() { cmd "scroll:by:$ZSTEP"; }
   # Over the transcript column (shift.py's box: left of x 420 is the pane's margin, which doesn't scroll), at the first point no other window covers (exit 2: all covered).
   wheel_up() { "$PY" "$E2E/wheel.py" "$APP_PID" 420:1180 300 "$ZWHEEL" >>"$LOG"; }
+  # In the test box (Linux), real wheel events go through the box's own X pointer (wheel_x11.py), so
+  # they run by default: they move nobody's pointer. X11's wheel has notches, not pixels: one notch a
+  # step, and every step must move the transcript what the first one did (WHEEL_PT, measured).
+  if [ "$OS" != Darwin ]; then
+    E2E_WHEEL=1
+    wheel_up() { python3 "$E2E/wheel_x11.py" 420:1180 300 1 >>"$LOG"; }
+  fi
+  # How far one wheel step moves the transcript here: ZWHEEL pt on macOS (pixel deltas); on X11,
+  # measured once from one notch (shift.py over two frames).
+  wheel_pt() {
+    if [ "$OS" = Darwin ]; then echo "$ZWHEEL"; return; fi
+    local dir="$ART/zoom-z$Z-wheel-notch"; rm -rf "$dir"; mkdir -p "$dir"
+    frame "$dir" 0; wheel_up; frame "$dir" 1
+    "$PY" "$E2E/shift.py" steps "$dir" 0 "$dir.json" >/dev/null 2>&1
+    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["perStep"][0]["moved"])' "$dir.json"
+  }
 
   for Z in 1.2 1; do
     step "zoom $Z: a long chat scrolled up in equal steps (#28)"
@@ -78,14 +99,14 @@ PY
     # The history case pages in across a split tool group: the scenario is built for it.
     [ "$(d 'd["items"][0]["kind"]')" = tool ] && ok "the snapshot starts inside a tool group ($(d 'd["items"][0]["id"]'))" \
       || fail "the snapshot starts with a $(d 'd["items"][0]["kind"]'), not inside a tool group: the history case would test nothing (zoom/scenario.py)"
-    visible
     if needs_frames "zoom $Z: every pixel check (scroll and wheel steps, zoom changes, group open, history) NOT checked"; then
       expect '[ "$(d "abs(d[\"scale\"] - $Z) < 0.001")" = true ]' "the mod's UI scale is the zoom ($Z)" 5
       zsteps bottom 20 "$(python3 -c "print($ZSTEP * $Z)")" by
       if [ -z "${E2E_WHEEL:-}" ]; then
         skip "zoom $Z, wheel: real wheel events move your pointer for a moment; E2E_WHEEL=1 runs them (NOT checked)"
-      elif wheel_up; then
-        zsteps wheel 10 "$ZWHEEL" wheel_up
+      elif WPT=$(wheel_pt) && [ -n "$WPT" ] && [ "$WPT" != 0 ]; then
+        note "zoom $Z: one wheel step moves the transcript $WPT pt"
+        zsteps wheel 10 "$WPT" wheel_up
       else
         skip "zoom $Z, wheel: other windows cover the whole transcript row, so no real wheel event was posted (NOT checked)"
       fi
@@ -93,11 +114,15 @@ PY
       if [ "$Z" = 1.2 ]; then
         step "zoom 1.2 → $ZBACK, back to 1.2 after each, while scrolled up: the transcript stays"
         dir="$ART/zoom-z1.2-zoom-changes"; rm -rf "$dir"; mkdir -p "$dir"
-        settle; T0=$(top_row); frame "$dir" 0; n=0
+        settle; T0=$(view_row); frame "$dir" 0; n=0
         for Z2 in $ZBACK; do
           set_zoom "$Z2"; sleep 0.8; settle; settle
-          T1=$(top_row)
-          [ "$T1" = "$T0" ] && [ "$(d 'd["sticky"]')" = false ] && ok "zoom $Z2: the mod keeps $T1 at the top" || fail "zoom $Z2: the row at the top was $T0, now $T1 (sticky $(d 'd["sticky"]'))"
+          T1=$(view_row)
+          # The same row, within 1 layout px: rowsAt rounds offset - top, and top is fractional (a wheel
+          # step, a row's first measure at the new zoom), so a still view can round 1 px either way. The
+          # pixel check below (shift.py, 2 pt) says whether anything moved on screen.
+          same_top() { python3 -c 'import json,sys; a,b=json.loads(sys.argv[1]),json.loads(sys.argv[2]); sys.exit(0 if a and b and a["id"]==b["id"] and abs(a["y"]-b["y"])<=1 else 1)' "$1" "$2"; }
+          same_top "$T0" "$T1" && [ "$(d 'd["sticky"]')" = false ] && ok "zoom $Z2: the first row in view stays: $T1 (was $T0)" || fail "zoom $Z2: the first row in view was $T0, now $T1 (sticky $(d 'd["sticky"]'))"
           "$APP" shot "$dir/at-$Z2.png" >/dev/null 2>>"$LOG"
           set_zoom 1.2; sleep 0.8; settle; n=$((n + 1)); frame "$dir" "$n"
         done
@@ -156,7 +181,6 @@ PY
         zsteps after-stream 12 "$(python3 -c "print($ZSTEP * $Z)")" by
       fi
     fi
-    hidden
     do_ tab.close --id "$(d 'd["place"]["tab"]')"
   done
   set_zoom 1

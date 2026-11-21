@@ -6,7 +6,7 @@
 #   tests/e2e/dev.sh &                 # start (writes /tmp/pcdev/env)
 #   tests/e2e/dev-ctl.sh open tools    # a chat on a fake-pi scenario
 #   tests/e2e/dev-ctl.sh sync          # copy herdr-app/mods/ again (hot reload)
-#   tests/e2e/dev-ctl.sh shot name     # window to the front briefly, PNG, front back
+#   tests/e2e/dev-ctl.sh shot name     # PNG of the current frame (the window stays hidden)
 #   tests/e2e/dev-ctl.sh stop
 set -euo pipefail
 DEV=/tmp/pcdev

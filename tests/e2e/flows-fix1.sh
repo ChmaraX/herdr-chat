@@ -130,37 +130,41 @@ if want keys; then
   step "chat-scoped shortcuts: defaults (keys.default.json)"
   CHAT=$(open_chat keys abort) # (a tool that runs until stopped: ⌃C has time, even by command)
   ready
-  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"cmd-shift-m\"]" ]' "the defaults are loaded (model ⇧⌘M)" 5
+  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"$PK-shift-m\"]" ]' "the defaults are loaded (model $(chord_label $PK-shift-m))" 5
   [ "$(d 'd["keyErrors"]')" = "[]" ] && ok "no key errors" || fail "key errors $(d 'd["keyErrors"]')"
-  press_sc 46:cmd,shift model '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
-  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "⇧⌘M" ]' "⇧⌘M opens the model picker (its title shows the key)" 5
+  press_sc 46:$PK,shift model '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "$(chord_label $PK-shift-m)" ]' "$(chord_label $PK-shift-m) opens the model picker (its title shows the key)" 5
   shot fix1-4-model-shortcut 0.3
-  press_sc 46:cmd,shift model '[ "$(d "d[\"picker\"]")" = null ]'
-  expect '[ "$(d "d[\"picker\"]")" = null ]' "⇧⌘M again closes it" 5
-  press_sc 17:cmd,shift effort '[ "$(d "d[\"picker\"][\"kind\"]")" = thinking ]'
-  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = thinking ]' "⇧⌘T opens the thinking (effort) picker" 5
+  press_sc 46:$PK,shift model '[ "$(d "d[\"picker\"]")" = null ]'
+  expect '[ "$(d "d[\"picker\"]")" = null ]' "$(chord_label $PK-shift-m) again closes it" 5
+  # The effort key: ⇧⌘T on macOS; Ctrl+Shift+I on Linux (Ctrl+Shift+T is the app's new tab there).
+  if [ "$OS" = Darwin ]; then EK=17; else EK=34; fi
+  press_sc $EK:$PK,shift effort '[ "$(d "d[\"picker\"][\"kind\"]")" = thinking ]'
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = thinking ]' "the effort key opens the thinking (effort) picker" 5
   keys esc; until_ '[ "$(d "d[\"picker\"]")" = null ]' 3 || cmd key:escape # (setup)
-  press_sc 0:cmd,shift mode '[ "$(d "d[\"flash\"] is not None")" = true ]'
-  expect '[ "$(d "d[\"flash\"]")" = "Pi has no permission modes" ]' "⇧⌘A: Pi has no permission modes, said in the hint line" 5
+  press_sc 0:$PK,shift mode '[ "$(d "d[\"flash\"] is not None")" = true ]'
+  expect '[ "$(d "d[\"flash\"]")" = "Pi has no permission modes" ]' "$(chord_label $PK-shift-a): Pi has no permission modes, said in the hint line" 5
   send_text "sleep a while"
   expect '[ "$(phase)" = working ]' "Pi works" 8
   press_sc 8:ctrl stop '[ "$(phase)" = idle ]'
   expect '[ "$(phase)" = idle ] && [ "$(d "d[\"lastShortcut\"][\"action\"]")" = stop ]' "⌃C stops it" 10
   cmd click:chip:model; sleep 0.5
-  press_sc 37:cmd focusComposer '[ "$(d "d[\"picker\"]")" = null ]'
-  expect '[ "$(d "d[\"picker\"]")" = null ] && [ "$(d "d[\"lastShortcut\"][\"action\"]")" = focusComposer ]' "⌘L: back in the composer" 5
+  press_sc 37:$PK focusComposer '[ "$(d "d[\"picker\"]")" = null ]'
+  expect '[ "$(d "d[\"picker\"]")" = null ] && [ "$(d "d[\"lastShortcut\"][\"action\"]")" = focusComposer ]' "$(chord_label $PK-l): back in the composer" 5
   TABS0=$(app_ls | python3 -c 'import json,sys; print(sum(len(s["tabs"]) for s in json.load(sys.stdin)["spaces"]))')
-  press_sc 45:cmd,shift newChat '[ "$(d "d[\"lastNewChat\"] is not None")" = true ]'
+  # New chat: ⇧⌘N on macOS; Ctrl+Alt+N on Linux (Ctrl+Shift+N is the app's new space there).
+  if [ "$OS" = Darwin ]; then press_sc 45:cmd,shift newChat '[ "$(d "d[\"lastNewChat\"] is not None")" = true ]'
+  else press_sc 45:ctrl,alt newChat '[ "$(d "d[\"lastNewChat\"] is not None")" = true ]'; fi
   NEW=$(d 'd["lastNewChat"]')
-  expect '[ -n "$NEW" ] && [ -f "$STATE/debug/$NEW.json" ]' "⇧⌘N opens a new chat ($NEW) in a new tab" 10
+  expect '[ -n "$NEW" ] && [ -f "$STATE/debug/$NEW.json" ]' "the new-chat key opens a new chat ($NEW) in a new tab" 10
   expect '[ "$(dbg "$NEW" "d[\"cwd\"]")" = "$PROJ" ] && [ "$(dbg "$NEW" "d[\"provider\"]")" = pi ]' "same folder, same agent" 15
   step "the person's keys.json overrides a default and unbinds one (null)"
-  echo '{"model": "cmd-shift-y", "stop": null}' >"$STATE/keys.json"
+  echo '{"model": "'$PK'-shift-y", "stop": null}' >"$STATE/keys.json"
   reload_mod
-  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"cmd-shift-y\"]" ] && [ "$(d "d[\"shortcuts\"][\"stop\"]")" = "[]" ]' "the reloaded chat reads data/herdr-chat/keys.json" 15
+  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"$PK-shift-y\"]" ] && [ "$(d "d[\"shortcuts\"][\"stop\"]")" = "[]" ]' "the reloaded chat reads data/herdr-chat/keys.json" 15
   do_ tab.select --id "$(d 'd["place"]["tab"]')"; sleep 0.5; cmd focus; sleep 0.3
-  press_sc 16:cmd,shift model '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
-  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "⇧⌘Y" ]' "⇧⌘Y now opens the model picker" 5
+  press_sc 16:$PK,shift model '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "$(chord_label $PK-shift-y)" ]' "$(chord_label $PK-shift-y) now opens the model picker" 5
   keys esc; until_ '[ "$(d "d[\"picker\"]")" = null ]' 3 || cmd key:escape # (setup)
   rm -f "$STATE/keys.json"
   step "Claude Code: Shift+Tab cycles the permission mode"
@@ -482,7 +486,7 @@ if want narrow; then
   if needs_frames "the footer's size steps (measured while drawing)" && resize 900; then
     for spec in 262:xs 342:sm 442:md 622:md 1280:full; do
       W=${spec%%:*}; T=${spec##*:}
-      resize "$W"; sleep 1.2; cmd hover:
+      resize "$W"; sleep 1.2; cmd hover:; draw
       expect '[ "$(d "d[\"footerTier\"]")" = "$T" ]' "a $((W - 18)) px chat: footer \"$T\" (width $(d 'd["width"]'))" 8
       case $T in xs|sm) expect '[ "$(d "d[\"footerStatuses\"][\"shown\"]")" = "[]" ] && [ "$(d "d[\"footerStatuses\"][\"extra\"]")" -ge 2 ]' "every status is in \"+N\" ($(d 'd["footerStatuses"]'))" 5 ;; esac
       shot "fix1-16-footer-$W" 0.4

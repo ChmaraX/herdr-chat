@@ -23,15 +23,10 @@ case "${1:-}" in
     "$APP" do tab.new "{\"name\":\"${3:-claude}\",\"space\":\"$SPACE\",\"mod\":\"chat\",\"props\":{\"chat\":\"$c\",\"provider\":\"${3:-claude}\",\"cwd\":\"$PROJ\",\"hostEnv\":{\"FAKE_$(echo ${3:-claude} | tr a-z A-Z)_SCENARIO\":\"$REPO/tests/e2e/${3:-claude}/${2:-e2e}.json\"}}}" >/dev/null
     echo "$c" >"$DEV/chat"; echo "$c" ;;
   use) echo "$2" >"$DEV/chat" ;;
-  shot) # shot <name> [wait]: bring the private window forward, save the frame, give the front back
-    front=$("$PY" "$E2E/front.py" get || true)
-    "$PY" "$E2E/front.py" "$APP_PID" || true
+  shot) # shot <name> [wait]: the app's current frame (it draws it; the window stays hidden)
     sleep "${3:-0.9}"
     mkdir -p "$DEV/shots"; "$APP" shot "$DEV/shots/$2.png" >/dev/null
-    [ -z "$front" ] || [ "$front" = "$APP_PID" ] || "$PY" "$E2E/front.py" "$front" || true
     echo "$DEV/shots/$2.png" ;;
-  front) "$PY" "$E2E/front.py" "$APP_PID" ;;
-  back) "$PY" "$E2E/front.py" "${2:?pid}" ;;
   keys) shift; "$PY" "$E2E/keys.py" "$APP_PID" "$@" ;;
   click) shift; "$PY" "$E2E/click.py" "$APP_PID" "$@" ;;
   do) shift; "$APP" do "$@" ;;
