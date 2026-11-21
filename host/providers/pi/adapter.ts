@@ -12,16 +12,16 @@ import { jsonlFiles } from "../../jsonl.ts";
 import { newId } from "../../timeline.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AssistantBlock, AskAnswer, ImageBlock,
-  ModelInfo, AgentCommand, AgentModel, SessionSource, UsageInfo, PromptMode, Disposition, StopReason, Usage, EventOf, ForkPoint,
+  ModelInfo, AgentCommand, AgentModel, SessionSource, UsageInfo, Prompt, Disposition, SkillLead, StopReason, Usage, EventOf, ForkPoint,
 } from "../types.ts";
 import { PI_TOOLS } from "./tools.ts";
-import { userText } from "./skill.ts";
+import { expandSkills, piSkillBlock, PiSkillFiles, userText } from "./skill.ts";
 import { typedText } from "../../skill.ts";
 
-/** A message as the person typed it: Pi's expanded skill block back to `/skill:name rest`. */
+/** A message as the person typed it: Pi's expanded skill blocks back to `/skill:a /skill:b rest`. */
 const typed = (text: string) => {
   const u = userText(text);
-  return typedText(u.text, u.skill);
+  return typedText(u.text, u.skills);
 };
 
 type Rec = Record<string, any>;
@@ -162,11 +162,18 @@ export class PiAdapter implements ProviderAdapter {
    * ids, so its echoes are matched in the order it delivers them: a prompt at
    * once, then steers, then follow-ups (Pi drains the steers before a follow-up).
    */
-  private unechoed: { id: string; kind: "prompt" | "steer" | "followUp"; text: string; images: ImageBlock[] }[] = [];
+  private unechoed: { id: string; kind: "prompt" | "steer" | "followUp"; text: string; lead?: SkillLead; images: ImageBlock[] }[] = [];
   /** Every entry of Pi's last queue_update is one of ours: a steer can be taken back (clear, re-add the others). */
   private queueOurs = false;
   /** Removals run one at a time (each clears Pi's queue and re-adds). */
   private queueOp: Promise<unknown> = Promise.resolve();
+  /** Each skill command's SKILL.md, by Pi's `get_commands` (skills.ts): a message's second and later skills are read from it. */
+  private skillFiles = new PiSkillFiles(() => this.require().request("get_commands", {}, 15_000) as Promise<Rec>);
+  /**
+   * Prompts reach Pi one at a time, in the order `prompt` was called: one that
+   * first looks up skill files can't be overtaken (Pi matches echoes by order).
+   */
+  private sendOrder: Promise<unknown> = Promise.resolve();
 
   constructor(opts: AdapterOptions) {
     this.opts = opts;
@@ -504,21 +511,24 @@ export class PiAdapter implements ProviderAdapter {
 
   // ---------------------------------------------------------------- commands
 
-  async prompt(p: { id: string; text: string; images: ImageBlock[]; mode: PromptMode; busy: boolean }): Promise<{ disposition: Disposition }> {
+  async prompt(p: Prompt): Promise<{ disposition: Disposition }> {
     const pi = this.require();
     const behavior: "steer" | "followUp" | undefined = p.busy ? (p.mode === "followUp" ? "followUp" : "steer") : undefined;
     const images = p.images.map((i) => ({ type: "image", data: i.data, mimeType: i.mimeType }));
-    // Before the request: the echo can come before the reply.
-    const entry: (typeof this.unechoed)[number] = { id: p.id, kind: behavior ?? "prompt", text: p.text, images: p.images };
+    // Recorded before anything awaits: the echo can come before the reply, and
+    // Pi delivers in the order the messages were sent.
+    const entry: (typeof this.unechoed)[number] = { id: p.id, kind: behavior ?? "prompt", text: p.text, lead: p.lead, images: p.images };
     this.unechoed.push(entry);
     const forget = () => {
       const i = this.unechoed.indexOf(entry);
       if (i >= 0) this.unechoed.splice(i, 1);
     };
-    const d = (await pi.request("prompt", { message: p.text, ...(images.length ? { images } : {}), ...(behavior ? { streamingBehavior: behavior } : {}) }, 0).catch((e) => {
-      forget();
-      throw e;
-    })) as Rec;
+    const d = (await this.sendOrder
+      .then(async () => pi.request("prompt", { message: await this.asSent(p), ...(images.length ? { images } : {}), ...(behavior ? { streamingBehavior: behavior } : {}) }, 0))
+      .catch((e) => {
+        forget();
+        throw e;
+      })) as Rec;
     const disposition = String(d?.disposition ?? "started");
     if (disposition === "handled") forget(); // an extension command: no message
     if (disposition === "started") this.probe(5000);
@@ -570,7 +580,7 @@ export class PiAdapter implements ProviderAdapter {
     const found = ours.has(id);
     const busy = this.host?.running ?? true;
     if (back.length === steering.length) {
-      for (const u of back) if (u.id !== id) await this.prompt({ id: u.id, text: u.text, images: u.images, mode: "steer", busy });
+      for (const u of back) if (u.id !== id) await this.prompt({ id: u.id, text: u.text, ...(u.lead ? { lead: u.lead } : {}), images: u.images, mode: "steer", busy });
     } else {
       // Not all ours after all (an extension queued one meanwhile): put back what Pi returned, as text.
       for (const text of steering) await pi.request("prompt", { message: text, streamingBehavior: "steer" }, 0);
@@ -617,10 +627,22 @@ export class PiAdapter implements ProviderAdapter {
 
   async commands(): Promise<AgentCommand[]> {
     const d = (await this.require().request("get_commands", {}, 15_000)) as Rec;
-    const list = Array.isArray(d?.commands) ? d.commands : [];
+    const list: Rec[] = (Array.isArray(d?.commands) ? d.commands : []).filter((c: Rec) => c && typeof c === "object" && typeof c.name === "string");
     return list
-      .filter((c: Rec) => c && typeof c === "object" && typeof c.name === "string")
       .map((c: Rec) => ({ name: c.name, description: typeof c.description === "string" ? c.description : "", source: c.source === "prompt" || c.source === "skill" ? c.source : "extension" }));
+  }
+
+  /**
+   * A message as Pi gets it: Pi expands only its first `/skill:`, so one with
+   * more skills carries the others' blocks after it (skill.ts). Throws when a
+   * skill's file can't be found or read: nothing goes without it.
+   */
+  private async asSent(p: Prompt): Promise<string> {
+    const lead = p.lead;
+    if (!lead) return p.text;
+    const [first, ...more] = lead.skills;
+    const blocks = more.length ? await Promise.all(more.map(async (s) => piSkillBlock(s.name, await this.skillFiles.path(s.command)))) : [];
+    return expandSkills(first!, blocks, lead.rest);
   }
 
   async usage(): Promise<UsageInfo> {

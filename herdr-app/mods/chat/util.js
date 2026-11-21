@@ -210,10 +210,15 @@ export function unwrapHc(text) {
   return m ? { from: m[1], text: m[2] } : { from: null, text: text ?? "" };
 }
 
-// A user message as the person would type it again: a skill's `/command`, then the text.
+// The skills a user message ran, in order (a host before v3.8 sends one, as `skill`).
+export function skillsOf(it) {
+  return it?.skills ?? (it?.skill ? [it.skill] : []);
+}
+
+// A user message as the person would type it again: its skills' `/command`s, then the text.
 export function typedText(it, text = it?.text ?? "") {
-  const s = it?.skill;
-  return s ? `/${s.command}${text ? ` ${text}` : ""}` : text;
+  const lead = skillsOf(it).map((s) => `/${s.command}`).join(" ");
+  return lead ? `${lead}${text ? ` ${text}` : ""}` : text;
 }
 
 export function message(e) {

@@ -267,6 +267,7 @@ fi
 . "$E2E/flows-keymap.sh"
 . "$E2E/flows-sockets.sh"
 . "$E2E/flows-stall.sh"
+. "$E2E/flows-onehost.sh"
 . "$E2E/flows-zoom.sh"
 . "$E2E/flows-subagent.sh" # it switches the app to a clone of main
 . "$E2E/flows-update.sh" # after subagent: it needs the floating new-chat block
