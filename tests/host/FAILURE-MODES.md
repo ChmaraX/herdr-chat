@@ -247,3 +247,20 @@ A chat whose host started before an install runs older code (protocol.md v3.5).
 | A line bigger than one read (a 1.5 MiB brief inlined in the first message, 3 MB of tool output) loses the first message or miscounts | that session: `@/tmp/big.md summarise it`, 3 messages (tool output isn't one) |
 | A rename, a deleted session or a new one doesn't show | after `refresh`: the new name, the file gone, the new one first; without `refresh`, what was read before (protocol) |
 | `pi @brief.md` rows show the brief | `@/tmp/review/brief.task.md go` |
+
+## Continue as chat: the TUI's process (`tui-process.test.ts`, `tui-session.test.ts`; E2E `tui-under-command`, `tui-in-place`)
+
+| Failure | Covered by |
+|---|---|
+| The agent runs under the terminal's own command (`fish -ic 'claude; exec fish -i'`), not as its foreground: not found | `tui-process.test.ts` "viewer" (sh → sh → pi); E2E `tui-under-command` step 2 |
+| The agent is Herdr's foreground (`pi` typed in zsh, a shim run as `sh …/pi`), but the walk picks another or none | `tui-process.test.ts` "foreground" (argv[1] of any program, as before); `tui-session.test.ts`; E2E `tui-in-place` |
+| Two agents in the terminal's group (`pi & pi`): one is picked and gets SIGTERM | `tui-process.test.ts` "two" (refused, both named); E2E `tui-under-command` step 1 (the toast, neither signalled) |
+| An agent in a background or stopped job (`set -m`) taken for the TUI on screen | `tui-process.test.ts` "job" |
+| A program naming the agent in its arguments (`less pi.js`) taken for it | `tui-process.test.ts` "viewer" (argv[1] counts only for node and bun) |
+| The program's path has a space (`My Tools/pi`) | `tui-process.test.ts` "path with a space"; E2E `tui-under-command` step 2. A *script* path with a space isn't matched (`ps` has one line, cut at the space): not covered |
+| The foreground pid Herdr reported is gone | `tui-process.test.ts` "gone" |
+| `ps` fails, times out or prints more than 16 MB: a half-read table | `processTable` throws ("can't read the process table"), never a partial table: not covered by a test |
+| A deep or wide tree hides a second agent behind a cap | none: the walk covers the whole tree in memory (no cap) |
+| The shell's command goes on after the agent (`pi; sleep 5`) and its pane closes under it | `tui-process.test.ts` "busy: next command"; E2E `tui-under-command` step 3 (the toast, the pane stays) |
+| A process left in the group from before (`(sleep &); pi`) is missed | `tui-process.test.ts` "busy: already there" |
+| A helper keeps the group busy: the interactive shell's own (its rc's `… &`, a prompt daemon) or the agent's leftover (an MCP server), so the pane never closes | `tui-process.test.ts` "idle"; E2E `tui-under-command` step 4 (rc `sleep 600 &`, the pane closes). A helper an rc starts in the shell's own group (`setopt no_monitor`) keeps the pane, with its toast: not covered |

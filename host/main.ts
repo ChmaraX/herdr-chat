@@ -12,7 +12,8 @@ import { writeRegistry, readRegistry, pidAlive } from "./registry.ts";
 import { claimChat } from "./claim.ts";
 import type { RegistryEntry } from "./registry.ts";
 import { ChatClient, parseWait } from "./client.ts";
-import { createAdapter, DEFAULT_PROVIDER, providerNames, tuiSession } from "./providers/index.ts";
+import { createAdapter, DEFAULT_PROVIDER, findTui, providerNames, tuiSession } from "./providers/index.ts";
+import { parseTuiGroup, processTable, terminalView, tuiBusy } from "./providers/tui.ts";
 import { parseArgs } from "./args.ts";
 import type { Args } from "./args.ts";
 import { appHomeOf, labelSelf, newChatId, planSubagent } from "./subagent.ts";
@@ -25,8 +26,12 @@ const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir>
   (--provider defaults to the chat's registered provider, else pi; --pi <cmd> or HERDR_CHAT_PI picks the pi binary)
 herdr-chat-host run     [--provider pi|claude|codex] [--session <file>] [--cwd <dir>] [-- <agent args>]
   (a sub-agent chat, for \`hc run\`: a fresh chat id, the app's state dir and the chat mod's config.json, labels its own terminal)
-herdr-chat-host tui-session --provider <id> --pid <pid> --cwd <dir> [--label <session>]
-  (Continue as chat: the session a running agent TUI has open, as JSON {session, model, thinking, args}; exit 1 with why not)
+herdr-chat-host tui-session --provider <id> --terminal <json> --cwd <dir> [--label <session>]
+  (Continue as chat: the TUI's process and the session it has open, as JSON {pid, group, session, model, thinking, args}; exit 2 with why not.
+   --terminal: the terminal as \`hc get --json\` reports it, at least {pid, argv, foreground: {pid, argv}})
+herdr-chat-host tui-busy --group <json> [--within <ms>]
+  (after Continue as chat stopped a TUI its terminal's command ran: what that command still runs, as JSON {running: <program> | null};
+   --group: tui-session's group; waits up to --within ms, default 3000, for it to be idle)
 herdr-chat-host inspect --chat <id> --state-dir <dir> [--wait 'phase=idle,items>=3'] [--timeout <s>]
   (inspect/send/op wait up to --timeout seconds, default 10 s for connecting and 30 s for --wait, for a starting host)
 herdr-chat-host send    --chat <id> --state-dir <dir> [--mode auto|steer|followUp] [--image <path>]... <text>
@@ -277,15 +282,28 @@ async function main(): Promise<void> {
     }
     case "tui-session": {
       const provider = a.flags.get("provider")?.[0] ?? "";
-      const pid = Number(a.flags.get("pid")?.[0]);
-      if (!(pid > 0)) die("tui-session needs --pid");
       try {
-        const r = tuiSession(provider, { pid, cwd: resolve(a.flags.get("cwd")?.[0] ?? process.cwd()), label: a.flags.get("label")?.[0] || null });
-        process.stdout.write(JSON.stringify(r) + "\n");
+        const terminal = terminalView(JSON.parse(a.flags.get("terminal")?.[0] ?? "null"));
+        const found = findTui(provider, terminal);
+        const r = tuiSession(provider, { pid: found.pid, cwd: resolve(a.flags.get("cwd")?.[0] ?? process.cwd()), label: a.flags.get("label")?.[0] || null });
+        process.stdout.write(JSON.stringify({ ...found, ...r }) + "\n");
       } catch (e) {
         die(e instanceof Error ? e.message : String(e));
       }
       return;
+    }
+    case "tui-busy": {
+      const group = parseTuiGroup(a.flags.get("group")?.[0] ?? "");
+      if (!group) die("tui-busy needs --group <json> (tui-session's group: {id, shell, before})");
+      const within = Number(a.flags.get("within")?.[0] ?? 3000);
+      // A prompt's own commands (git status) come and go: idle once, within the time, is idle.
+      for (const end = Date.now() + (within > 0 ? within : 0); ; await new Promise((r) => setTimeout(r, 200))) {
+        const p = tuiBusy(processTable(), group);
+        if (!p || Date.now() >= end) {
+          process.stdout.write(JSON.stringify({ running: p?.program ?? null }) + "\n");
+          return;
+        }
+      }
     }
     case "inspect": {
       const startedAt = Date.now();

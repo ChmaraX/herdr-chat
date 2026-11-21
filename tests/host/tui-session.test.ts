@@ -2,7 +2,8 @@
 // (`herdr-chat-host tui-session`), each agent its own way: Pi's lock-extension
 // label, Claude Code's live-process registry, Codex's newest rollout in the
 // TUI's folder since it started (one in another folder, or older, isn't it).
-// The TUI is a real process (sleep), so its pid and start time are real.
+// The TUI is a real process (sleep), so its pid and start time are real; the terminal says it runs the agent
+// (its argv as Herdr reports it), so the host takes that pid.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -14,7 +15,8 @@ import { HOST_ENTRY, HOST_NODE } from "./harness.ts";
 const jsonl = (rows: object[]) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
 
 function ask(provider: string, pid: number, cwd: string, env: Record<string, string>, label?: string) {
-  const r = spawnSync(HOST_NODE, [HOST_ENTRY, "tui-session", "--provider", provider, "--pid", String(pid), "--cwd", cwd, ...(label ? ["--label", label] : [])],
+  const terminal = { pid, argv: [`/usr/local/bin/${provider}`], foreground: { pid, argv: [`/usr/local/bin/${provider}`] } };
+  const r = spawnSync(HOST_NODE, [HOST_ENTRY, "tui-session", "--provider", provider, "--terminal", JSON.stringify(terminal), "--cwd", cwd, ...(label ? ["--label", label] : [])],
     { encoding: "utf8", env: { ...process.env, ...env } });
   return r.status === 0 ? { ok: JSON.parse(r.stdout) } : { error: r.stderr.trim() };
 }
@@ -30,7 +32,7 @@ test("tui-session: Pi by its label (with the session's model and thinking), Clau
     // Pi: the label is the session; no label, a reason.
     const pi = join(d, "pi.jsonl");
     writeFileSync(pi, jsonl([{ type: "session", id: "s" }, { type: "model_change", provider: "anthropic", modelId: "claude-haiku-4-5" }, { type: "thinking_level_change", thinkingLevel: "low" }]));
-    assert.deepEqual(ask("pi", pid, cwd, {}, pi).ok, { session: pi, model: "anthropic/claude-haiku-4-5", thinking: "low", args: ["--model", "anthropic/claude-haiku-4-5", "--thinking", "low"] });
+    assert.deepEqual(ask("pi", pid, cwd, {}, pi).ok, { pid, group: null, session: pi, model: "anthropic/claude-haiku-4-5", thinking: "low", args: ["--model", "anthropic/claude-haiku-4-5", "--thinking", "low"] });
     assert.match(ask("pi", pid, cwd, {}).error!, /restart it to load the herdr-chat-lock extension/);
 
     // Claude Code: <config>/sessions/<pid>.json → its transcript; none written yet, a reason.
@@ -66,7 +68,7 @@ test("tui-session: Pi by its label (with the session's model and thinking), Clau
     rollout("other", join(d, "elsewhere"), "gpt-other", 0); // another folder
     const mine = rollout("mine", cwd, "gpt-5.6-luna", 0);
     assert.deepEqual(ask("codex", pid, cwd, { CODEX_HOME: codex }).ok, {
-      session: mine, model: "openai/gpt-5.6-luna", thinking: "high", args: ["-c", 'model="gpt-5.6-luna"', "-c", 'model_reasoning_effort="high"'],
+      pid, group: null, session: mine, model: "openai/gpt-5.6-luna", thinking: "high", args: ["-c", 'model="gpt-5.6-luna"', "-c", 'model_reasoning_effort="high"'],
     });
   } finally {
     tui.kill();

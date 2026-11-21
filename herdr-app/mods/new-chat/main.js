@@ -51,9 +51,21 @@ async function openChat(provider) {
   await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
 }
 
+// Each toast this mod posts, also as a JSON line in <appHome>/data/herdr-chat/debug/new-chat-toasts.jsonl while
+// debug/enabled exists (the E2E: the app keeps no list of its toasts). fs/promises has no append: one writer, in order.
+let toastLog = Promise.resolve();
+function toast(n) {
+  notify(n);
+  const dir = `${appHome()}/data/herdr-chat/debug`;
+  const line = JSON.stringify({ title: n.title, body: n.body, level: n.level }) + "\n";
+  toastLog = toastLog.then(async () => {
+    if ((await readTextFile(`${dir}/enabled`)) === null) return;
+    await fs.writeFile(`${dir}/new-chat-toasts.jsonl`, ((await readTextFile(`${dir}/new-chat-toasts.jsonl`)) ?? "") + line);
+  }).catch(() => {});
+}
+
 const term = (addr) => terminals().find((t) => t.address === addr);
 const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
-const base = (p) => String(p ?? "").split("/").pop();
 const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
 
 // Herdr's names for the agents (its status reports Claude Code as claude-code) → ours.
@@ -94,14 +106,6 @@ export function machineOf(address) {
   return at > 0 ? s.slice(0, at) : null;
 }
 
-/** The agent's process in a terminal (`hc get --json`): its foreground program when that's the agent (started from a shell), else the terminal's own. */
-export function agentPid(info, agent) {
-  const is = (p) => p?.pid && (base(p.argv?.[0]) === agent || base(p.argv?.[1]) === agent);
-  if (is(info?.foreground)) return info.foreground.pid;
-  if (is(info)) return info.pid;
-  return null;
-}
-
 async function chatConfig() {
   let cfg = {};
   try { cfg = JSON.parse((await readTextFile(`${appHome()}/mods/chat/config.json`)) ?? "{}"); } catch {}
@@ -109,13 +113,20 @@ async function chatConfig() {
   return cfg;
 }
 
-/** The session the TUI has open, from the host (each agent's way: host/providers/<agent>/tui.ts): {session, model, thinking, args}. */
-async function tuiSession(cfg, agent, pid, cwd, label) {
-  const r = await exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, "tui-session",
-    "--provider", agent, "--pid", String(pid), "--cwd", cwd, ...(label ? ["--label", label] : [])]);
+/**
+ * The TUI's process and the session it has open, from the host, given the terminal (`hc get --json`): {pid, group,
+ * session, model, thinking, args}. The host finds the agent's process (host/providers/tui.ts tuiProcess): the
+ * foreground program, the terminal's own, or one its command started under the foreground (then `group` is that
+ * command's process group, for tui-busy); then the session, each agent its own way (host/providers/<agent>/tui.ts).
+ */
+async function tuiSession(cfg, agent, info, cwd, label) {
+  const terminal = { pid: info.pid, argv: info.argv, foreground: info.foreground && { pid: info.foreground.pid, argv: info.foreground.argv } };
+  const r = await host(cfg, ["tui-session", "--provider", agent, "--terminal", JSON.stringify(terminal), "--cwd", cwd, ...(label ? ["--label", label] : [])]);
   if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().replace(/^herdr-chat-host: /, "") || "the host couldn't tell the TUI's session");
   return JSON.parse(r.stdout);
 }
+
+const host = (cfg, args) => exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, ...args]);
 
 const alive = async (pid) => (await exec("kill", ["-0", String(pid)])).code === 0;
 
@@ -139,12 +150,10 @@ export async function continueAsChat(addr, cx) {
   const g = await hc(["get", t.address, "--json"]);
   if (g.code !== 0) throw new Error(`hc get ${t.address}: ${g.stderr.trim()}`);
   const info = JSON.parse(g.stdout);
-  const pid = agentPid(info, agent);
-  if (!pid) throw new Error(`no ${NAMES[agent]} process in ${t.address} (its foreground is ${info.foreground?.argv?.[0] ?? "unknown"})`);
   const cwd = info.foreground?.cwd || t.cwd || "/";
   const cfg = await chatConfig();
-  const found = await tuiSession(cfg, agent, pid, cwd, t.labels?.["herdr-chat.session"] ?? null);
-  if (!t.parent) return continueInPlace(t, agent, pid, cwd, found, cx);
+  const found = await tuiSession(cfg, agent, info, cwd, t.labels?.["herdr-chat.session"] ?? null);
+  if (!t.parent) return continueInPlace(t, agent, cfg, cwd, found, cx);
   const launcher = cfg.host.replace(/herdr-chat-host$/, "herdr-chat-subagent");
   const kill = await hc(["kill", t.address]);
   if (kill.code !== 0) throw new Error(`hc kill ${t.address}: ${kill.stderr.trim()}`);
@@ -169,11 +178,14 @@ export async function continueAsChat(addr, cx) {
  * A top-level TUI (its own pane in a tab): the chat opens beside it
  * (pane.split with the chat mod, focused), then the agent gets SIGTERM (it
  * saves its session; the host waits for that pid: --after-pid). The agent may
- * be a shell's foreground program (`claude` typed in zsh): only that pid is
- * signalled, never the terminal. Once it is gone the TUI's pane closes, so the
- * chat takes its place, unless its shell runs something else then (it stays, and says so).
+ * be a shell's foreground program (`claude` typed in zsh), or run under the
+ * terminal's own command (`fish -ic 'claude --resume …; exec fish -i'`): only
+ * the host's pid (found.pid) is signalled, never the shell. Once it is gone the
+ * TUI's pane closes, so the chat takes its place, unless its shell runs
+ * something else then (it stays, and says so).
  */
-export async function continueInPlace(t, agent, pid, cwd, found, cx) {
+export async function continueInPlace(t, agent, cfg, cwd, found, cx) {
+  const pid = found.pid;
   const pane = panes().find((p) => p.terminal === t.address);
   if (!pane) throw new Error(`${t.address} has no pane in a tab`);
   const before = new Set(panes().map((p) => p.pane));
@@ -188,27 +200,44 @@ export async function continueInPlace(t, agent, pid, cwd, found, cx) {
   if (k.code !== 0) throw new Error(`kill -TERM ${pid}: ${k.stderr.trim()}`);
   for (let i = 0; i < 100 && (await alive(pid)); i++) await cx.sleep(100);
   if (await alive(pid)) {
-    notify({ title: "Continue as chat", body: `${NAMES[agent]} (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
+    toast({ title: "Continue as chat", body: `${NAMES[agent]} (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
     return mine.pane;
   }
   // A shell left with its prompt: nothing else runs in it, so it goes. A program
-  // that ended with the agent: the pane shows its exit, so it goes too. A prompt's own
-  // commands (git status, an rc file) come and go: up to 3 s for the shell to
-  // be alone in its terminal.
-  let a = null, idleShell = false;
-  for (let i = 0; i < 15 && !idleShell; i++) {
-    await cx.sleep(200);
-    const after = await hc(["get", t.address, "--json"]);
-    a = after.code === 0 ? JSON.parse(after.stdout) : null;
-    idleShell = !a || a.state !== "live" || !a.foreground?.pid || a.foreground.pid === a.pid;
-  }
-  if (!idleShell) {
-    notify({ title: "Continue as chat", body: `The TUI's terminal now runs ${a.foreground?.argv?.[0] ?? "something"}: its pane stays.`, level: "info" });
+  // that ended with the agent: the pane shows its exit, so it goes too.
+  const running = await stillRuns(t.address, cfg, found.group, cx);
+  if (running) {
+    toast({ title: "Continue as chat", body: `The TUI's terminal now runs ${running}: its pane stays.`, level: "info" });
     return mine.pane;
   }
   if (panes().some((p) => p.pane === pane.pane)) run("pane.close", { pane: pane.pane });
   run("pane.focus", { pane: mine.pane });
   return mine.pane;
+}
+
+/**
+ * Once the agent is gone, what its terminal still runs (a program's name), or null when its shell is idle (at its
+ * prompt, or the terminal ended). A prompt's own commands (git status, an rc file) come and go: up to 3 s for it to be idle.
+ * - The agent was the shell's foreground job, or the terminal's own program (`group` null): Herdr's foreground is
+ *   the shell again.
+ * - The terminal's command ran it, in a shell without job control (`group`: tui-session's): that shell is the
+ *   foreground all along, so the host tells (`tui-busy`: what the shell went on to run).
+ */
+async function stillRuns(address, cfg, group, cx) {
+  if (group) {
+    const r = await host(cfg, ["tui-busy", "--group", JSON.stringify(group), "--within", "3000"]);
+    if (r.code !== 0) throw new Error(`can't tell whether the TUI's terminal is idle: ${(r.stderr || r.stdout).trim().replace(/^herdr-chat-host: /, "")}`);
+    return JSON.parse(r.stdout).running;
+  }
+  let running = null;
+  for (let i = 0; i < 15; i++) {
+    await cx.sleep(200);
+    const after = await hc(["get", address, "--json"]);
+    const a = after.code === 0 ? JSON.parse(after.stdout) : null;
+    running = !a || a.state !== "live" || !a.foreground?.pid || a.foreground.pid === a.pid ? null : a.foreground.argv?.[0] ?? "something";
+    if (!running) break;
+  }
+  return running;
 }
 
 // The floating block: commands only, nothing drawn.
@@ -221,7 +250,7 @@ class Commands {
         await checkRunning();
         if (!(await checkHosts())) await checkRelease({ now });
       } catch (e) {
-        notify({ title: "herdr-chat update", body: String(e?.message ?? e), level: "error" });
+        toast({ title: "herdr-chat update", body: String(e?.message ?? e), level: "error" });
       }
     };
     cx.timer.after(3000, () => void updates());
@@ -238,7 +267,7 @@ class Commands {
           else if (c === "continue" || c.startsWith("continue:")) await continueAsChat(c.slice(9), cx);
           else if (c === "update-check") await updates(true);
         } catch (e) {
-          notify({ title: c.startsWith("continue") ? "Continue as chat" : "New chat", body: String(e?.message ?? e), level: "error" });
+          toast({ title: c.startsWith("continue") ? "Continue as chat" : "New chat", body: String(e?.message ?? e), level: "error" });
         }
       }
     });
@@ -309,7 +338,7 @@ export default class NewChat extends View {
       try {
         await openChat(provider);
       } catch (e) {
-        notify({ title: "New chat", body: String(e?.message ?? e), level: "error" });
+        toast({ title: "New chat", body: String(e?.message ?? e), level: "error" });
       } finally {
         if (overlay) closeOverlay(overlay);
       }
