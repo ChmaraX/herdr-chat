@@ -10,6 +10,7 @@ import { SPACE } from "./space.js";
 import { toolIcon, toolTitle } from "./cards.js";
 import { diffView } from "./rich.js";
 import { QuestionsForm } from "./questions.js";
+import { reasonPlaceholder } from "./reason.js";
 
 export class DialogCard {
   constructor(onChange, focusComposer) {
@@ -33,7 +34,7 @@ export class DialogCard {
     this.id = dialog?.id ?? null;
     this.sel = 0;
     if (dialog?.method === "permission" && dialog.choices?.some((x) => x.kind === "deny")) {
-      this.field = InputState.new({ placeholder: "Why not? (optional, sent with Deny)" });
+      this.field = InputState.new({ placeholder: reasonPlaceholder(dialog.choices) });
     }
     if (dialog?.method === "questions") {
       this.form = new QuestionsForm(dialog.questions ?? [], { onChange: this.onChange, focusComposer: this.focusComposer });
