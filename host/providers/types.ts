@@ -23,6 +23,14 @@ export type ImageBlock = { data: string; mimeType: string };
  */
 export type SkillRef = { name: string; command: string; path?: string; body?: string };
 
+/**
+ * The skills a message starts with, split once by the core (host/skill.ts)
+ * from the chat's skill commands: in order, each once, then `rest`. Each
+ * adapter only says them its agent's way (Pi's blocks, Claude Code's Skill
+ * tool, Codex's `$name` inputs).
+ */
+export type SkillLead = { skills: SkillRef[]; rest: string };
+
 export type ModelInfo = { provider: string; id: string; name: string; reasoning: boolean; contextWindow: number | null; input: string[] };
 
 export type PermissionMode = { id: string; label: string; description?: string };
@@ -132,11 +140,12 @@ export type NormalizedEvent = Common &
      * A user message the agent accepted. `clientId` is the host's message id
      * (`prompt`'s `id`) when it is the echo of one the host sent: the core
      * confirms that message's item. Without `clientId` or `source` it is from
-     * elsewhere (the agent's own, an extension, another client). `skill`: the
-     * skill it invokes, when the adapter knows it; `text` is then only what
-     * the person wrote after it. Without it the core checks `text` itself.
+     * elsewhere (the agent's own, an extension, another client). `skills`: the
+     * skills it invokes, in order, when the adapter knows them; `text` is then
+     * only what the person wrote after them. Without them the core checks
+     * `text` itself.
      */
-    | { type: "user_message"; text: string; images: number; imageBlocks?: ImageBlock[]; source?: UserSource; from?: string; clientId?: string; skill?: SkillRef }
+    | { type: "user_message"; text: string; images: number; imageBlocks?: ImageBlock[]; source?: UserSource; from?: string; clientId?: string; skills?: SkillRef[] }
     /** Custom (extension) message, shown as its own item. */
     | { type: "custom"; customType: string; text: string }
     | { type: "assistant_start" }
@@ -211,6 +220,9 @@ export type EventOf<T extends NormalizedEvent["type"]> = Extract<NormalizedEvent
 // ---------------------------------------------------------------- commands
 
 export type PromptMode = "auto" | "steer" | "followUp";
+
+/** What `prompt` sends. */
+export type Prompt = { id: string; text: string; lead?: SkillLead; images: ImageBlock[]; mode: PromptMode; busy: boolean };
 
 /**
  * "started": a run begins; "handled": the agent answered without a run (a
@@ -293,8 +305,14 @@ export interface ProviderAdapter {
   watchRun?(): void;
 
   // ---- turns
-  /** `id`: the host's id for this message; the adapter puts it on the message's echo (`user_message.clientId`) and queue entries. */
-  prompt(p: { id: string; text: string; images: ImageBlock[]; mode: PromptMode; busy: boolean }): Promise<{ disposition: Disposition }>;
+  /**
+   * `id`: the host's id for this message; the adapter puts it on the message's
+   * echo (`user_message.clientId`) and queue entries. `text`: the message as
+   * typed (its skills as leading `/command`s). `lead`: those skills and the
+   * rest, when it starts with any; the adapter sends them from this, never by
+   * splitting `text` again.
+   */
+  prompt(p: Prompt): Promise<{ disposition: Disposition }>;
   /** Drops queued messages and returns their text (for the composer). Called before `abort`. */
   clearQueue(): Promise<string[]>;
   /**

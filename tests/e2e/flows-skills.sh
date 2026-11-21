@@ -6,7 +6,7 @@
 # message); "/" inside the text opens nothing, or offers commands that need
 # the whole message; the pill's text isn't the command, so the agent gets a
 # label; a pill inside the text is sent mid-sentence, where no agent runs a
-# skill; two skills go out (an agent runs one); Edit and resend loses the pill.
+# skill; a second pill is refused or sent as text; Edit and resend loses a pill.
 
 pills() { d 'len(d["composer"]["pills"])'; }
 message() { d 'd["composer"]["message"]'; }
@@ -33,25 +33,36 @@ if want skills; then
   send_text_keys() { keys enter; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || { by_command "Enter dropped: chat.click:send"; cmd click:send; }; }
   send_text_keys
   expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "answered" 15
-  [ "$(last_user text)" = "the crash" ] && [ "$(d "[i.get('skill') for i in d['items'] if i['kind']=='user'][-1]")" = diagnose ] \
-    && ok "the sent message: the diagnose pill, then \"the crash\"" || fail "the message: $(last_user text) / $(d "[i.get('skill') for i in d['items'] if i['kind']=='user'][-1]")"
+  [ "$(last_user text)" = "the crash" ] && [ "$(d "[i.get('skills') for i in d['items'] if i['kind']=='user'][-1] == ['diagnose']")" = true ] \
+    && ok "the sent message: the diagnose pill, then \"the crash\"" || fail "the message: $(last_user text) / $(d "[i.get('skills') for i in d['items'] if i['kind']=='user'][-1]")"
 
   step "skills: / inside the text offers skills only; the pill moves to the front when sent"
   cmd focus; sleep 0.3
   type_text "please use /"
-  expect '[ "$(d "d[\"menu\"][\"start\"]")" = 11 ] && [ "$(d "set(d[\"menu\"][\"items\"]) == {\"skill:diagnose\"}")" = true ]' "a / after a space: the skills only (no /model, /tui…)" 5
+  expect '[ "$(d "d[\"menu\"][\"start\"]")" = 11 ] && [ "$(d "sorted(d[\"menu\"][\"items\"]) == [\"skill:diagnose\", \"skill:verify\"]")" = true ]' "a / after a space: the skills only (no /model, /tui…)" 5
   type_text "dia"
   press enter '[ "$(pills)" = 1 ]'
   expect '[ "$(d "d[\"composer\"][\"pills\"][0][\"start\"]")" = 11 ]' "the pill stands where the / was" 5
   type_text "on it"
   [ "$(message)" = "/skill:diagnose please use diagnose on it" ] && ok "sent with the skill first, its name left in the sentence" || fail "message: $(message)"
   shot skills-2-pill-mid-text 0.4
-  type_text " /dia"
+  type_text " then /dia"
   press enter '[ "$(pills)" = 2 ]'
-  keys enter; sleep 1
-  [ "$(count_kind user)" = 1 ] && [ "$(pills)" = 2 ] && [ "$(message)" = null ] && ok "two skills: not sent (one skill per message), the text kept" \
-    || fail "two skills: users $(count_kind user), pills $(pills), message $(message)"
+  type_text "again"
+  [ "$(message)" = "/skill:diagnose please use diagnose on it then diagnose again" ] && ok "the same skill twice: one leading command, both names left in the text" \
+    || fail "message: $(message)"
   empty
+  type_text "/skill:diagnose /skill:verify "
+  expect '[ "$(pills)" = 2 ]' "two skills typed out: two pills" 5
+  type_text "the crash"
+  [ "$(message)" = "/skill:diagnose /skill:verify the crash" ] && ok "what it sends: both skills first, in order" || fail "message: $(message)"
+  shot skills-2b-two-pills 0.4
+  send_text_keys
+  expect '[ "$(phase)" = idle ] && [ "$(count_kind user)" = 2 ]' "two skills: sent" 15
+  [ "$(last_user text)" = "the crash" ] && [ "$(d "[i.get('skills') for i in d['items'] if i['kind']=='user'][-1] == ['diagnose', 'verify']")" = true ] \
+    && ok "the sent message: two pills, then \"the crash\"" || fail "the message: $(last_user text) / $(d "[i.get('skills') for i in d['items'] if i['kind']=='user'][-1]")"
+  shot skills-2c-two-pills-sent 0.4
+  cmd focus; sleep 0.3
   type_text "a path src/x and x /mod"
   [ "$(d 'd["menu"]')" = null ] && ok "src/x opens nothing, and /mod mid-text matches no skill" || fail "menu: $(d 'd["menu"]')"
   empty
@@ -62,7 +73,7 @@ if want skills; then
   empty
   U=$(d "[i['id'] for i in d['items'] if i['kind']=='user'][-1]")
   cmd "click:edit:$U"
-  expect '[ "$(d "d[\"composer\"][\"text\"]")" = "/skill:diagnose the crash" ] && [ "$(pills)" = 1 ]' "Edit and resend: the pill and the text" 5
+  expect '[ "$(d "d[\"composer\"][\"text\"]")" = "/skill:diagnose /skill:verify the crash" ] && [ "$(pills)" = 2 ]' "Edit and resend: both pills and the text" 5
   shot skills-3-edit-resend 0.4
   empty
 fi

@@ -32,10 +32,10 @@ export type ToolDetail =
 
 /** Every item may carry `parent`: the id of the tool item (a subagent) whose run produced it. */
 type Nested = { parent?: string };
-/** `skill`: the skill the message invokes, drawn as a pill; `text` is then what the person wrote after it. */
+/** `skills`: the skills the message invokes, in order, drawn as pills; `text` is then what the person wrote after them. */
 export type UserItem = Nested & {
   id: string; kind: "user"; ts: number; text: string; images: number; imageFiles?: ImageFile[];
-  source: UserSource; from?: string; skill?: SkillRef;
+  source: UserSource; from?: string; skills?: SkillRef[];
 };
 export type DiffLine = { kind: "hunk" | "add" | "del" | "ctx" | "meta"; old?: number; new?: number; spans: Span[] };
 export type Block =
@@ -65,19 +65,22 @@ export type Item = UserItem | AssistantItem | ThinkingItem | ToolItem | NoticeIt
 /**
  * An item as the wire carries it. Saved images go as parallel arrays, paths
  * (`imagePaths` on user items, `images` on tool items) and `imageSizes` (v3.7),
- * so a mod older than the sizes still finds its paths.
+ * so a mod older than the sizes still finds its paths. A user item's first
+ * skill also goes as `skill` (v3.8), so a mod older than `skills` still shows
+ * a pill.
  */
 type WireImages<K extends string> = { [P in K]?: string[] } & { imageSizes?: (ImageSize | null)[] };
 export type WireItem =
   | Exclude<Item, UserItem | ToolItem>
-  | (Omit<UserItem, "imageFiles"> & WireImages<"imagePaths">)
+  | (Omit<UserItem, "imageFiles"> & WireImages<"imagePaths"> & { skill?: SkillRef })
   | (Omit<ToolItem, "imageFiles"> & WireImages<"images">);
 
 export function toWire(item: Item): WireItem {
   const it = structuredClone(item);
   if (it.kind === "user") {
     const { imageFiles, ...rest } = it;
-    return imageFiles ? { ...rest, imagePaths: imageFiles.map((f) => f.path), imageSizes: imageFiles.map((f) => f.size) } : rest;
+    const old = rest.skills?.length ? { skill: rest.skills[0] } : {};
+    return imageFiles ? { ...rest, ...old, imagePaths: imageFiles.map((f) => f.path), imageSizes: imageFiles.map((f) => f.size) } : { ...rest, ...old };
   }
   if (it.kind === "tool") {
     const { imageFiles, ...rest } = it;
@@ -192,9 +195,9 @@ export class Timeline {
     return this.byId.get(id);
   }
 
-  addUser(text: string, images: number, source: UserSource, from?: string, ts = Date.now(), blocks: ImageBlock[] = [], skill?: SkillRef): UserItem {
+  addUser(text: string, images: number, source: UserSource, from?: string, ts = Date.now(), blocks: ImageBlock[] = [], skills?: SkillRef[]): UserItem {
     this.carry = {};
-    const item = this.add<UserItem>({ id: newId("u"), kind: "user", ts, text: bounded(text), images: Math.max(images, blocks.length), source, ...(from ? { from } : {}), ...(skill ? { skill } : {}) });
+    const item = this.add<UserItem>({ id: newId("u"), kind: "user", ts, text: bounded(text), images: Math.max(images, blocks.length), source, ...(from ? { from } : {}), ...(skills?.length ? { skills } : {}) });
     if (!item.parent) {
       this.turnStart = { userId: item.id, plan: this.plan, marker: this.turnMarker };
       this.turnMarker = null;
@@ -204,14 +207,14 @@ export class Timeline {
     return item;
   }
 
-  /** A sent message's echo: the agent's text (an expanded template), the skill it ran, its images and time. */
-  confirmUser(item: UserItem, text: string, blocks: ImageBlock[], ts?: number, skill?: SkillRef): void {
-    if (skill) {
-      item.skill = skill;
+  /** A sent message's echo: the agent's text (an expanded template), the skills it ran, its images and time. */
+  confirmUser(item: UserItem, text: string, blocks: ImageBlock[], ts?: number, skills?: SkillRef[]): void {
+    if (skills?.length) {
+      item.skills = skills;
       item.text = bounded(text);
     } else if (text && text !== item.text) {
       item.text = bounded(text);
-      delete item.skill;
+      delete item.skills;
     }
     if (blocks.length && !item.imageFiles) {
       item.images = Math.max(item.images, blocks.length);
@@ -388,7 +391,7 @@ export class Timeline {
   private applyEvent(ev: NormalizedEvent, now: number): boolean {
     switch (ev.type) {
       case "user_message":
-        this.addUser(ev.text, ev.images, ev.source ?? "extension", ev.from, now, ev.imageBlocks ?? [], ev.skill);
+        this.addUser(ev.text, ev.images, ev.source ?? "extension", ev.from, now, ev.imageBlocks ?? [], ev.skills);
         return true;
       case "custom":
         this.addCustom(ev.customType, ev.text, now);

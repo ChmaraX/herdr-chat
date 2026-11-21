@@ -33,6 +33,10 @@ the test that has to catch it; "not covered" rows are known gaps
 | The prompt shows only when the agent echoes it (Claude at `message_start`, Codex after its prompt hooks: 0.6–3.5 s) | `prompt-echo.test.ts`: the user item within 150 ms, before any answer (fake-claude scripted, the `extra.jsonl` and Codex `text.jsonl` replays); E2E `claude` "the prompt shows before the answer starts" |
 | The echo adds a second item instead of confirming the shown one | `prompt-echo.test.ts`: one user item, the same id, after the echo |
 | An expanded skill's echo is dropped or added beside the prompt | `prompt-echo.test.ts` "pi: a skill's echo": one item with Pi's text |
+| Several skills: the agent runs only the first (Pi and `claude -p` each expand one), the rest reach it as the first one's arguments | `skills.test.ts` "pi: three skills…" (the model gets one run of Pi's blocks), "claude: several skills…" (each a `/name` for the Skill tool, nothing slash-led in front), "codex: several skills…" (a `skill` input each) |
+| A later skill without a file (Pi gives none, or it's gone) is dropped and the message goes without it | `skills.test.ts` "pi: a later skill Pi gives no file for…": the send fails, Pi gets nothing, the item goes |
+| The pills shown and the skills sent differ (a skill named twice, a list the adapter splits by on its own) | `skills.test.ts`: `/skill:tdd /skill:tdd once` (Pi) and `/tdd /tdd once` (Claude) reach the agent once, shown once |
+| Several pills come back out of order, or a resumed session shows fewer | `skills.test.ts`: the three pills in order, live and resumed (Pi, Claude); `fork_points` and the session list give them as typed |
 | A rejected prompt stays on the timeline | `prompt-echo.test.ts` "pi: … a prompt Pi rejects" |
 | Esc before the turn starts loses the prompt or doubles it | `prompt-echo.test.ts` "claude: Esc before the turn starts" |
 | A fake echoes in an order the real agent doesn't (hiding the above) | `fake-fidelity.test.ts`: each fake against a real recording |
@@ -94,6 +98,12 @@ the test that has to catch it; "not covered" rows are known gaps
 | The chat resumes the old session after a fork or /resume in the TUI | `handoff.test.ts` "forks and exits" |
 | Resuming while the TUI still writes the session | `handoff.test.ts` "terminal is killed": waits for the TUI's pid |
 | Two chats write one session | `conflict.test.ts`: phase `conflict`, `take_over`; Claude's registry; `codex-lifecycle.test.ts` active writer |
+| Two hosts serve one chat (two starts at once: both register, both start an agent on the session) | `one-host.test.ts` "N hosts started at once": one serves, the registry names it, the rest exit 3 with the error, one agent process; E2E `one-host`: six restarts under mod reloads, one host each, none refused |
+| Two takers of a dead host's claim both win; a reused pid keeps a dead claim (`claim.test.ts` tests the module itself: whole hosts start ~100 ms apart, too far apart to race for one claim) | `claim.test.ts`: 8 contenders at one instant, 12 rounds through fresh, released, SIGKILLed and pid-reused claims; `one-host.test.ts` "SIGKILL", "pid reuse" |
+| The chat's live host can't be reached: something else wrote or removed its registry entry (a 0.5.0 duplicate's exit), and the mod starts hosts the claim refuses | `one-host.test.ts` "keeps the registry naming it": the entry overwritten, then deleted, is written back and a client works; E2E `one-host`: the claim holder is the host left after the sweep, none refused |
+| A dead host's session lock, its pid now another process's, keeps the chat in `conflict` | `one-host.test.ts` "a session lock left by a host of this chat that died": a 0.6 lock (another start time) and a pre-0.6 lock (the pid isn't a host of the chat) |
+| A restart can't start (the old host's claim not released) | `one-host.test.ts` "a restart": shutdown then a new host, SIGTERM then a new host; `after-pid.test.ts` |
+| A second host from before the claim shares the chat's session | `one-host.test.ts` "a host from before the claim": the new host is in `conflict`, starts no agent; E2E `one-host`: the sweep ends the host the registry doesn't name |
 
 ## Reconnect
 
