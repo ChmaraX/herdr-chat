@@ -166,7 +166,7 @@ sys.exit(0 if any((f.get("content") or {}).get("mod") == "new-chat" and f["conte
   mkdir -p "$STATE"
   echo '{"global": {"claude": "cmd-alt-k"}}' >"$STATE/keys.json"
   "$NODE" "$REPO/install/keys.ts" install "$HERDR_APP_HOME" --platform darwin >"$ART/journey-keys.txt" 2>&1 || fail "install/keys.ts install: $(cat "$ART/journey-keys.txt")"
-  [ "$(tail -1 "$ART/journey-keys.txt")" = "New chat: ⌘I · Claude Code chat: ⌘⌥K" ] && ok "install/keys.ts: \"$(tail -1 "$ART/journey-keys.txt")\"" || fail "keys summary: $(cat "$ART/journey-keys.txt")"
+  [ "$(tail -1 "$ART/journey-keys.txt")" = "New chat: ⌘I · Claude Code chat: ⌥⌘K" ] && ok "install/keys.ts: \"$(tail -1 "$ART/journey-keys.txt")\"" || fail "keys summary: $(cat "$ART/journey-keys.txt")"
   python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["global"]; sys.exit(0 if g.get("cmd-i") == "mod.open:new-chat" and g.get("cmd-alt-k") == "new-chat.claude" else 1)' "$HERDR_APP_HOME/keys.json" &&
     ok "keys.json: cmd-i → mod.open:new-chat, cmd-alt-k → new-chat.claude" || fail "keys.json global"
   sleep 1

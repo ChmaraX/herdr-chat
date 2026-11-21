@@ -1,0 +1,10 @@
+{
+  "model": "ctrl-shift-m",
+  "effort": "ctrl-shift-i",
+  "mode": "ctrl-shift-a",
+  "tui": "ctrl-alt-shift-t",
+  "resume": "ctrl-shift-r",
+  "latest": "ctrl-shift-down",
+  "focusComposer": "ctrl-l",
+  "newChat": "ctrl-alt-n"
+}
