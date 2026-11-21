@@ -12,7 +12,8 @@
 // install/layout.ts): always on screen at no size, so it takes the commands a
 // key or another mod runs while no launcher is open:
 // - `new-chat.open`: the launcher (as mod.open:new-chat; again: closes it);
-// - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`: that agent's chat, in a new tab;
+// - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`: that agent's chat, in a new tab
+//   (not in another machine's space or terminal: it says so);
 // - `new-chat.continue:<terminal>`: chat-menu's Continue as chat (an agent's
 //   TUI handed over to a chat on its session, see continueAsChat);
 //   `new-chat.continue`: the same on the focused terminal (the "continue" key);
@@ -39,6 +40,10 @@ const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
 async function openChat(provider) {
   const f = focused();
   const space = spaces().find((s) => s.id === f?.space);
+  // Another machine's (`hc machine`) focused terminal or space: its folder is there, a chat's host would run here.
+  // A focused layout block or window terminal (pane null) isn't the space's; Herdr's own mods tell it the same way.
+  const [what, machine] = f?.pane === null ? ["This terminal", machineOf(f.terminal)] : ["This space", space?.machine ?? null];
+  if (machine) throw new Error(`${what} is on ${machine}: chats run on this computer only.`);
   const cwd = f?.cwd || space?.folder || null;
   const chat = `c-${randomBytes(4).toString("hex")}`;
   run("tab.new", { name: provider, mod: "chat", props: { chat, provider, ...(cwd ? { cwd } : {}) } });
@@ -74,19 +79,31 @@ export function agentOf(t) {
 
 /**
  * Why a terminal can't continue as a chat (null: it can): a live agent TUI
- * (Pi, Claude Code, Codex), idle or done. `working: true`: it can once its run
- * ends (chat-menu shows the item disabled). Which session it has open is the
- * host's to find (continueAsChat). Shared with chat-menu (a copy there: mods
- * can't import each other).
+ * (Pi, Claude Code, Codex) of this computer's, idle or done. `why` says why
+ * not; `note`, when set, is an agent's TUI that can't continue now (another
+ * machine's, or while it works): chat-menu shows the item disabled with it,
+ * and `why` is the sentence to show. Which session it has open is the host's
+ * to find (continueAsChat). Shared with chat-menu (a copy there: mods can't
+ * import each other; keep the two the same).
  */
 export function cantContinue(t) {
   if (!t || t.state !== "live") return { why: "not live" };
   if (t.labels?.["herdr-chat.chat"]) return { why: "already a chat" };
   if (!agentOf(t)) return { why: "not an agent's TUI" };
+  // Another machine's agent ("box/t7"): it runs there, and a chat's host would run here.
+  const machine = machineOf(t.address);
+  if (machine) return { why: `This agent runs on ${machine}: chats run on this computer only.`, note: `On ${machine}` };
   const st = word(t.status);
-  if (st === "working" || st === "blocked") return { why: "Wait for the run to end", working: true };
+  if (st === "working" || st === "blocked") return { why: "Wait for the run to end, then Continue as chat.", note: "Wait for the run to end" };
   if (!["idle", "done"].includes(st)) return { why: `status ${st}` };
   return null;
+}
+
+/** The machine of another computer's terminal address ("box" for "box/t7"), null for one of this computer's
+ *  (hc addresses this computer's terminals by bare ID). Copied in chat-menu. */
+export function machineOf(address) {
+  const s = String(address ?? ""), at = s.indexOf("/");
+  return at > 0 ? s.slice(0, at) : null;
 }
 
 async function chatConfig() {
@@ -128,7 +145,7 @@ const alive = async (pid) => (await exec("kill", ["-0", String(pid)])).code === 
 export async function continueAsChat(addr, cx) {
   const t = term(addr || focused()?.terminal);
   const no = cantContinue(t);
-  if (no) throw new Error(no.working ? "Wait for the run to end, then Continue as chat." : `Not an agent's TUI that can continue as a chat: ${no.why}.`);
+  if (no) throw new Error(no.note ? no.why : `Not an agent's TUI that can continue as a chat: ${no.why}.`);
   const agent = agentOf(t);
   const g = await hc(["get", t.address, "--json"]);
   if (g.code !== 0) throw new Error(`hc get ${t.address}: ${g.stderr.trim()}`);

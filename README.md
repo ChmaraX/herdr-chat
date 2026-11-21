@@ -141,7 +141,8 @@ another URL with GitHub's release JSON.
 
 ## Limitations
 
-- **This computer only.** Spaces on other machines still open the agent's TUI.
+- **This computer only.** Chats run on this computer only: in another machine's space,
+  New chat and Continue as chat say so.
 - **The end-to-end tests drive macOS only** (`tests/e2e/`); on Linux the
   host's tests run, and the mods were tried by hand.
 - **Run the install again after a Herdr update.** The agents list and the
