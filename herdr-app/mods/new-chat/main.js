@@ -19,7 +19,8 @@
 // - `new-chat.update-check`: the update questions now, the release lookup too (update.js;
 //   they also run a few seconds after this block starts, an install reloads it, and
 //   once an hour, with the lookup at most once a day).
-//   The question's dialog takes `new-chat.update:<button>` (restart, later, update, notes, output).
+//   The question (a window that leaves the app usable, one at a time) takes
+//   `new-chat.update:<button>` (restart, later, update, notes, output) and `new-chat.update:focus`.
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -234,12 +235,12 @@ export default class NewChat extends View {
     if (props()?.role === "update") {
       this.handle = cx.focus_handle();
       this.update = new UpdateDialog(props(), cx);
-      cx.timer.after(120, () => this.handle.focus());
+      // No focus of its own (update.js): a click on it, or `new-chat.update:focus`, gives it the keys.
       // Its buttons by command (`new-chat.update:restart|later|update|notes|output`), as a click.
       cx.spawn(async (cx) => {
         for (;;) {
           const c = await nextCommand();
-          if (c === "focus") this.handle.focus();
+          if (c === "focus" || c === "update:focus") this.handle.focus();
           else if (c.startsWith("update:")) this.update.answer(c.slice(7), cx);
           cx.notify();
         }
