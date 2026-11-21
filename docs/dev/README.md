@@ -12,6 +12,9 @@ For working on herdr-chat. The setup and the tests are in
   seam and what each agent supports.
 - [visual-v2.md](visual-v2.md): the chat's look and feel. The mod's code
   cites its sections (`visual-v2.md §3`).
+- [debugging.md](debugging.md): debugging what is drawn (layout, scroll, jumps):
+  the debug dump, driving the app, drawing the model on screen, measuring
+  frames of a screen recording, and the UI-zoom trap.
 
 Older notes (the research) call the chat mod `pi` or `pi-chat`, its names before `chat`, and the project pi-chat before herdr-chat.
 
