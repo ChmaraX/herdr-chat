@@ -14,7 +14,7 @@
 //
 // Commands (`chat.<c>`, also how E2E drives what a click does):
 //   focus · toggle:<id> (an item, a group `g-…`, `code:…`) · click:<control>
-//   · scroll:up|down · hover:<itemId> · svghover:<itemId>:<k> (a diagram's ⤢ hint) · key:<k> · drop:<paths> · clear · type:<text>
+//   · scroll:up|down · scroll:by:<dy> (the timeline by dy layout px: a wheel event of dy × the UI zoom pt) · hover:<itemId> · svghover:<itemId>:<k> (a diagram's ⤢ hint) · key:<k> · drop:<paths> · clear · type:<text>
 //   · wheel:<dy> (the open menu or picker, as the mouse wheel does) · outside (a press outside it)
 //   · shortcut:<action> (keys.default.json's actions, as their keys do)
 //   controls: chip:model|thinking|permission, latest, send, stop, restart,
@@ -50,7 +50,7 @@ import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readSvgSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
-import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, skillsOf, spinner, tildePath, typedText, unwrapHc } from "./util.js";
+import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, skillsOf, uiScale, spinner, tildePath, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
@@ -86,7 +86,7 @@ export default class HerdrChat extends View {
     this.provider = p.provider ?? null; // an id of PROVIDERS; null: the registry's, else DEFAULT_PROVIDER
     this.cwd = p.cwd || null;
     this.store = new Store();
-    this.timeline = new Timeline("herdr-chat-timeline");
+    this.timeline = new Timeline("herdr-chat-timeline", uiScale);
     this.expanded = new Set();
     this.full = new Map();
     this.dialog = new DialogCard((cx) => { this.debug?.mark(); cx?.notify(); }, () => this.composer.focus());
@@ -102,14 +102,14 @@ export default class HerdrChat extends View {
     this.copiedAt = new Map(); // copy button id → when (✓ for 1.5 s)
     this.groups = new Map(); // work group id → open (the person's choice)
     this.groupAnims = new Map(); // work group id → {target, step, h} while it slides
-    this.groupH = new Map(); // work group id → its cards' natural height
+    this.groupH = new Map(); // work group id → its cards' natural height (layout px)
     this.codeViews = new Map();
     this.codeSel = new Map(); // code block key → its CodeView (codeview.js registers itself): the E2E's chat.codesel // "<item>:<block>" → {entity, props}: finished code blocks (codeview.js)
     this.uid = `v${++VIEWS}`;
     owners.set(this.uid, this);
     this.svgSizes = new Map(); // image path → {w, h} | null (loading)
     this.thumbsSeen = null; // debug only: image path → [[ms, w, h]…], the boxes its thumbnail was drawn at
-    this.width = 0;
+    this.widthPt = 0; // the chat's width as reported (window pt); `width` is in layout px
     this.homeDir = home();
     this.prefs = loadPrefs();
     this.place = null; // {pane, tab, space}: this chat's own pane, from the layout document (place.js)
@@ -1428,8 +1428,10 @@ export default class HerdrChat extends View {
     });
   }
 
-  groupMeasured(id, h, cx) {
-    if (this.groupH.get(id) === h) return;
+  // h: as on_size_change reports it (window pt); kept in layout px, the unit .h() takes.
+  groupMeasured(id, pt, cx) {
+    const h = pt / uiScale();
+    if (Math.abs((this.groupH.get(id) ?? -1) - h) < 0.01) return;
     this.groupH.set(id, h);
     const a = this.groupAnims.get(id);
     if (a?.target === "open" && a.h == null) {
@@ -1716,6 +1718,10 @@ export default class HerdrChat extends View {
     }
     if (c === "focus") this.focusInput(); else if (c.startsWith("toggle:")) this.toggle(c.slice(7), cx);
     else if (c.startsWith("click:")) this.control(c.slice(6), cx);
+    else if (c.startsWith("scroll:by:")) {
+      const dy = Number(c.slice(10));
+      if (Number.isFinite(dy)) this.timeline.scrollBy(dy); else this.log(`scroll:by: not a number: ${c.slice(10)}`);
+    }
     else if (c === "scroll:up") this.timeline.scrollBy(600);
     else if (c === "scroll:down") this.timeline.scrollBy(-600);
     else if (c.startsWith("key:")) this.action(`herdrchat_${c.slice(4)}`, cx);
@@ -2004,9 +2010,9 @@ export default class HerdrChat extends View {
         ...(it.kind === "tool" ? { name: it.name, title: it.title, images: it.images ?? [] } : {}),
         ...(it.kind === "assistant" ? { len: it.text.length, stopReason: it.stopReason ?? null } : {}),
         ...(it.kind === "notice" ? { level: it.level, text: (it.text ?? "").slice(0, 200), source: it.source ?? null } : {}) })),
-      hasOlder: this.store.hasOlder,
+      hasOlder: this.store.hasOlder, loadingOlder: this.loadingOlder || Boolean(this.olderWanted),
       expanded: [...this.expanded], full: [...this.full.keys()],
-      sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, shown: this.timeline.shown,
+      sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, scale: uiScale(), rowsAt: this.timeline.rowsAt(), shown: this.timeline.shown,
       composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), chipSizes: this.composer.chips.map((c) => c.size), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
       menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
@@ -2122,6 +2128,11 @@ export default class HerdrChat extends View {
     this.debug.mark();
   }
 
+  // Layout px: the width as reported, at the zoom now (a zoom change needn't re-report it).
+  get width() {
+    return this.widthPt / uiScale();
+  }
+
   pad() {
     return this.width && this.width < 600 ? 12 : 24;
   }
@@ -2220,7 +2231,7 @@ export default class HerdrChat extends View {
         .child(div().flex_1().min_w(0).text_size(11).truncate().text_color(this.flashText ? t.blocked : t.dim).child(hintText ?? ""))
         .children([branchChip(this, t, { width: this.colW() })].filter(Boolean)));
     let root = v_flex().id("herdr-chat").key_context("HerdrChat").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
-      .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.width) > 0.5) { this.width = sz.width; this.sized(sz.width); cx.notify(); } })
+      .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.widthPt) > 0.5) { this.widthPt = sz.width; this.sized(this.width); cx.notify(); } })
       .on_drop((e, cx) => this.drop(e.paths ?? [], cx))
       .children(this.sub ? [this.subBar(t)] : [])
       .children(banner ? [div().flex_none().pt(10).child(this.column(div().child(banner)))] : []);
@@ -2270,7 +2281,7 @@ export default class HerdrChat extends View {
       try {
         const d = await this.req("history", { before, limit: 100 }, cx);
         const older = d?.items ?? [];
-        this.timeline.prepended(older);
+        this.timeline.prepended();
         this.store.prepend(older, d?.hasOlder);
       } catch (e) {
         this.flash(`history: ${message(e)}`, cx);

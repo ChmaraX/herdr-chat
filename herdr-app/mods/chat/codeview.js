@@ -13,7 +13,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, Scrollbar } from "gpui-base";
 import { theme } from "herdr";
-import { alpha, monoFont } from "./util.js";
+import { alpha, monoFont, uiScale } from "./util.js";
 import { LINE_H, codeCard, markdown } from "./rich.js";
 
 export const owners = new Map(); // owner id → the chat view (main.js)
@@ -37,8 +37,8 @@ export class CodeView extends View {
     this.focus = cx.focus_handle();
     this.sel = null; // {a, b}: where the press was and where the pointer is, as {r: line, c: column}
     this.dragging = false;
-    this.linesW = 0; // the lines' own width (the widest)
-    this.viewW = 0;
+    this.linesW = 0; // the lines' own width (the widest), layout px
+    this.viewW = 0; // the card's width, layout px
     owners.get(this.p.owner)?.codeSel?.set(this.p.key, this); // the E2E's chat.codesel command
   }
 
@@ -72,10 +72,13 @@ export class CodeView extends View {
   body(rendered, texts, t) {
     const id = `code-${this.p.owner}-${this.p.key}`;
     const longest = Math.max(1, ...texts.map((s) => s.length));
+    // In layout px, like PAD_X and LINE_H: the measured widths and the pointer
+    // come in window pt and are converted where they're read (util.js uiScale).
     const colW = this.linesW > 0 ? this.linesW / longest : 7.5;
     const at = (e) => {
-      const p = e.local_position;
-      if (!p) return null;
+      if (!e.local_position) return null;
+      const k = uiScale();
+      const p = { x: e.local_position.x / k, y: e.local_position.y / k };
       const r = clamp(Math.floor((p.y - PAD_Y) / LINE_H), 0, texts.length - 1);
       return { r, c: clamp(Math.round((p.x - PAD_X) / colW), 0, (texts[r] ?? "").length) };
     };
@@ -123,7 +126,7 @@ export class CodeView extends View {
       .on_scroll_wheel((e, cx) => { if (Math.abs(e.delta.x) > Math.abs(e.delta.y)) cx.stop_propagation(); })
       .children(marks)
       .child(v_flex().flex_none().items_start().children(rendered)
-        .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.linesW) > 0.5) { this.linesW = sz.width; this.changed(cx); } }));
+        .on_size_change((sz, cx) => { const w = sz.width / uiScale(); if (Math.abs(w - this.linesW) > 0.5) { this.linesW = w; this.changed(cx); } }));
     const wide = this.linesW + 2 * PAD_X > this.viewW + 0.5 && this.viewW > 0;
     return div().relative().w_full().key_context("HerdrChatCode").track_focus(this.focus)
       .on_action(COPY, (_e, cx) => {
@@ -133,7 +136,7 @@ export class CodeView extends View {
       .on_action(CLEAR, (_e, cx) => { this.clear(cx); owners.get(this.p.owner)?.focusInput(); })
       .on_mouse_down_out((_e, cx) => this.clear(cx))
       .child(v_flex().id(id).w_full().items_start().overflow_scroll()
-        .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.viewW) > 0.5) { this.viewW = sz.width; this.changed(cx); } })
+        .on_size_change((sz, cx) => { const w = sz.width / uiScale(); if (Math.abs(w - this.viewW) > 0.5) { this.viewW = w; this.changed(cx); } })
         .child(content))
       .when(wide, (el) => el.pb(10).child(div().absolute().left(0).right(0).bottom(0).h(10).child(Scrollbar.horizontal(id).mode("always"))));
   }
