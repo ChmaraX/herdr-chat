@@ -21,7 +21,7 @@ FAKE_PI_SCENARIO=tests/fake-pi/scenarios/tools.json \
 - `FAKE_PI_REPLAY=<fixture.jsonl>`: replay a recorded real session instead (see "Replay mode").
 - `FAKE_PI_SPEED=<n>`: divides every wait by `n`, including the `timeout` a dialog advertises. Scenarios are written at real speed; tests use 1–5.
 - `HERDR_CHAT_HANDOFF=<file>` (outside the host, without `HERDR_CHAT_HOST=1`): like the herdr-chat-lock extension in a hand-off TUI, it writes `{sessionFile, pid, at}` there whenever it opens a session (start, `new_session`, `switch_session`).
-- `FAKE_PI_LOG=<file>`: appends every command fake-pi receives, one JSON per line, after a first `{"type":"_start", argv, env: {HERDR_CHAT_HOST, HC_TERMINAL_ID}, cwd}` line. Use it to assert what the host sent, such as `clear_queue` before `abort`.
+- `FAKE_PI_LOG=<file>`: appends every command fake-pi receives, one JSON per line, after a first `{"type":"_start", pid, ppid, argv, env: {HERDR_CHAT_HOST, HC_TERMINAL_ID}, cwd}` line (`ppid`: the host that started it). Use it to assert what the host sent, such as `clear_queue` before `abort`.
 
 Like Pi, fake-pi persists messages to its session file (a session header,
 then `message` entries, plus `session_info`, `model_change` and
@@ -59,7 +59,7 @@ Behaviour that mirrors Pi 1.5:
   "models": [Model, ...],                   // get_available_models; a default list of 4 if absent
   "thinkingLevel": "low",
   "sessionName": null,
-  "commands": [{"name","description","source"}],  // get_commands; a default list of 3 if absent
+  "commands": [{"name","description","source","sourceInfo"?}],  // get_commands; a default list of 3 if absent. A relative sourceInfo.path is resolved against the scenario file
   "history": [AgentMessage, ...],           // seeds a new session given with --session (or always, with "historyAlways": true)
   "sessions": {"/abs/path.jsonl": {"history": [...], "name": "x"}},  // extra sessions for switch_session
   "startup": [Step, ...],                   // runs at start
@@ -110,7 +110,7 @@ Behaviour that mirrors Pi 1.5:
 | `scenarios/abort.json` | A bash that ticks every 100 ms until aborted. Prompts containing `quick` answer at once (use them to queue follow-ups and steers) |
 | `scenarios/steer.json` | A 1.5 s bash; a steer sent meanwhile arrives as a user message before the next model call |
 | `scenarios/autonomous.json` | 300 ms after start, an extension posts a `subagent-notify` custom message and Pi runs on its own, with an auto-retry and a threshold compaction |
-| `scenarios/skills.json` | `/skill:diagnose [text]` expands like Pi does (a `<skill …>` block with a location, then the text); a short answer |
+| `scenarios/skills.json` | `/skill:diagnose [text]` expands like Pi does (a `<skill …>` block with a location, then the text); a short answer. `skill:verify` lists a real file (`skills/verify/SKILL.md`), for messages with two skills |
 | `scenarios/crash.json` | Exit 1 mid-tool for prompts starting with "Run". `/die` makes Pi exit 3 while idle |
 | `scenarios/oversized.json` | A 9 MiB `tool_execution_update` mid-tool, then the tool and the answer finish normally |
 | `scenarios/accounts.json` | Six model providers, two of them Claude Code logins (`claude-code`, `claude-code-2`) serving the same model id: the model picker's widest tab strip, and a pick from one account's tab |

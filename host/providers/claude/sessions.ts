@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { createHash } from "node:crypto";
 import type { SessionInfo, SessionScope } from "../types.ts";
 import { jsonlFiles, subdirs } from "../../jsonl.ts";
+import { typedSkills } from "./skills.ts";
 
 type Rec = Record<string, any>;
 
@@ -78,7 +79,7 @@ export function promptText(r: Rec): string | null {
   if (cmd) return `/${cmd[1]!.trim()}${cmd[2]?.trim() ? " " + cmd[2].trim() : ""}`;
   if (/^<local-command-(stdout|stderr|caveat)>/.test(text.trim())) return null;
   if (/^\[Request interrupted by user/.test(text.trim())) return null;
-  return text;
+  return typedSkills(text);
 }
 
 export function describeSession(path: string): SessionInfo | null {

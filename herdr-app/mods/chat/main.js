@@ -14,7 +14,7 @@
 //
 // Commands (`chat.<c>`, also how E2E drives what a click does):
 //   focus · toggle:<id> (an item, a group `g-…`, `code:…`) · click:<control>
-//   · scroll:up|down · hover:<itemId> · svghover:<itemId>:<k> (a diagram's ⤢ hint) · key:<k> · drop:<paths> · clear · type:<text>
+//   · scroll:up|down · scroll:by:<dy> (the timeline by dy layout px: a wheel event of dy × the UI zoom pt) · hover:<itemId> · svghover:<itemId>:<k> (a diagram's ⤢ hint) · key:<k> · drop:<paths> · clear · type:<text>
 //   · wheel:<dy> (the open menu or picker, as the mouse wheel does) · outside (a press outside it)
 //   · shortcut:<action> (keys.default.json's actions, as their keys do)
 //   controls: chip:model|thinking|permission, latest, send, stop, restart,
@@ -34,7 +34,7 @@ import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
 import { SHORTCUTS, actionName, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
 import { keepKeys } from "./keymap.js";
-import { Connection, hostTerminal, readConfig, runsHost } from "./connection.js";
+import { Connection, readConfig, readRegistry, registeredHost, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
 import { lineOf, planProgress, row, samePlan } from "./cards.js";
@@ -50,7 +50,7 @@ import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readSvgSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
-import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, spinner, tildePath, typedText, unwrapHc } from "./util.js";
+import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, skillsOf, uiScale, spinner, tildePath, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
@@ -86,7 +86,7 @@ export default class HerdrChat extends View {
     this.provider = p.provider ?? null; // an id of PROVIDERS; null: the registry's, else DEFAULT_PROVIDER
     this.cwd = p.cwd || null;
     this.store = new Store();
-    this.timeline = new Timeline("herdr-chat-timeline");
+    this.timeline = new Timeline("herdr-chat-timeline", uiScale);
     this.expanded = new Set();
     this.full = new Map();
     this.dialog = new DialogCard((cx) => { this.debug?.mark(); cx?.notify(); }, () => this.composer.focus());
@@ -102,14 +102,14 @@ export default class HerdrChat extends View {
     this.copiedAt = new Map(); // copy button id → when (✓ for 1.5 s)
     this.groups = new Map(); // work group id → open (the person's choice)
     this.groupAnims = new Map(); // work group id → {target, step, h} while it slides
-    this.groupH = new Map(); // work group id → its cards' natural height
+    this.groupH = new Map(); // work group id → its cards' natural height (layout px)
     this.codeViews = new Map();
     this.codeSel = new Map(); // code block key → its CodeView (codeview.js registers itself): the E2E's chat.codesel // "<item>:<block>" → {entity, props}: finished code blocks (codeview.js)
     this.uid = `v${++VIEWS}`;
     owners.set(this.uid, this);
     this.svgSizes = new Map(); // image path → {w, h} | null (loading)
     this.thumbsSeen = null; // debug only: image path → [[ms, w, h]…], the boxes its thumbnail was drawn at
-    this.width = 0;
+    this.widthPt = 0; // the chat's width as reported (window pt); `width` is in layout px
     this.homeDir = home();
     this.prefs = loadPrefs();
     this.place = null; // {pane, tab, space}: this chat's own pane, from the layout document (place.js)
@@ -233,7 +233,7 @@ export default class HerdrChat extends View {
   // No layout document (no hc on PATH?): the host's tab label, else the only chat pane.
   guessPlace() {
     const mine = panes().filter((p) => p.mod === MOD);
-    const hostTab = hostTerminal(this.chat)?.labels?.["herdr.tab"];
+    const hostTab = this.conn.hostTerminal()?.labels?.["herdr.tab"];
     const pane = (hostTab && mine.find((p) => p.tab === hostTab)) || (mine.length === 1 ? mine[0] : null);
     if (!pane || String(pane.tab).includes("/")) return;
     const space = spaces().find((sp) => sp.tabs.some((x) => x.id === pane.tab))?.id;
@@ -249,7 +249,7 @@ export default class HerdrChat extends View {
     const s = this.store.state;
     if (s.sessionName) return s.sessionName;
     if (s.title) return s.title;
-    const first = this.store.items.find((it) => it.kind === "user" && (it.text?.trim() || it.skill));
+    const first = this.store.items.find((it) => it.kind === "user" && (it.text?.trim() || skillsOf(it).length));
     if (first) {
       const line = (first.text.trim() ? first.text : typedText(first)).replace(/<hc [^>]*>|<\/hc>/g, "").trim().split("\n")[0].replace(/\s+/g, " ");
       return line.length > 48 ? line.slice(0, 47).trimEnd() + "…" : line;
@@ -278,7 +278,7 @@ export default class HerdrChat extends View {
   }
 
   hostPane() {
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     return term ? panes().find((p) => p.terminal === term.address) ?? null : null;
   }
 
@@ -420,7 +420,7 @@ export default class HerdrChat extends View {
       this.conn.restart();
       this.log(`the old host ${hl.terminal} ended: starting its replacement`);
     }
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (term?.parent) return false; // a sub-agent is its parent's: never restarted from here
     const label = term?.labels?.["herdr.tab"];
     const docTab = this.hide?.terminal === term?.address ? this.hide?.tab : null;
@@ -452,7 +452,7 @@ export default class HerdrChat extends View {
   // A host older than the install (update.js): restart it once the person asked and the chat is quiet.
   updateTick(cx) {
     if (this.conn.status !== "connected" || !this.store.loaded) return false;
-    const host = hostTerminal(this.chat);
+    const host = this.conn.hostTerminal();
     if (!this.updater.due({ welcome: this.conn.welcome, state: this.store.state, host, replacing: this.replacing() })) return false;
     this.replaceHost(host, "update", cx);
     return true;
@@ -468,7 +468,7 @@ export default class HerdrChat extends View {
   // the tab shows (30 s when it doesn't), and written only when the tab is quiet. If the flag can't be written or
   // doesn't stick, the pane is resized to 0 px instead (fallbackHide).
   keepHostHidden(me, cx) {
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (!me || !term || this.placeFrom !== "doc" || !this.place) return;
     let h = this.hide;
     if (h?.terminal !== term.address) {
@@ -638,7 +638,7 @@ export default class HerdrChat extends View {
   // shown), the host's turn is labeled seen (herdr.seen, shared by every
   // client), so "done" becomes "idle" as for any agent you look at.
   markSeen(me, cx) {
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (!term || term.turn == null || !appWindow()?.active || focused()?.tab !== me.tab) return;
     const key = `${term.address}:${term.turn}`;
     if (String(term.labels?.["herdr.seen"] ?? "") === String(term.turn) || this.seenSent === key) return;
@@ -649,10 +649,13 @@ export default class HerdrChat extends View {
     });
   }
 
-  // A host whose chat has no pane any more, and that didn't end itself
-  // (host/panewatch.ts): a host from before it, one whose chat's pane closed
-  // before it ever saw it (never armed), one whose watch couldn't reach the
-  // core: end it, once two checks 30 s apart agree.
+  // A host terminal that shouldn't run, ended once two checks 30 s apart agree:
+  // - an orphan: its chat has no pane any more, and it didn't end itself
+  //   (host/panewatch.ts): a host from before that, one whose chat's pane closed
+  //   before it ever saw it (never armed), one whose watch couldn't reach the core;
+  // - a duplicate: a second host of a chat whose registry names another live
+  //   host (from before a host refused to be a chat's second, host/claim.ts);
+  // - the shell herdr-core restored in a host's place.
   sweepOrphans(cx) {
     this.sweptAt = Date.now();
     cx.spawn(async () => {
@@ -662,20 +665,28 @@ export default class HerdrChat extends View {
       this.docPanes = modPanes(doc, MOD);
       this.docAt = Date.now();
       const chats = new Set(this.docPanes.map((x) => x.props?.chat).filter(Boolean));
-      const missing = new Set();
+      const registries = new Map(); // chat → its registry entry, read once per sweep
+      const toEnd = new Map(); // terminal → why it goes
       for (const t of terminals()) {
         const chat = t.labels?.["herdr-chat.chat"];
         if (t.state !== "live" || !chat) continue;
-        // The shell herdr-core restored in a host's place (connection.js runsHost): nobody's, end it.
-        const shell = !runsHost(t);
-        // A sub-agent (a parent, or the launcher's role=subagent) has no pane by design: never an orphan.
-        if (!shell && (t.parent || t.labels?.["herdr-chat.role"] !== "host" || chats.has(chat))) continue;
-        missing.add(t.address);
-        if (!this.orphans?.has(t.address)) continue;
-        this.log(shell ? `${t.address} is a shell restored in chat ${chat}'s host's place: ending it` : `orphan host ${t.address} (chat ${chat} has no pane): ending it`);
+        // A sub-agent (a parent, or the launcher's role=subagent) has no pane by design and is its parent's.
+        if (runsHost(t) && (t.parent || t.labels?.["herdr-chat.role"] !== "host")) continue;
+        let why = null;
+        if (!runsHost(t)) why = `${t.address} is a shell restored in chat ${chat}'s host's place`;
+        else if (!chats.has(chat)) why = `orphan host ${t.address} (chat ${chat} has no pane)`;
+        else {
+          if (!registries.has(chat)) registries.set(chat, await readRegistry(chat));
+          const host = registeredHost(registries.get(chat));
+          if (host && host.address !== t.address) why = `${t.address} is a second host of chat ${chat} (its registry names ${host.address})`;
+        }
+        if (!why) continue;
+        toEnd.set(t.address, why);
+        if (this.orphans?.get(t.address) !== why) continue;
+        this.log(`${why}: ending it`);
         run("terminal.kill", { terminal: t.address });
       }
-      this.orphans = missing;
+      this.orphans = toEnd;
       // The host removes the attachments of chats closed while their host was down (protocol.md
       // "Attachments"). An older host has no sweep_attachments: req logs it.
       if (this.conn.status === "connected") this.req("sweep_attachments", { open: [...chats] }).catch(() => {});
@@ -827,9 +838,7 @@ export default class HerdrChat extends View {
   send(cx, mode = "auto") {
     if (mode === "auto" && this.editingQueued?.lane === "followUp") mode = "followUp";
     this.editingQueued = null;
-    const message = this.composer.message();
-    if (message === null) return this.flash("One skill per message: remove the other pill", cx);
-    const text = message.replace(/\s+$/, "");
+    const text = this.composer.message().replace(/\s+$/, "");
     const images = this.composer.chips.map((c) => c.path);
     if (!text.trim() && !images.length) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
@@ -837,7 +846,7 @@ export default class HerdrChat extends View {
     if (m?.[1] === "reload" && !images.length && this.updater.canRestart(this.conn.welcome)) {
       this.composer.clear();
       this.updater.want();
-      const quietNow = quiet(this.store.state, hostTerminal(this.chat)?.address);
+      const quietNow = quiet(this.store.state, this.conn.hostTerminal()?.address);
       return this.flash(quietNow ? `Restarting on ${this.updater.label()}` : `Restarts on ${this.updater.label()} when ${this.providerName()} is done`, cx);
     }
     if (m && !images.length) {
@@ -1419,8 +1428,10 @@ export default class HerdrChat extends View {
     });
   }
 
-  groupMeasured(id, h, cx) {
-    if (this.groupH.get(id) === h) return;
+  // h: as on_size_change reports it (window pt); kept in layout px, the unit .h() takes.
+  groupMeasured(id, pt, cx) {
+    const h = pt / uiScale();
+    if (Math.abs((this.groupH.get(id) ?? -1) - h) < 0.01) return;
     this.groupH.set(id, h);
     const a = this.groupAnims.get(id);
     if (a?.target === "open" && a.h == null) {
@@ -1707,6 +1718,10 @@ export default class HerdrChat extends View {
     }
     if (c === "focus") this.focusInput(); else if (c.startsWith("toggle:")) this.toggle(c.slice(7), cx);
     else if (c.startsWith("click:")) this.control(c.slice(6), cx);
+    else if (c.startsWith("scroll:by:")) {
+      const dy = Number(c.slice(10));
+      if (Number.isFinite(dy)) this.timeline.scrollBy(dy); else this.log(`scroll:by: not a number: ${c.slice(10)}`);
+    }
     else if (c === "scroll:up") this.timeline.scrollBy(600);
     else if (c === "scroll:down") this.timeline.scrollBy(-600);
     else if (c.startsWith("key:")) this.action(`herdrchat_${c.slice(4)}`, cx);
@@ -1724,7 +1739,7 @@ export default class HerdrChat extends View {
 
   showTranscript(cx) {
     // The host's pane is hidden (a zoom can't show it): a peek over the tab.
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (!term) return this.flash("The chat's host isn't running", cx);
     run("terminal.peek", { terminal: term.address });
     this.transcript = "peek";
@@ -1881,7 +1896,7 @@ export default class HerdrChat extends View {
     if (this.viewer || this.termbar) return;
     owners.delete(this.uid);
     // A sub-agent's host is its parent's: closing its peek or its tab leaves it running.
-    if (this.sub || hostTerminal(this.chat)?.parent) {
+    if (this.sub || this.conn.hostTerminal()?.parent) {
       this.conn?.close();
       return;
     }
@@ -1966,7 +1981,7 @@ export default class HerdrChat extends View {
 
   dump() {
     const s = this.store.state;
-    const host = hostTerminal(this.chat);
+    const host = this.conn.hostTerminal();
     const me = this.myPane();
     const m = this.composer.menu;
     // Built here too, not taken from the last render: a window that isn't drawn (locked screen) doesn't render.
@@ -1991,13 +2006,13 @@ export default class HerdrChat extends View {
       widgets: s.widgets.map((w) => w.key), commands: s.commands.length, commandNames: s.commands.map((c) => c.name),
       items: this.store.items.map((it) => ({ id: it.id, kind: it.kind, ...(it.parent ? { parent: it.parent } : {}), ...(it.status ? { status: it.status } : {}), ...(it.streaming ? { streaming: true } : {}),
         ...(it.detail?.type === "agent" ? { live: cardLive(it, rows.children).map((x) => x.id) } : {}),
-        ...(it.kind === "user" ? { text: it.text.slice(0, 200), source: it.source, from: it.from ?? null, skill: it.skill?.name ?? null } : {}),
+        ...(it.kind === "user" ? { text: it.text.slice(0, 200), source: it.source, from: it.from ?? null, skills: skillsOf(it).map((s) => s.name) } : {}),
         ...(it.kind === "tool" ? { name: it.name, title: it.title, images: it.images ?? [] } : {}),
         ...(it.kind === "assistant" ? { len: it.text.length, stopReason: it.stopReason ?? null } : {}),
         ...(it.kind === "notice" ? { level: it.level, text: (it.text ?? "").slice(0, 200), source: it.source ?? null } : {}) })),
-      hasOlder: this.store.hasOlder,
+      hasOlder: this.store.hasOlder, loadingOlder: this.loadingOlder || Boolean(this.olderWanted),
       expanded: [...this.expanded], full: [...this.full.keys()],
-      sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, shown: this.timeline.shown,
+      sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, scale: uiScale(), rowsAt: this.timeline.rowsAt(), shown: this.timeline.shown,
       composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), chipSizes: this.composer.chips.map((c) => c.size), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
       menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
@@ -2113,6 +2128,11 @@ export default class HerdrChat extends View {
     this.debug.mark();
   }
 
+  // Layout px: the width as reported, at the zoom now (a zoom change needn't re-report it).
+  get width() {
+    return this.widthPt / uiScale();
+  }
+
   pad() {
     return this.width && this.width < 600 ? 12 : 24;
   }
@@ -2211,7 +2231,7 @@ export default class HerdrChat extends View {
         .child(div().flex_1().min_w(0).text_size(11).truncate().text_color(this.flashText ? t.blocked : t.dim).child(hintText ?? ""))
         .children([branchChip(this, t, { width: this.colW() })].filter(Boolean)));
     let root = v_flex().id("herdr-chat").key_context("HerdrChat").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
-      .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.width) > 0.5) { this.width = sz.width; this.sized(sz.width); cx.notify(); } })
+      .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.widthPt) > 0.5) { this.widthPt = sz.width; this.sized(this.width); cx.notify(); } })
       .on_drop((e, cx) => this.drop(e.paths ?? [], cx))
       .children(this.sub ? [this.subBar(t)] : [])
       .children(banner ? [div().flex_none().pt(10).child(this.column(div().child(banner)))] : []);
@@ -2261,7 +2281,7 @@ export default class HerdrChat extends View {
       try {
         const d = await this.req("history", { before, limit: 100 }, cx);
         const older = d?.items ?? [];
-        this.timeline.prepended(older);
+        this.timeline.prepended();
         this.store.prepend(older, d?.hasOlder);
       } catch (e) {
         this.flash(`history: ${message(e)}`, cx);

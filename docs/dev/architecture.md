@@ -33,6 +33,8 @@ Herdr tab
   Mermaid turned into a self-contained SVG, diffs and tool output as lines.
 - Reports Herdr status with OSC 7501, turns `hc send` input on its stdin
   into messages, and prints a plain transcript for `hc read` (`terminal.ts`).
+- Claims its chat first: one host process per chat, a second one refuses
+  (`claim.ts`; protocol.md "One host per chat").
 - Writes the chat registry and a lock on the session file (`registry.ts`).
   The Pi extension `extension/herdr-chat-lock.ts` reads that lock, so a Pi
   TUI never writes a session a chat has open.

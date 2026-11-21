@@ -46,13 +46,15 @@ echo '{"zoom": 1, "theme": "graphite", "appearance": "dark"}' >"$HERDR_APP_HOME/
 # Where the window opens (left edge of the main display, where your own
 # windows usually leave a strip uncovered; macOS doesn't draw covered windows).
 # Accessibility moves it there again below, when it can.
-python3 - "$HOME/.config/herdr-app/window.json" "$HERDR_APP_HOME/window.json" <<'EOF'
+# The window's size in pt (shift.py reads it to read frames).
+export E2E_WIN_W=1280 E2E_WIN_H=820
+python3 - "$HOME/.config/herdr-app/window.json" "$HERDR_APP_HOME/window.json" "$E2E_WIN_W" "$E2E_WIN_H" <<'EOF'
 import json, sys
 try:
     display = json.load(open(sys.argv[1])).get("display")  # read only: which display to open on
 except Exception:
     display = None
-w = {"state": "windowed", "bounds": [40.0, 60.0, 1280.0, 820.0]}
+w = {"state": "windowed", "bounds": [40.0, 60.0, float(sys.argv[3]), float(sys.argv[4])]}
 if display: w["display"] = display
 json.dump(w, open(sys.argv[2], "w"))
 EOF
@@ -366,6 +368,6 @@ if [ "$("$PY" "$E2E/front.py" get 2>/dev/null)" = "$APP_PID" ] && [ -n "$PERSON_
 fi
 place_window() {
   osascript -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to set position of window 1 to {40, 60}" \
-    -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to set size of window 1 to {1280, 820}"
+    -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to set size of window 1 to {$E2E_WIN_W, $E2E_WIN_H}"
 }
 until_ place_window 5 || true # window.json already put it there

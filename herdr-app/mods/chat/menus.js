@@ -8,7 +8,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { icon, plural } from "./util.js";
+import { icon, plural, uiScale } from "./util.js";
 import { rank } from "./composer.js";
 
 export const ROWS = 8;
@@ -29,7 +29,7 @@ export function follow(m, rows = ROWS) {
   if (m.sel >= m.top + rows) m.top = m.sel - rows + 1;
 }
 
-// The wheel: px (positive = up, as GPUI reports it) → whole rows.
+// The wheel: layout px (positive = up) → whole rows.
 export function wheel(m, dy, n, rows = ROWS) {
   m.acc = (m.acc ?? 0) + dy;
   const steps = Math.trunc(m.acc / ROW_H);
@@ -51,10 +51,10 @@ export function slashItems(commands, query) {
 
 const SOURCE = { builtin: "", extension: "ext", prompt: "prompt", skill: "skill" };
 
-// The card every menu and picker sits in. `o`: {id, onWheel(dy, cx), onOutside(cx)}.
+// The card every menu and picker sits in. `o`: {id, onWheel(dy, cx), onOutside(cx)}; dy in layout px.
 function card(t, o) {
   let el = v_flex().id(o.id).p(4).rounded(10).border_1().border_color(t.border).bg(t.popover).shadow_md();
-  if (o.onWheel) el = el.on_scroll_wheel((e, cx) => { cx.stop_propagation(); o.onWheel(e.delta.y, cx); });
+  if (o.onWheel) el = el.on_scroll_wheel((e, cx) => { cx.stop_propagation(); o.onWheel(e.delta.y / uiScale(), cx); }); // window pt → layout px
   if (o.onOutside) el = el.on_mouse_down_out((_e, cx) => o.onOutside(cx));
   return el;
 }
