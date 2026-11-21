@@ -13,7 +13,7 @@ import { mergeCommands, parseBuiltin, builtins } from "./commands.ts";
 import { splitSkills, typedText } from "./skill.ts";
 import type { SkillLead, SkillRef } from "./skill.ts";
 import type { Command } from "./commands.ts";
-import { takeLock, releaseLock, readLock, pidAlive, readRegistry } from "./registry.ts";
+import { takeLock, releaseLock, readLock, pidAlive, processRuns, processStamp, readRegistry, servesChat } from "./registry.ts";
 import { ChatClient } from "./client.ts";
 import { FileIndex } from "./files.ts";
 import { GitWatch } from "./git.ts";
@@ -403,10 +403,17 @@ export class Chat {
 
   // ---------------------------------------------------------------- one writer per session
 
-  /** Another live chat's host holding the session lock. An older host of this same chat doesn't count. */
+  /**
+   * Another live host holding the session lock: its pid runs, with the start time the lock
+   * recorded (a host that died leaves its lock; its pid may go to another process). One of this
+   * same chat counts too: a chat has one host (claim.ts), so a live one that isn't this process is
+   * a second writer, a host from before the claim (the mod's orphan sweep ends it). Such a host's
+   * lock records no start time: its pid must still run this chat's host (its command line).
+   */
   private lockHolder(file: string): Conflict | null {
     const l = readLock(file);
-    if (!l || !Number.isInteger(l.pid) || l.pid === process.pid || l.chat === this.opts.chat || !pidAlive(l.pid)) return null;
+    if (!l || !Number.isInteger(l.pid) || l.pid === process.pid || !processRuns(l.pid, l.stamp)) return null;
+    if (l.chat === this.opts.chat && !l.stamp && !servesChat(l.pid, this.opts.chat)) return null;
     return { chat: l.chat ?? null, terminal: l.terminal ?? null, pid: l.pid };
   }
 
@@ -416,9 +423,6 @@ export class Chat {
     if (!agentGuard) return null;
     const tui = this.opts.afterPid;
     if (tui && tui !== process.pid && file === this.opts.session && pidAlive(tui)) return { chat: null, terminal: null, pid: tui };
-    // A live lock of this same chat is an older instance of it; its agent is not a stranger.
-    const own = readLock(file);
-    if (own && own.chat === this.opts.chat && own.pid !== process.pid && pidAlive(own.pid)) return null;
     const agent = this.adapter.sessionHolder?.(file);
     return agent ? { chat: null, terminal: null, pid: agent.pid } : null;
   }
@@ -437,11 +441,13 @@ export class Chat {
   }
 
   private conflictText(c: Conflict): string {
+    if (c.chat === this.opts.chat) return `This session is open in a second host of this chat (pid ${c.pid}), one started before herdr-chat kept one host per chat.`;
     if (c.chat) return `This session is open in another chat${c.terminal ? ` (terminal ${c.terminal})` : ""}.`;
     return `This session is open in ${this.agent} outside a chat${c.pid ? ` (pid ${c.pid})` : ""}.`;
   }
 
   private conflictWayOut(c: Conflict): string {
+    if (c.chat === this.opts.chat) return "The chat ends that host within a minute; then use resume.";
     return c.chat ? "Go to that chat, or use take_over to move it here." : "Quit it there, then use resume.";
   }
 
@@ -577,7 +583,8 @@ export class Chat {
     if (this.lockedFile) releaseLock(this.lockedFile);
     this.lockedFile = file;
     if (file) {
-      const other = takeLock(file, { pid: process.pid, chat: this.opts.chat, terminal: this.opts.terminal, startedAt: Date.now() });
+      const stamp = processStamp(process.pid);
+      const other = takeLock(file, { pid: process.pid, chat: this.opts.chat, terminal: this.opts.terminal, startedAt: Date.now(), stamp: stamp === "gone" ? null : stamp });
       if (other) this.notice("warning", `This session is also open in another chat (pid ${other.pid}${other.terminal ? `, terminal ${other.terminal}` : ""}). Two writers can corrupt it.`);
     }
     this.opts.onSessionFile?.(file);

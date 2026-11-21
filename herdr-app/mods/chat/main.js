@@ -34,7 +34,7 @@ import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
 import { SHORTCUTS, actionName, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
 import { keepKeys } from "./keymap.js";
-import { Connection, hostTerminal, readConfig, runsHost } from "./connection.js";
+import { Connection, readConfig, readRegistry, registeredHost, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
 import { lineOf, planProgress, row, samePlan } from "./cards.js";
@@ -233,7 +233,7 @@ export default class HerdrChat extends View {
   // No layout document (no hc on PATH?): the host's tab label, else the only chat pane.
   guessPlace() {
     const mine = panes().filter((p) => p.mod === MOD);
-    const hostTab = hostTerminal(this.chat)?.labels?.["herdr.tab"];
+    const hostTab = this.conn.hostTerminal()?.labels?.["herdr.tab"];
     const pane = (hostTab && mine.find((p) => p.tab === hostTab)) || (mine.length === 1 ? mine[0] : null);
     if (!pane || String(pane.tab).includes("/")) return;
     const space = spaces().find((sp) => sp.tabs.some((x) => x.id === pane.tab))?.id;
@@ -278,7 +278,7 @@ export default class HerdrChat extends View {
   }
 
   hostPane() {
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     return term ? panes().find((p) => p.terminal === term.address) ?? null : null;
   }
 
@@ -420,7 +420,7 @@ export default class HerdrChat extends View {
       this.conn.restart();
       this.log(`the old host ${hl.terminal} ended: starting its replacement`);
     }
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (term?.parent) return false; // a sub-agent is its parent's: never restarted from here
     const label = term?.labels?.["herdr.tab"];
     const docTab = this.hide?.terminal === term?.address ? this.hide?.tab : null;
@@ -452,7 +452,7 @@ export default class HerdrChat extends View {
   // A host older than the install (update.js): restart it once the person asked and the chat is quiet.
   updateTick(cx) {
     if (this.conn.status !== "connected" || !this.store.loaded) return false;
-    const host = hostTerminal(this.chat);
+    const host = this.conn.hostTerminal();
     if (!this.updater.due({ welcome: this.conn.welcome, state: this.store.state, host, replacing: this.replacing() })) return false;
     this.replaceHost(host, "update", cx);
     return true;
@@ -468,7 +468,7 @@ export default class HerdrChat extends View {
   // the tab shows (30 s when it doesn't), and written only when the tab is quiet. If the flag can't be written or
   // doesn't stick, the pane is resized to 0 px instead (fallbackHide).
   keepHostHidden(me, cx) {
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (!me || !term || this.placeFrom !== "doc" || !this.place) return;
     let h = this.hide;
     if (h?.terminal !== term.address) {
@@ -638,7 +638,7 @@ export default class HerdrChat extends View {
   // shown), the host's turn is labeled seen (herdr.seen, shared by every
   // client), so "done" becomes "idle" as for any agent you look at.
   markSeen(me, cx) {
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (!term || term.turn == null || !appWindow()?.active || focused()?.tab !== me.tab) return;
     const key = `${term.address}:${term.turn}`;
     if (String(term.labels?.["herdr.seen"] ?? "") === String(term.turn) || this.seenSent === key) return;
@@ -649,10 +649,13 @@ export default class HerdrChat extends View {
     });
   }
 
-  // A host whose chat has no pane any more, and that didn't end itself
-  // (host/panewatch.ts): a host from before it, one whose chat's pane closed
-  // before it ever saw it (never armed), one whose watch couldn't reach the
-  // core: end it, once two checks 30 s apart agree.
+  // A host terminal that shouldn't run, ended once two checks 30 s apart agree:
+  // - an orphan: its chat has no pane any more, and it didn't end itself
+  //   (host/panewatch.ts): a host from before that, one whose chat's pane closed
+  //   before it ever saw it (never armed), one whose watch couldn't reach the core;
+  // - a duplicate: a second host of a chat whose registry names another live
+  //   host (from before a host refused to be a chat's second, host/claim.ts);
+  // - the shell herdr-core restored in a host's place.
   sweepOrphans(cx) {
     this.sweptAt = Date.now();
     cx.spawn(async () => {
@@ -662,20 +665,28 @@ export default class HerdrChat extends View {
       this.docPanes = modPanes(doc, MOD);
       this.docAt = Date.now();
       const chats = new Set(this.docPanes.map((x) => x.props?.chat).filter(Boolean));
-      const missing = new Set();
+      const registries = new Map(); // chat → its registry entry, read once per sweep
+      const toEnd = new Map(); // terminal → why it goes
       for (const t of terminals()) {
         const chat = t.labels?.["herdr-chat.chat"];
         if (t.state !== "live" || !chat) continue;
-        // The shell herdr-core restored in a host's place (connection.js runsHost): nobody's, end it.
-        const shell = !runsHost(t);
-        // A sub-agent (a parent, or the launcher's role=subagent) has no pane by design: never an orphan.
-        if (!shell && (t.parent || t.labels?.["herdr-chat.role"] !== "host" || chats.has(chat))) continue;
-        missing.add(t.address);
-        if (!this.orphans?.has(t.address)) continue;
-        this.log(shell ? `${t.address} is a shell restored in chat ${chat}'s host's place: ending it` : `orphan host ${t.address} (chat ${chat} has no pane): ending it`);
+        // A sub-agent (a parent, or the launcher's role=subagent) has no pane by design and is its parent's.
+        if (runsHost(t) && (t.parent || t.labels?.["herdr-chat.role"] !== "host")) continue;
+        let why = null;
+        if (!runsHost(t)) why = `${t.address} is a shell restored in chat ${chat}'s host's place`;
+        else if (!chats.has(chat)) why = `orphan host ${t.address} (chat ${chat} has no pane)`;
+        else {
+          if (!registries.has(chat)) registries.set(chat, await readRegistry(chat));
+          const host = registeredHost(registries.get(chat));
+          if (host && host.address !== t.address) why = `${t.address} is a second host of chat ${chat} (its registry names ${host.address})`;
+        }
+        if (!why) continue;
+        toEnd.set(t.address, why);
+        if (this.orphans?.get(t.address) !== why) continue;
+        this.log(`${why}: ending it`);
         run("terminal.kill", { terminal: t.address });
       }
-      this.orphans = missing;
+      this.orphans = toEnd;
       // The host removes the attachments of chats closed while their host was down (protocol.md
       // "Attachments"). An older host has no sweep_attachments: req logs it.
       if (this.conn.status === "connected") this.req("sweep_attachments", { open: [...chats] }).catch(() => {});
@@ -835,7 +846,7 @@ export default class HerdrChat extends View {
     if (m?.[1] === "reload" && !images.length && this.updater.canRestart(this.conn.welcome)) {
       this.composer.clear();
       this.updater.want();
-      const quietNow = quiet(this.store.state, hostTerminal(this.chat)?.address);
+      const quietNow = quiet(this.store.state, this.conn.hostTerminal()?.address);
       return this.flash(quietNow ? `Restarting on ${this.updater.label()}` : `Restarts on ${this.updater.label()} when ${this.providerName()} is done`, cx);
     }
     if (m && !images.length) {
@@ -1722,7 +1733,7 @@ export default class HerdrChat extends View {
 
   showTranscript(cx) {
     // The host's pane is hidden (a zoom can't show it): a peek over the tab.
-    const term = hostTerminal(this.chat);
+    const term = this.conn.hostTerminal();
     if (!term) return this.flash("The chat's host isn't running", cx);
     run("terminal.peek", { terminal: term.address });
     this.transcript = "peek";
@@ -1879,7 +1890,7 @@ export default class HerdrChat extends View {
     if (this.viewer || this.termbar) return;
     owners.delete(this.uid);
     // A sub-agent's host is its parent's: closing its peek or its tab leaves it running.
-    if (this.sub || hostTerminal(this.chat)?.parent) {
+    if (this.sub || this.conn.hostTerminal()?.parent) {
       this.conn?.close();
       return;
     }
@@ -1964,7 +1975,7 @@ export default class HerdrChat extends View {
 
   dump() {
     const s = this.store.state;
-    const host = hostTerminal(this.chat);
+    const host = this.conn.hostTerminal();
     const me = this.myPane();
     const m = this.composer.menu;
     // Built here too, not taken from the last render: a window that isn't drawn (locked screen) doesn't render.

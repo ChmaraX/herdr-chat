@@ -98,6 +98,12 @@ the test that has to catch it; "not covered" rows are known gaps
 | The chat resumes the old session after a fork or /resume in the TUI | `handoff.test.ts` "forks and exits" |
 | Resuming while the TUI still writes the session | `handoff.test.ts` "terminal is killed": waits for the TUI's pid |
 | Two chats write one session | `conflict.test.ts`: phase `conflict`, `take_over`; Claude's registry; `codex-lifecycle.test.ts` active writer |
+| Two hosts serve one chat (two starts at once: both register, both start an agent on the session) | `one-host.test.ts` "N hosts started at once": one serves, the registry names it, the rest exit 3 with the error, one agent process; E2E `one-host`: six restarts under mod reloads, one host each, none refused |
+| Two takers of a dead host's claim both win; a reused pid keeps a dead claim (`claim.test.ts` tests the module itself: whole hosts start ~100 ms apart, too far apart to race for one claim) | `claim.test.ts`: 8 contenders at one instant, 12 rounds through fresh, released, SIGKILLed and pid-reused claims; `one-host.test.ts` "SIGKILL", "pid reuse" |
+| The chat's live host can't be reached: something else wrote or removed its registry entry (a 0.5.0 duplicate's exit), and the mod starts hosts the claim refuses | `one-host.test.ts` "keeps the registry naming it": the entry overwritten, then deleted, is written back and a client works; E2E `one-host`: the claim holder is the host left after the sweep, none refused |
+| A dead host's session lock, its pid now another process's, keeps the chat in `conflict` | `one-host.test.ts` "a session lock left by a host of this chat that died": a 0.6 lock (another start time) and a pre-0.6 lock (the pid isn't a host of the chat) |
+| A restart can't start (the old host's claim not released) | `one-host.test.ts` "a restart": shutdown then a new host, SIGTERM then a new host; `after-pid.test.ts` |
+| A second host from before the claim shares the chat's session | `one-host.test.ts` "a host from before the claim": the new host is in `conflict`, starts no agent; E2E `one-host`: the sweep ends the host the registry doesn't name |
 
 ## Reconnect
 
