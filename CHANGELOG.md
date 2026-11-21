@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0](https://github.com/ChmaraX/herdr-chat/compare/v0.5.0...v0.6.0) (2026-11-21)
+
+
+### Features
+
+* **chat:** a message can run several skills, every pill on Pi, Claude Code and Codex ([#35](https://github.com/ChmaraX/herdr-chat/issues/35)) ([914c7ec](https://github.com/ChmaraX/herdr-chat/commit/914c7ec66a7d9585789d8a754374aa6ee04364be))
+* run on Linux (follow-up to [#30](https://github.com/ChmaraX/herdr-chat/issues/30)) ([#45](https://github.com/ChmaraX/herdr-chat/issues/45)) ([1393101](https://github.com/ChmaraX/herdr-chat/commit/1393101b7d6faf6b55978defbfd4f53937e992d2))
+
+
+### Bug Fixes
+
+* **chat:** Continue as chat and New chat say why they can't in another machine's space (follow-up to [#31](https://github.com/ChmaraX/herdr-chat/issues/31)) ([#44](https://github.com/ChmaraX/herdr-chat/issues/44)) ([ca9a2b8](https://github.com/ChmaraX/herdr-chat/commit/ca9a2b86f2747ae337560bbea0e097408d8bb067))
+* **chat:** Continue as chat finds an agent its terminal's own command started (follow-up to [#32](https://github.com/ChmaraX/herdr-chat/issues/32)) ([#43](https://github.com/ChmaraX/herdr-chat/issues/43)) ([1308ddc](https://github.com/ChmaraX/herdr-chat/commit/1308ddc2e13d5536eb9f3fb42012a4746a7e361c))
+* **chat:** the chat scrolls evenly at any UI zoom (follow-up to [#33](https://github.com/ChmaraX/herdr-chat/issues/33)) ([#42](https://github.com/ChmaraX/herdr-chat/issues/42)) ([07a8b11](https://github.com/ChmaraX/herdr-chat/commit/07a8b11c143d852ca66dc7ede2890221ce23c272))
+* **host:** one host process per chat: a second host of a chat refuses, and restarts start one ([#37](https://github.com/ChmaraX/herdr-chat/issues/37)) ([7b6cce2](https://github.com/ChmaraX/herdr-chat/commit/7b6cce26537f15bbdf68ab5041a349e98f524645))
+
 ## [0.5.0](https://github.com/ChmaraX/herdr-chat/compare/v0.4.0...v0.5.0) (2026-11-17)
 
 
