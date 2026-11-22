@@ -6,8 +6,7 @@ DEV=${DEV_DIR:-/tmp/pcdev}
 for v in $(env | grep -oE '^HERDR_[A-Z_]+=' | tr -d =); do [ "$v" = HERDR_APP_HOME ] || unset "$v"; done
 E2E="$REPO/tests/e2e"
 chat() { cat "$DEV/chat" 2>/dev/null; }
-# Keys to the private app (lib.sh keys): its process on macOS, the box's display on Linux.
-if [ "$(uname -s)" = Darwin ]; then keys() { "$PY" "$E2E/keys.py" "$APP_PID" "$@"; }; else keys() { python3 "$E2E/keys_x11.py" "$@"; }; fi
+. "$E2E/platform.sh" # keys, click: its process on macOS, the box's display on Linux
 case "${1:-}" in
   sync) # copy herdr-app/mods/ into the private home (keeps config.json)
     for m in "$REPO"/herdr-app/mods/*/; do n=$(basename "$m"); mkdir -p "$HERDR_APP_HOME/mods/$n"
@@ -30,12 +29,19 @@ case "${1:-}" in
     mkdir -p "$DEV/shots"; "$APP" shot "$DEV/shots/$2.png" >/dev/null
     echo "$DEV/shots/$2.png" ;;
   keys) shift; keys "$@" ;;
-  click) shift; "$PY" "$E2E/click.py" "$APP_PID" "$@" ;;
+  click) shift; click "$@" ;;
   do) shift; "$APP" do "$@" ;;
   cmd) shift; "$APP" do "chat.$1" ;;
   dbg) python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); v=eval(sys.argv[2]); print(v if isinstance(v,str) else json.dumps(v, indent=1))' "$STATE/debug/$(chat).json" "${2:-d}" ;;
   status) "$APP" status ;;
   hc) shift; hc "$@" ;;
-  stop) touch "$DEV/stop" ;;
-  *) echo "usage: dev-ctl.sh sync|open <scenario>|shot <name>|keys …|click …|do …|cmd <c>|dbg [expr]|status|stop" >&2; exit 2 ;;
+  restart) # the window only: dev.sh runs lib.sh's restart_app; wait until env names the new app
+    old=$APP_PID; touch "$DEV/restart"
+    for _ in $(seq 150); do [ ! -e "$DEV/restart" ] && break; sleep 0.2; done
+    [ ! -e "$DEV/restart" ] || { echo "the restart didn't finish" >&2; exit 1; }
+    . "$DEV/env"; echo "restarted: pid $old -> $APP_PID" ;;
+  stop) # end dev.sh (its cleanup ends the app, the core and the hosts), and wait for it
+    pid=$(cat "$DEV/pid" 2>/dev/null || true); touch "$DEV/stop"
+    [ -z "$pid" ] || for _ in $(seq 150); do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done ;;
+  *) echo "usage: dev-ctl.sh sync|open <scenario>|shot <name>|keys …|click …|do …|cmd <c>|dbg [expr]|status|restart|stop" >&2; exit 2 ;;
 esac

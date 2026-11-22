@@ -13,7 +13,7 @@
 #   herdr-app 0.1.16 `herdr-app shot` draws the current frame even for a
 #   hidden window, and keys posted to its process land there;
 # - Linux: the same flows run in the test box (tests/box), on its own virtual
-#   display, with real X input (keys_x11.py, xdotool);
+#   display, with real X input (x11input.py, XTest);
 # - keys go to the private app only (keys.py, CGEventPostToPid, on macOS);
 # - no Cmd+Q: the app is ended with a signal at the end.
 #
@@ -67,22 +67,22 @@ export HERDR_APP_BIN="$APP"
 version=$("$APP" --version 2>/dev/null | awk '{print $2}')
 echo "{\"last_run\": \"$version\", \"presented\": []}" >"$HERDR_APP_HOME/update-notes.json" # no "Updated" toast
 
-# The platform: macOS (the host) or Linux (the test box, tests/box).
-OS=$(uname -s)
+# The platform (platform.sh: OS, PK, keys, click, wheel).
+. "$E2E/platform.sh"
 # A python3 with pyobjc's Quartz (key presses on macOS): one that has it, else
-# a venv made once in tests/.venv (gitignored). Linux needs none: xdotool.
+# a venv made once in tests/.venv (gitignored). Linux needs none: XTest through python3-xlib.
 PY=python3
 if [ "$OS" = Darwin ]; then
-PY=
-for c in "$REPO/tests/.venv/bin/python3" python3 /usr/bin/python3 /opt/homebrew/bin/python3; do
-  if "$c" -c 'import Quartz' 2>/dev/null; then PY=$(command -v "$c"); break; fi
-done
-if [ -z "$PY" ]; then
-  echo "making tests/.venv with pyobjc-framework-Quartz (once)" >&2
-  python3 -m venv "$REPO/tests/.venv" && "$REPO/tests/.venv/bin/pip" install -q pyobjc-framework-Quartz >&2 &&
-    PY="$REPO/tests/.venv/bin/python3"
-fi
-[ -n "$PY" ] || { echo "no python3 with pyobjc (Quartz) for key presses" >&2; exit 1; }
+  PY=
+  for c in "$REPO/tests/.venv/bin/python3" python3 /usr/bin/python3 /opt/homebrew/bin/python3; do
+    if "$c" -c 'import Quartz' 2>/dev/null; then PY=$(command -v "$c"); break; fi
+  done
+  if [ -z "$PY" ]; then
+    echo "making tests/.venv with pyobjc-framework-Quartz (once)" >&2
+    python3 -m venv "$REPO/tests/.venv" && "$REPO/tests/.venv/bin/pip" install -q pyobjc-framework-Quartz >&2 &&
+      PY="$REPO/tests/.venv/bin/python3"
+  fi
+  [ -n "$PY" ] || { echo "no python3 with pyobjc (Quartz) for key presses" >&2; exit 1; }
 elif [ -z "${DISPLAY:-}" ]; then
   echo "Linux: run the e2e in the test box (tests/box/box run), which has a private display" >&2; exit 1
 fi
@@ -170,23 +170,21 @@ PUMP_PID=
 start_pump() {
   [ "$OS" = Darwin ] || return 0
   stop_pump
-  ( while kill -0 "$APP_PID" 2>/dev/null; do "$APP" shot "$BASE/pump.png" >/dev/null 2>&1; sleep 0.1; done ) &
+  # (|| true: under run.sh's set -e one failed shot, the app busy or restarting, would end the pump.)
+  ( while kill -0 "$APP_PID" 2>/dev/null; do "$APP" shot "$BASE/pump.png" >/dev/null 2>&1 || true; sleep 0.1; done ) &
   PUMP_PID=$!
 }
 # (`wait` on the killed pump returns its signal: under run.sh's set -e that would end the run.)
 stop_pump() { [ -z "$PUMP_PID" ] || { kill "$PUMP_PID" 2>/dev/null; wait "$PUMP_PID" 2>/dev/null || true; PUMP_PID=; }; }
-# Keys to the private app only (keys.py specs: keycodes, names, text:):
-# macOS posts them to its process (keys.py), Linux types them on the box's
-# display (keys_x11.py, XTest).
-if [ "$OS" = Darwin ]; then keys() { "$PY" "$E2E/keys.py" "$APP_PID" "$@"; }
-else keys() { python3 "$E2E/keys_x11.py" "$@"; }; fi
-# The modifier the app's own keys use here, as a keys.py modifier: macOS's ⌘
-# (`cmd`), Ctrl elsewhere (`ctrl`). For the chat's defaults (keys.default.linux.json
-# swaps cmd for ctrl), a text field's select all / copy, and the like.
-if [ "$OS" = Darwin ]; then PK=cmd; else PK=ctrl; fi
-# A chord as the chat shows it here (chord.js keyLabel, the chat's own): "⇧⌘M" on macOS,
-# "Ctrl+Shift+M" on Linux. $1: Herdr's chord syntax, with PK for the platform's modifier.
-chord_label() { "$NODE" -e 'import("'"$REPO"'/herdr-app/mods/chat/chord.js").then((m) => console.log(m.keyLabel(process.argv[1], process.argv[2] === "Darwin")))' "$1" "$OS"; }
+# A chord's label as the chat shows it here, written out per platform (not computed by the chat's
+# own chord.js: then a broken label would pass). $1: one of the chords the flows check.
+label() {
+  case "$OS:$1" in
+    Darwin:model) echo "⇧⌘M" ;; Darwin:model-y) echo "⇧⌘Y" ;; Darwin:mode) echo "⇧⌘A" ;; Darwin:focus) echo "⌘L" ;; Darwin:copy) echo "⌘C" ;;
+    *:model) echo "Ctrl+Shift+M" ;; *:model-y) echo "Ctrl+Shift+Y" ;; *:mode) echo "Ctrl+Shift+A" ;; *:focus) echo "Ctrl+L" ;; *:copy) echo "Ctrl+C" ;;
+    *) echo "label: no label for $1" >&2; return 1 ;;
+  esac
+}
 # The app process's CPU time so far, in seconds (for cost over a window of time).
 cpu_secs() { ps -o cputime= -p "$APP_PID" | awk -F'[:.]' '{ if (NF==4) print $1*3600+$2*60+$3+$4/100; else print $1*60+$2+$3/100 }'; }
 terms() { hc ls --json | python3 -c 'import json,sys; [print(t["address"], t.get("agent") or "-", t.get("parent") or "-", t.get("name") or "-") for t in json.load(sys.stdin)["terminals"]]'; }
@@ -328,7 +326,10 @@ inspect_chat() { "$REPO/bin/herdr-chat-host" inspect --chat "$1" --state-dir "$S
 # it again: terminals and hosts live on in the core.
 restart_app() {
   stop_pump
+  # Gone before the new one starts: on macOS the app isn't this shell's child (open -g), so wait
+  # can't tell, and start_app would find the dying process by its app home.
   kill "$APP_PID" 2>/dev/null; wait "$APP_PID" 2>/dev/null || true
+  until_ '! kill -0 "$APP_PID"' 10 || fail "the private app (pid $APP_PID) didn't quit for a restart"
   start_app
   until_ '"$APP" status' 30 || fail "the private app came back"
   [ "$OS" != Darwin ] || "$APP" do app.hide >>"$LOG" 2>&1 || true

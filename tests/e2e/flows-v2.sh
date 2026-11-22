@@ -71,7 +71,7 @@ if want v2; then
   expect '[ "$(d "[b[\"focused\"] for b in d[\"codeBlocks\"] if b[\"key\"]==\"$A:3\"][0]")" = true ]' "a selection gives the code block the keyboard" 5
   shot v2-3-code-selected 0.3
   keys 8:$PK
-  expect '[ "$(d "d[\"lastCopy\"][\"text\"]")" = "$WANT" ]' "$(chord_label $PK-c) copies the selected text, across the line break" 5
+  expect '[ "$(d "d[\"lastCopy\"][\"text\"]")" = "$WANT" ]' "$(label copy) copies the selected text, across the line break" 5
   keys 53
   expect '[ "$(d "[b[\"sel\"] for b in d[\"codeBlocks\"] if b[\"key\"]==\"$A:3\"][0]")" = null ]' "Esc clears the selection" 5
   cmd click:latest

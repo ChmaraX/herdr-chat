@@ -4,10 +4,13 @@
 # container: no network, no credentials, the worktree read-only. It never
 # touches the person's screen, focus, keyboard or pointer, and it is where
 # code from someone else's PR runs. See tests/box/README.md.
+#
+# The box writes only inside itself. Proof comes out by `docker cp` into a run
+# dir the host has just made (links copied as links, never followed), and no
+# name from the box is ever run as shell here.
 set -euo pipefail
 
 BOX_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$(cd "$BOX_DIR/../.." && pwd)"
 IMAGE="${BOX_IMAGE:-herdr-chat-box}"
 PROOF_ROOT="${BOX_PROOF_DIR:-$HOME/.cache/herdr-chat-box}"
 LABEL=herdr-chat.box=1
@@ -27,55 +30,39 @@ The box
                                     build the image (the Dockerfile's pinned versions); with
                                     --app/--core, another one, tagged herdr-chat-box:app<A>-core<C>
   box up <item> <worktree> [--image TAG]
-                                    start box <item> with <worktree> (read-only), copy it in;
-                                    --image: an image box build --app/--core made
+                                    start box <item> with <worktree> (read-only), copy it in
   box sync <item>                   copy the worktree in again (after a change)
   box doctor <item>                 is it fit to test on: JSON, exit 1 on problems
   box exec <item> -- <cmd...>       a command in the box, in the snapshot (~/src)
-  box logs <item>                   the box's log and the last app log
+  box logs <item>                   the box's log and the newest run's app log
   box ls | box versions [item]      the boxes | the versions in the image (a box's own)
   box down <item> | --all           remove the box (proof stays)
 
-Tests and replays (each starts its own fresh app)
+Tests and replays (each starts its own fresh app; one at a time a box, and not while the live app is up)
   box run <item> [--run NAME] [--replace] [--allow-dirty] [--script PATH] [args...]
                                     tests/e2e/run.sh flows (args; none: all), or --script PATH
                                     (in the repo, e.g. a replay) with the run dir first
   box test <item> [args...]         npm test in the box
 
-The live app (one per box, kept running: explore a bug by hand, then film it)
-  box app up|down|restart <item>    start / stop it; restart: the window only (terminals live on)
-  box app env <item>                its home, core session, project space and terminal
-  box do <item> <command> [json]    herdr-app do (app and mod commands), e.g. chat.focus
-  box status|ls <item>              herdr-app status | ls (box ls with no item: the boxes)
-  box check <item> <mod>            herdr-app check: load a mod once, report what's wrong
-  box sync-mods <item>              the snapshot's mods into the live app (after box sync)
-  box chat <item> [scenario] [name] a chat tab on tests/fake-pi/scenarios/<scenario>.json
-  box dbg <item> [expr]             the newest chat's debug dump (a python expr over d)
-  box hc <item> <args...>           hc on the live app's core
-  box shot <item> <file.png>        the app's current frame
-  box opened <item>                 the links the app tried to open (logged, never opened)
-  box clip <item> get|set <text>    the box's clipboard
-  box log <item> [lines]            the live app's log
-  box wait <item> <terminal> <text> [s]
-                                    until the terminal shows text; else dump it and exit 1
-
-Input: real X events, in the Herdr window's pixels (Herdr's scripts/sandbox verbs)
-  box move <item> x0 y0 x1 y1 [steps]   box click <item> x y [button: 1 left, 3 right]
-  box drag <item> x0 y0 x1 y1 [steps]   box scroll <item> x y notches (+ up, - down)
-  box type <item> <text>                box key <item> <keysym> [mods...]  (key l Control_L)
-  box hold|release <item> <keysym>...   box sequence <item> '<json>'  (a scene, one connection)
-
-Film it
+Film it (in the live app, below)
   box record <item> <scene.sh> [--run NAME] [--replace] [--allow-dirty] [--seconds N]
-                                    a scene (setup / play / crop, as Herdr's notes-clips) in the
-                                    live app at 12 fps, the cursor drawn in: clip.mp4, clip.webp,
-                                    frames/; stamped like a run (before/after: clean worktree)
+                                    a scene (setup / play / crop, as Herdr's notes-clips) at
+                                    12 fps, the cursor drawn in: clip.mp4, clip.webp, frames/
 
-<item>: a short id like pr-33 or issue-28 ([a-z0-9][a-z0-9._-]*).
-Proof: $BOX_PROOF_DIR (default ~/.cache/herdr-chat-box)/<item>/. A run dir has
-.worktree-rev (the commit, "(dirty)" if the worktree had changes), versions.txt,
-and what the run wrote. --run before|after refuses a dirty worktree (--allow-dirty
-saves the diff) and an existing run dir (--replace).
+EOF
+  if running_any; then
+    docker exec "$(docker ps -q --filter "label=$LABEL" | head -1)" /opt/box/app.sh help
+  else
+    echo "The live app and Herdr's sandbox verbs (box app up, click, type, key, shot, wait…):"
+    echo "  their help prints here once a box is up."
+  fi
+  cat <<'EOF'
+
+<item>: a short id like pr-33 or issue-28 ([a-z0-9][a-z0-9._-]*). <NAME>: one or two
+such names, a/b. Proof: $BOX_PROOF_DIR (default ~/.cache/herdr-chat-box)/<item>/<NAME>/.
+A run dir has .worktree-rev (the commit, "(dirty)" when the worktree had changes, with
+dirty.diff), versions.txt, and box/ (what the run wrote). --run before|after refuses a
+dirty worktree (--allow-dirty keeps the diff) and an existing run dir (--replace).
 
 Dependencies: the box has no network, so node_modules comes from the worktree.
 For code you didn't write, install them without running its scripts:
@@ -87,9 +74,17 @@ need_docker() {
   command -v docker >/dev/null || die "docker not found"
   docker info >/dev/null 2>&1 || die "the Docker daemon isn't reachable (start Docker Desktop)"
 }
-check_item() { [[ "${1:-}" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || die "bad item '${1:-}' (use e.g. pr-33)"; }
+NAME_RE='^[a-z0-9][a-z0-9._-]*$'
+check_item() { [[ "${1:-}" =~ $NAME_RE && "$1" != *..* ]] || die "bad item '${1:-}' (use e.g. pr-33)"; }
+check_run() { # one or two plain names, a or a/b: never .., never an absolute path
+  local a b
+  IFS=/ read -r a b <<<"$1"
+  [[ "$a" =~ $NAME_RE && "$a" != *..* ]] && { [ -z "$b" ] || [[ "$b" =~ $NAME_RE && "$b" != *..* && "$1" != */*/* ]]; } ||
+    die "bad run name '$1' (one or two names: before, each/basic)"
+}
 cname() { echo "herdr-chat-box-$1"; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$(cname "$1")" 2>/dev/null)" = true ]; }
+running_any() { [ -n "$(docker ps -q --filter "label=$LABEL" 2>/dev/null)" ]; }
 need_box() { running "$1" || die "box $1 isn't up (box up $1 <worktree>)"; }
 worktree_of() { docker inspect -f '{{range .Mounts}}{{if eq .Destination "/work"}}{{.Source}}{{end}}{{end}}' "$(cname "$1")"; }
 rev_of() { # the worktree's commit, "(dirty)" when it has changes
@@ -98,10 +93,27 @@ rev_of() { # the worktree's commit, "(dirty)" when it has changes
   [ -z "$(git -C "$w" status --porcelain 2>/dev/null)" ] || r="$r (dirty)"
   echo "$r"
 }
-# A command in the box, in the snapshot, with the box's display (entry.sh writes it to /tmp/display.env).
-bexec() { local item=$1; shift; docker exec -w /home/box "$(cname "$item")" bash -c '. /tmp/display.env; cd ~/src 2>/dev/null; exec "$@"' bexec "$@"; }
-# The live app's verbs (image/app.sh). Paths given as proof files are under /proof in the box.
+# A command in the box, in the snapshot, with the box's display.
+bexec() { local item=$1; shift; docker exec -i -w /home/box "$(cname "$item")" bash -c '. /tmp/display.env; cd ~/src 2>/dev/null; exec "$@"' bexec "$@"; }
+# The live app's verbs (image/app.sh owns them and their help).
 appv() { local item=$1; shift; check_item "$item"; need_box "$item"; bexec "$item" /opt/box/app.sh "$@"; }
+
+# The worktree into the box: its history and tags as a git bundle (docker cp: the box has no .git
+# of the worktree and no network), then the file list sync.sh copies from /work: what git tracks
+# or would track (not ignored), and node_modules. The same files `git status` reports, so the
+# run's stamp (.worktree-rev, "(dirty)") says what the box has.
+send_worktree() { # send_worktree <item> <worktree> <rev>; sync.sh under the box's lock
+  local item=$1 wt=$2 rev=$3 b
+  b=$(mktemp -d)
+  git -C "$wt" bundle create "$b/worktree.bundle" HEAD --tags >/dev/null 2>&1 || : >"$b/worktree.bundle"
+  docker cp -q "$b/worktree.bundle" "$(cname "$item"):/tmp/worktree.bundle"
+  rm -rf "$b"
+  files_of "$wt" | bexec "$item" /opt/box/exclusive.sh src sync /opt/box/sync.sh "$rev"
+}
+files_of() { # NUL-separated paths relative to the worktree
+  git -C "$1" ls-files -z --cached --others --exclude-standard
+  [ ! -d "$1/node_modules" ] || printf 'node_modules\0'
+}
 
 # The default image is $IMAGE (the Dockerfile's pinned versions). --app/--core build another,
 # tagged $IMAGE:app<A>-core<C>, which `box up --image <tag>` uses: the default stays as it was.
@@ -110,8 +122,8 @@ cmd_build() {
   local args=() app= core= tag=$IMAGE
   while [ $# -gt 0 ]; do
     case $1 in
-      --app) app=$2; args+=(--build-arg "HERDR_APP=$2"); shift ;;
-      --core) core=$2; args+=(--build-arg "HERDR_CORE=$2"); shift ;;
+      --app|--core) [ $# -ge 2 ] || die "$1 needs a version"; [ "$1" = --app ] && app=$2 || core=$2
+        args+=(--build-arg "$([ "$1" = --app ] && echo HERDR_APP || echo HERDR_CORE)=$2"); shift ;;
       *) args+=("$1") ;;
     esac
     shift
@@ -126,65 +138,140 @@ cmd_build() {
 
 cmd_up() {
   local item=${1:-} wt=${2:-} image=$IMAGE
-  shift 2 || true
+  check_item "$item"; [ -n "$wt" ] && [[ "$wt" != --* ]] || die "usage: box up <item> <worktree> [--image TAG]"
+  shift 2
   while [ $# -gt 0 ]; do
     case $1 in
-      --image) image=$2; shift ;;
+      --image) [ $# -ge 2 ] || die "--image needs a tag"; image=$2; shift ;;
       *) die "unknown option $1" ;;
     esac
     shift
   done
-  check_item "$item"; [ -n "$wt" ] || die "usage: box up <item> <worktree>"
-  wt=$(cd "$wt" && pwd) || die "no worktree $2"
+  [ -d "$wt" ] || die "no worktree $wt"
+  wt=$(cd "$wt" && pwd)
   [ -f "$wt/package.json" ] || die "$wt isn't a herdr-chat checkout"
   need_docker
   docker image inspect "$image" >/dev/null 2>&1 || { [ "$image" = "$IMAGE" ] || die "no image $image (box build --app/--core)"; info "no image yet: building it"; cmd_build; }
   if docker inspect "$(cname "$item")" >/dev/null 2>&1; then die "box $item exists (box down $item first)"; fi
   [ -d "$wt/node_modules" ] || info "note: $wt has no node_modules; run \`npm ci --ignore-scripts\` there (the box has no network)"
   mkdir -p "$PROOF_ROOT/$item"
+  # No capabilities, no privilege gain, a cap on processes: what runs in it is untrusted.
   docker run -d --name "$(cname "$item")" --label "$LABEL" --network none --cpus "$CPUS" --memory "$MEMORY" \
-    --shm-size 512m -v "$wt:/work:ro" -v "$PROOF_ROOT/$item:/proof" "$image" >/dev/null
+    --init --pids-limit 2048 --cap-drop ALL --security-opt no-new-privileges \
+    --shm-size 512m -v "$wt:/work:ro" "$image" >/dev/null
+  # From here a failure removes the half-made box, so `box up` can simply run again.
+  trap 'docker rm -f "$(cname "$item")" >/dev/null 2>&1' EXIT
   for _ in $(seq 50); do docker logs "$(cname "$item")" 2>&1 | grep -q '^ready' && break; sleep 0.2; done
   docker logs "$(cname "$item")" 2>&1 | grep -q '^ready' || { docker logs "$(cname "$item")" >&2; die "box $item didn't start"; }
-  bundle "$wt" "$item"
-  bexec "$item" /opt/box/sync.sh "$(rev_of "$wt")" >&2
-  echo "ready: box $item ($wt at $(rev_of "$wt")); proof in $PROOF_ROOT/$item"
+  local rev; rev=$(rev_of "$wt")
+  send_worktree "$item" "$wt" "$rev" >&2
+  trap - EXIT
+  echo "ready: box $item ($wt at $rev); proof in $PROOF_ROOT/$item"
 }
 
-# The worktree's history and tags as a git bundle in the proof dir (the box has no .git of the
-# worktree and no network); sync.sh fetches it into the snapshot.
-bundle() { git -C "$1" bundle create "$PROOF_ROOT/$2/.git.bundle" HEAD --tags >/dev/null 2>&1 || rm -f "$PROOF_ROOT/$2/.git.bundle"; }
-cmd_sync() { local item=${1:-}; check_item "$item"; need_box "$item"; local wt; wt=$(worktree_of "$item"); bundle "$wt" "$item"; bexec "$item" /opt/box/sync.sh "$(rev_of "$wt")"; }
+cmd_sync() {
+  local item=${1:-}; check_item "$item"; need_box "$item"
+  local wt; wt=$(worktree_of "$item"); send_worktree "$item" "$wt" "$(rev_of "$wt")"
+}
+
+# A run dir for <item>/<run>, made by the host: before/after need a clean worktree (or
+# --allow-dirty) and a new dir (or --replace). Nothing from the box is in it yet, and every
+# component is a real dir (refused when a link, from an older version of this script or anyone).
+# Prints the dir.
+new_run_dir() { # new_run_dir <item> <run> <rev> <replace> <dirty> <worktree>
+  local item=$1 run=$2 rev=$3 replace=$4 dirty=$5 wt=$6 dir p
+  dir="$PROOF_ROOT/$item/$run"
+  if [ "$run" = before ] || [ "$run" = after ]; then
+    [[ "$rev" != *dirty* ]] || [ -n "$dirty" ] || die "the worktree has changes; a $run run needs a clean one (commit, or --allow-dirty)"
+    [ ! -e "$dir" ] || [ -n "$replace" ] || die "$dir exists (--replace to run it again)"
+  fi
+  for p in "$PROOF_ROOT" "$PROOF_ROOT/$item" "$(dirname "$dir")" "$dir"; do
+    [ ! -L "$p" ] || die "$p is a link: refusing to write through it"
+  done
+  mkdir -p "$(dirname "$dir")"
+  rm -rf "$dir"; mkdir "$dir"
+  echo "$rev" >"$dir/.worktree-rev"
+  [[ "$rev" != *dirty* ]] || { git -C "$wt" diff HEAD >"$dir/dirty.diff"; git -C "$wt" status --porcelain >"$dir/dirty.status"; }
+  cmd_versions "$item" >"$dir/versions.txt"
+  echo "$dir"
+}
+# What a run wrote in the box (<out>) into <dir>/box: docker cp copies links as links and
+# never follows them, so a link the box made can't reach a host path.
+pull_out() { docker cp -q "$(cname "$1"):$2" "$3/box" 2>/dev/null || info "the run wrote nothing to pull"; }
+# Stop what this command started in the box when it is interrupted: docker exec doesn't pass
+# signals on, so the holder of <lock> (exclusive.sh: the run's own pid) gets a TERM, its own trap
+# cleans up (run.sh: the app, the core, the hosts), and this waits for it.
+stop_on_interrupt() { # stop_on_interrupt <item> <lock>
+  STOP_BOX=$(cname "$1") STOP_LOCK=$2
+  trap 'docker exec "$STOP_BOX" sh -c '"'"'p=$(/opt/box/exclusive.sh --pid "$1"); [ -z "$p" ] || { kill -TERM "$p"; for _ in $(seq 75); do kill -0 "$p" 2>/dev/null || break; sleep 0.2; done; }'"'"' _ "$STOP_LOCK" >/dev/null 2>&1; exit 130' INT TERM
+}
 
 cmd_run() {
   local item=${1:-}; check_item "$item"; shift
   local run=e2e replace= dirty= script=tests/e2e/run.sh
-  local flows=()
+  local args=()
   while [ $# -gt 0 ]; do
     case $1 in
-      --run) run=$2; shift ;;
+      --run) [ $# -ge 2 ] || die "--run needs a name"; run=$2; shift ;;
       --replace) replace=1 ;;
       --allow-dirty) dirty=1 ;;
-      --script) script=$2; shift ;;
-      *) flows+=("$1") ;;
+      --script) [ $# -ge 2 ] || die "--script needs a path"; script=$2; shift ;;
+      *) args+=("$1") ;;
     esac
     shift
   done
+  # Every argument before anything changes.
+  check_run "$run"
+  [[ "$script" != /* && "/$script/" != */../* ]] || die "--script is a path in the repo (e.g. tests/repro/run.sh)"
   need_box "$item"
-  local wt rev dir
+  bexec "$item" sh -c '/opt/box/exclusive.sh --free display && /opt/box/exclusive.sh --free src' || exit 75
+  local wt rev dir rc=0
   wt=$(worktree_of "$item"); rev=$(rev_of "$wt")
-  # The snapshot must be the worktree as it is now.
-  bundle "$wt" "$item"
-  bexec "$item" /opt/box/sync.sh "$rev" >/dev/null
-  dir=$(stamp_run "$item" "$run" "$replace" "$dirty")
-  local rc=0
-  [[ "$script" != /* && "$script" != *..* ]] || die "--script is a path in the repo (e.g. tests/repro/run.sh)"
-  bexec "$item" env E2E_KEEP_BASE= "$script" "/proof/$run" ${flows[@]+"${flows[@]}"} || rc=$?
+  dir=$(new_run_dir "$item" "$run" "$rev" "$replace" "$dirty" "$wt")
+  local b; b=$(mktemp -d)
+  git -C "$wt" bundle create "$b/worktree.bundle" HEAD --tags >/dev/null 2>&1 || : >"$b/worktree.bundle"
+  docker cp -q "$b/worktree.bundle" "$(cname "$item"):/tmp/worktree.bundle"; rm -rf "$b"
+  stop_on_interrupt "$item" display
+  files_of "$wt" | bexec "$item" /opt/box/exclusive.sh display "run $run" /opt/box/exclusive.sh src "run $run" \
+    /opt/box/runbox.sh "$rev" /home/box/out "$script" ${args[@]+"${args[@]}"} || rc=$?
+  trap - INT TERM
+  pull_out "$item" /home/box/out "$dir"
   echo "run: $dir (exit $rc)"
   return $rc
 }
 
-cmd_test() { local item=${1:-}; check_item "$item"; shift; need_box "$item"; cmd_sync "$item" >/dev/null; bexec "$item" npm test --silent -- "$@"; }
+cmd_record() {
+  local item=${1:-} scene=${2:-}; check_item "$item"; [ -n "$scene" ] || die "usage: box record <item> <scene.sh> [--run NAME]"
+  shift 2
+  local run=clip replace= dirty= secs=30
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --run) [ $# -ge 2 ] || die "--run needs a name"; run=$2; shift ;;
+      --replace) replace=1 ;; --allow-dirty) dirty=1 ;;
+      --seconds) [ $# -ge 2 ] || die "--seconds needs a number"; secs=$2; shift ;;
+      *) die "unknown option $1" ;;
+    esac
+    shift
+  done
+  check_run "$run"; [ -f "$scene" ] || die "no scene $scene"
+  need_box "$item"
+  local wt dir rc=0
+  wt=$(worktree_of "$item")
+  dir=$(new_run_dir "$item" "$run" "$(rev_of "$wt")" "$replace" "$dirty" "$wt")
+  cp "$scene" "$dir/scene.sh"
+  docker cp -q "$scene" "$(cname "$item"):/tmp/scene.sh"
+  appv "$item" record /tmp/scene.sh /home/box/out "$secs" || rc=$?
+  pull_out "$item" /home/box/out "$dir"
+  echo "record: $dir (exit $rc)"
+  return $rc
+}
+
+cmd_test() {
+  local item=${1:-}; check_item "$item"; shift; need_box "$item"
+  cmd_sync "$item" >/dev/null
+  stop_on_interrupt "$item" src
+  bexec "$item" /opt/box/exclusive.sh src test npm test --silent -- "$@"
+}
 cmd_exec() {
   local item=${1:-}; check_item "$item"; shift; need_box "$item"
   [ "${1:-}" = -- ] && shift
@@ -192,77 +279,21 @@ cmd_exec() {
 }
 cmd_shot() {
   local item=${1:-} file=${2:-}; check_item "$item"; need_box "$item"; [ -n "$file" ] || die "usage: box shot <item> <file.png>"
-  appv "$item" shot /proof/.shot.png >/dev/null && mv "$PROOF_ROOT/$item/.shot.png" "$file" && echo "$file"
-}
-
-# Stamp a run dir: before/after need a clean worktree (or --allow-dirty) and a new dir (or --replace).
-stamp_run() { # stamp_run <item> <run> <replace> <dirty>; prints the dir
-  local item=$1 run=$2 replace=$3 dirty=$4 wt rev dir
-  [[ "$run" =~ ^[a-z0-9][a-z0-9._/-]*$ ]] || die "bad run name $run"
-  wt=$(worktree_of "$item"); rev=$(rev_of "$wt"); dir="$PROOF_ROOT/$item/$run"
-  if [ "$run" = before ] || [ "$run" = after ]; then
-    [[ "$rev" != *dirty* ]] || [ -n "$dirty" ] || die "the worktree has changes; a $run run needs a clean one (commit, or --allow-dirty)"
-    [ ! -e "$dir" ] || [ -n "$replace" ] || die "$dir exists (--replace to run it again)"
-  fi
-  rm -rf "$dir"; mkdir -p "$dir"
-  echo "$rev" >"$dir/.worktree-rev"
-  [[ "$rev" != *dirty* ]] || { git -C "$wt" diff HEAD >"$dir/dirty.diff"; git -C "$wt" status --porcelain >"$dir/dirty.status"; }
-  cmd_versions "$item" >"$dir/versions.txt"
-  echo "$dir"
-}
-
-cmd_record() {
-  local item=${1:-} scene=${2:-}; check_item "$item"; shift 2 || die "usage: box record <item> <scene.sh> [--run NAME]"
-  local run=clip replace= dirty= secs=30
-  while [ $# -gt 0 ]; do
-    case $1 in --run) run=$2; shift ;; --replace) replace=1 ;; --allow-dirty) dirty=1 ;; --seconds) secs=$2; shift ;; *) die "unknown option $1" ;; esac
-    shift
-  done
-  need_box "$item"
-  [ -f "$scene" ] || die "no scene $scene"
-  local dir; dir=$(stamp_run "$item" "$run" "$replace" "$dirty")
-  # The scene goes in with the proof (it may live outside the worktree, e.g. the factory's item folder).
-  cp "$scene" "$dir/.scene.sh"
-  appv "$item" record "/proof/$run/.scene.sh" "/proof/$run" "$secs"
+  appv "$item" shot /tmp/shot.png >/dev/null && docker cp -q "$(cname "$item"):/tmp/shot.png" "$file" && echo "$file"
 }
 
 cmd_doctor() {
   local item=${1:-}; check_item "$item"
-  python3 - "$item" "$(cname "$item")" "$PROOF_ROOT/$item" <<'EOF'
-import json, subprocess, sys, shutil
-item, name, proof = sys.argv[1:]
-def sh(*a):
-    r = subprocess.run(a, capture_output=True, text=True); return r.returncode, r.stdout.strip()
-problems, out = [], {"box": item}
-rc, run = sh("docker", "inspect", "-f", "{{.State.Running}}", name)
-if run != "true":
-    problems.append(f"the box isn't running (box up {item} <worktree>)")
-else:
-    ex = lambda *c: sh("docker", "exec", "-e", "DISPLAY=:9", name, *c)
-    out["display"] = ex("xdpyinfo")[0] == 0 or problems.append("no X display (box down, box up)")
-    rc, v = ex("herdr-app", "--version"); out["app"] = v
-    rc, v = ex("hc", "--version"); out["core"] = v
-    rc, v = ex("node", "--version"); out["node"] = v
-    rc, v = ex("cat", "/home/box/src/.box-rev"); out["snapshot"] = v if rc == 0 else None
-    if rc != 0: problems.append(f"no snapshot (box sync {item})")
-    rc, _ = ex("test", "-d", "/home/box/src/node_modules")
-    if rc != 0: problems.append("no node_modules in the worktree (npm ci --ignore-scripts there, then box sync)")
-    rc, v = ex("sh", "-c", "getent hosts example.com || echo offline"); out["network"] = "offline" if "offline" in v else "ONLINE"
-    if out["network"] != "offline": problems.append("the box has network")
-    rc, w = sh("docker", "inspect", "-f", "{{range .Mounts}}{{if eq .Destination \"/work\"}}{{.Source}} {{.RW}}{{end}}{{end}}", name)
-    src, rw = (w.split() + ["", ""])[:2]; out["worktree"] = src
-    if rw != "false": problems.append("the worktree is mounted writable")
-    rc, head = sh("git", "-C", src, "rev-parse", "--short", "HEAD")
-    if out.get("snapshot") and rc == 0 and not out["snapshot"].startswith(head): problems.append(f"the snapshot ({out['snapshot']}) isn't the worktree's HEAD ({head}): box sync {item}")
-free = shutil.disk_usage(proof if __import__("os").path.isdir(proof) else "/").free // 2**30
-out["disk_free_gb"] = free
-if free < 3: problems.append(f"only {free} GB free on disk")
-out["ok"] = not problems; out["problems"] = problems
-print(json.dumps(out, indent=1)); sys.exit(0 if out["ok"] else 1)
-EOF
+  python3 "$BOX_DIR/doctor.py" "$item" "$(cname "$item")" "$PROOF_ROOT"
 }
 
-cmd_logs() { local item=${1:-}; check_item "$item"; docker logs "$(cname "$item")" 2>&1 | tail -20; ls -t "$PROOF_ROOT/$item"/*/app.log 2>/dev/null | head -1 | xargs -I{} sh -c 'echo "--- {}"; tail -40 "{}"'; }
+cmd_logs() {
+  local item=${1:-}; check_item "$item"
+  docker logs "$(cname "$item")" 2>&1 | tail -20
+  # (a regular file only: what the box wrote may be a link to anywhere on this host)
+  local f; f=$(ls -td "$PROOF_ROOT/$item"/*/ "$PROOF_ROOT/$item"/*/*/ 2>/dev/null | while read -r d; do [ -f "$d/box/app.log" ] && [ ! -L "$d/box/app.log" ] && { echo "$d/box/app.log"; break; }; done)
+  [ -z "$f" ] || { echo "--- $f"; tail -40 -- "$f"; }
+}
 cmd_ls() { docker ps -a --filter "label=$LABEL" --format '{{.Names}}\t{{.Status}}' | sed 's/^herdr-chat-box-//'; }
 cmd_down() {
   if [ "${1:-}" = --all ]; then docker ps -aq --filter "label=$LABEL" | xargs -r docker rm -f >/dev/null; echo "all boxes removed"; return; fi
@@ -283,17 +314,16 @@ case "${1:-}" in
   exec) shift; cmd_exec "$@" ;;
   shot) shift; cmd_shot "$@" ;;
   record) shift; cmd_record "$@" ;;
-  app)
-    shift; v=${1:-}; item=${2:-}; shift 2 || die "usage: box app up|down|restart|env <item>"
-    case $v in up|down|restart|env) appv "$item" "$v" "$@" ;; *) die "box app up|down|restart|env <item>" ;; esac ;;
-  sync-mods) shift; item=${1:-}; shift || true; appv "$item" sync "$@" ;;
-  ls) shift; if [ -z "${1:-}" ]; then cmd_ls; else item=$1; shift; appv "$item" ls "$@"; fi ;; # box ls: the boxes; box ls <item>: herdr-app ls
-  do|status|check|chat|dbg|hc|opened|clip|log|wait|move|click|drag|scroll|type|key|hold|release|sequence)
-    v=$1; shift; item=${1:-}; shift || true; appv "$item" "$v" "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
   logs) shift; cmd_logs "$@" ;;
   down) shift; cmd_down "$@" ;;
   versions) shift; cmd_versions "$@" ;;
+  app) # box app up|down|restart|env <item>
+    shift; v=${1:-}; item=${2:-}; [ $# -ge 2 ] || die "usage: box app up|down|restart|env <item>"; shift 2
+    case $v in up|down|restart|env) ;; *) die "box app up|down|restart|env <item>" ;; esac
+    if [ "$v" = up ]; then appv "$item" up "$@"; else appv "$item" "$v" "$@"; fi ;;
+  sync-mods) shift; item=${1:-}; shift || true; appv "$item" sync "$@" ;;
+  ls) shift; if [ -z "${1:-}" ]; then cmd_ls; else item=$1; shift; appv "$item" ls "$@"; fi ;; # box ls: the boxes
   ""|-h|--help|help) usage ;;
-  *) usage >&2; exit 2 ;;
+  *) v=$1; shift; item=${1:-}; [ -n "$item" ] || die "box $v needs an item (box --help)"; shift; appv "$item" "$v" "$@" ;; # app.sh owns the rest
 esac

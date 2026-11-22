@@ -48,15 +48,19 @@ def scan(path, colours):
     return solid(hits), rgb
 
 
+# A colour hit counts only inside a flat block: at least BLOCK_MIN of the 5×5 sample points around
+# it (a 10×10 pt square at STEP 2) are hits too. The images are flat blocks tens of points across,
+# so their every point passes, and so does a chip's (64×48). An anti-aliased letter's edge can
+# fall within TOL of a colour (Linux renders text a little differently), but only as a thin line,
+# which never fills a square: left in, it would stretch the images' box over the text above them.
+BLOCK_MIN = 15
+
+
 def solid(hits):
-    """Only the points of a flat block of colour: on a row and a column with many others. An
-    anti-aliased letter's edge can fall within TOL of a colour (Linux renders text a little
-    differently), and a few such points would stretch the images' box over the text above it."""
-    rows, cols = {}, {}
-    for x, y in hits:
-        rows[y] = rows.get(y, 0) + 1
-        cols[x] = cols.get(x, 0) + 1
-    return [(x, y) for x, y in hits if rows[y] >= 8 and cols[x] >= 8]
+    """Only the points of a flat block of colour (BLOCK_MIN)."""
+    on = set(hits)
+    r = range(-2 * STEP, 2 * STEP + 1, STEP)
+    return [(x, y) for x, y in hits if sum((x + dx, y + dy) in on for dx in r for dy in r) >= BLOCK_MIN]
 
 
 def same(a, b, tol):

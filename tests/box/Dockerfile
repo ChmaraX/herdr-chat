@@ -30,7 +30,10 @@ RUN set -e; arch=$(uname -m); case $arch in aarch64) a=aarch64 n=arm64 ;; x86_64
 # Links the app would open are logged, never opened.
 RUN printf '#!/bin/sh\necho "$*" >> /tmp/opened.log\n' > /usr/local/bin/xdg-open && chmod +x /usr/local/bin/xdg-open
 COPY image/ /opt/box/
-RUN chmod +x /opt/box/*.sh /opt/box/*.py && (useradd -m -u 1000 -s /bin/bash box 2>/dev/null || useradd -m -s /bin/bash box)
+# The box user is uid 1000 (Ubuntu ships `ubuntu` there: renamed, so files it writes are the host
+# user's on a Linux host too).
+RUN chmod +x /opt/box/*.sh /opt/box/*.py \
+ && usermod -l box -d /home/box -m ubuntu && groupmod -n box ubuntu
 USER box
 # A person's shell has its rc files: without ~/.zshrc, zsh -i stops at its first-run wizard.
 RUN printf '# test box\n' > /home/box/.zshrc && printf '# test box\n' > /home/box/.zprofile

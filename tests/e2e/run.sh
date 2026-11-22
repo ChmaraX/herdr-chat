@@ -7,7 +7,7 @@
 #   tests/e2e/run.sh [artifacts dir] [flows...]     (default: every flow)
 #
 # Flows drive the chat as a person does: the launcher key, typing (keys.py
-# posts keys to the private app only; keys_x11.py in the test box), Enter, Esc;
+# posts keys to the private app only; x11input.py in the test box), Enter, Esc;
 # clicks go through the mod's own commands (`chat.click:<control>`,
 # `chat.toggle:<id>`), which run the click handlers' code. Checks read the host
 # (`herdr-chat-host inspect`) and the mod's debug dump

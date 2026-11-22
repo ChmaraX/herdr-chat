@@ -51,15 +51,34 @@ on its own (a run stops at a flow's first FAIL) and writes a summary.
 
 ## Proof
 
-Each run writes to `~/.cache/herdr-chat-box/<item>/<run>/` (`BOX_PROOF_DIR` moves it):
-`run.log`, the screenshots and frame folders the flows take, the app's log, and the final state.
-The run dir is stamped:
+Each run's dir is `~/.cache/herdr-chat-box/<item>/<run>/` (`BOX_PROOF_DIR` moves it). The host
+makes it and stamps it; what the run wrote in the box (`run.log`, the screenshots and frame
+folders, the app's log, the final state) is copied into its `box/` when the run ends. The stamp:
 
 - `.worktree-rev`: the worktree's commit, `(dirty)` with uncommitted changes (then `dirty.diff`).
 - `versions.txt`: the image's herdr-app, herdr-core, Node, OS and Mesa.
 
 `--run before` and `--run after` refuse a dirty worktree (`--allow-dirty` keeps the diff) and an
 existing run dir (`--replace`), so a before/after pair is two clean commits.
+
+## How the box can fail, and what stops it
+
+The box runs code nobody has reviewed. Each of these is checked by `tests/box/verbs-check.sh`
+(the refusals) or by `box doctor`:
+
+| Failure | What stops it |
+|---|---|
+| The code reaches the network | `--network none`; doctor checks it |
+| The code changes the worktree | mounted read-only; doctor checks it; the box works on a copy |
+| The code writes a host path | nothing of the host is mounted writable; proof comes out by `docker cp`, which copies links as links |
+| A name the box made runs as a command on the host | no path from the box is ever put in a shell command; `box logs` reads a regular file only |
+| A run name or `--script` escapes the proof or repo dir | one or two plain names (no `..`, not absolute); `--script` is a path in the repo; checked before anything changes |
+| A run dir on the host is a link (to anywhere) | refused before anything is written or deleted |
+| The proof says a commit the box didn't run | the commit is read once, and the box gets exactly the files `git status` sees (tracked and untracked, not ignored) |
+| Two runs, or a run and the live app, share the display or `~/src` | locks in the box (`display`, `src`): the second one is refused |
+| An interrupted run keeps running in the box | the host stops the run's process (its own cleanup ends the app, the core and the hosts) |
+| Exited processes pile up in the box | `--init` reaps them |
+| The code escalates in the container | `--cap-drop ALL`, `no-new-privileges`, a process limit |
 
 ## What's real and what isn't
 
@@ -75,8 +94,8 @@ existing run dir (`--replace`), so a before/after pair is two clean commits.
 
 The box has no network, so `node_modules` comes from the worktree. For code you didn't write,
 install them on the host without running their scripts: `npm ci --ignore-scripts`. The box
-gets the worktree's git history and tags as a bundle (flows that run an old release's host
-use them).
+gets the worktree's git history and tags as a bundle, by `docker cp` (flows that run an old
+release's host use them).
 
 ## On macOS, without the box
 

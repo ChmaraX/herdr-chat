@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # Checks the box's live-app verbs against the real app: each verb, then what the
-# app's state says it did. `tests/box/verbs-check.sh <item>` (a box that's up).
-# Prints PASS/FAIL lines; exit 1 on any FAIL. It brings the live app up and down.
+# app's state says it did, and the box's refusals (what keeps untrusted code in it).
+# `tests/box/verbs-check.sh <item>` (a box that's up). Writes its proof to
+# <proof>/<item>/verbs-check/: check.log (PASS/FAIL lines, the worktree's commit)
+# and the screenshots it compares. Exit 1 on any FAIL. It brings the live app up and down.
 set -uo pipefail
 B="$(cd "$(dirname "$0")" && pwd)/box"
 item=${1:?item}
 fails=0
+OUT=${BOX_PROOF_DIR:-$HOME/.cache/herdr-chat-box}/$item/verbs-check
+rm -rf "$OUT"; mkdir -p "$OUT"
+exec > >(tee "$OUT/check.log") 2>&1
+echo "worktree: $("$B" exec "$item" -- cat .box-rev)"
 ok() { echo "PASS $*"; }
 no() { echo "FAIL $*"; fails=$((fails + 1)); }
 check() { local name=$1; shift; if "$@" >/dev/null 2>&1; then ok "$name"; else no "$name"; fi; }
@@ -59,7 +65,8 @@ until_ '"$B" status "$item" | grep -q "\"menu\""' && ok "click button 3: a right
 "$B" key "$item" Escape
 
 # Scroll: a long chat, wheel notches up unstick it, down moves it back.
-"$B" exec "$item" -- sh -c 'python3 tests/e2e/zoom/scenario.py tests/fake-pi/scenarios/_long.json' >/dev/null
+# (into the live app's own copy of the snapshot, which its chats run from)
+"$B" exec "$item" -- python3 /home/box/live/src/tests/e2e/zoom/scenario.py /home/box/live/src/tests/fake-pi/scenarios/_long.json >/dev/null
 "$B" chat "$item" _long long >/dev/null
 until_ '[ "$(d "len(d[\"items\"])")" = 200 ] && [ "$(d "d[\"top\"]")" -gt 0 ]'
 t0=$(d 'd["top"]')
@@ -69,7 +76,7 @@ t1=$(d 'd["top"]'); s1=$(d 'd["sticky"]')
 "$B" scroll "$item" 700 300 -2; sleep 0.8
 t2=$(d 'd["top"]')
 [ "$t2" -gt "$t1" ] && ok "scroll down 2: it moves back ($t1 → $t2)" || no "scroll down: $t1 → $t2"
-"$B" exec "$item" -- rm -f tests/fake-pi/scenarios/_long.json
+"$B" exec "$item" -- rm -f /home/box/live/src/tests/fake-pi/scenarios/_long.json
 
 # The app's own checks, restart, shot.
 check "check: the chat mod passes" "$B" check "$item" chat
@@ -77,18 +84,35 @@ check "check: the chat mod passes" "$B" check "$item" chat
 if "$B" check "$item" broken >/dev/null 2>&1; then no "check: a broken mod passed"; else ok "check: a broken mod fails"; fi
 "$B" exec "$item" -- bash -c '. /home/box/live/env; rm -rf $HERDR_APP_HOME/mods/broken'
 "$B" type "$item" "x" >/dev/null 2>&1
-"$B" do "$item" pane.focus --terminal "$T" >/dev/null
+"$B" do "$item" pane.focus --terminal "$T" >/dev/null; sleep 0.5
 "$B" type "$item" "echo survives-restart"; "$B" key "$item" Return
 "$B" wait "$item" "$T" survives-restart 5 >/dev/null
 p0=$("$B" app env "$item" | sed -n 's/.*APP_PID=\([0-9]*\).*/\1/p')
 "$B" app restart "$item" >/dev/null
 p1=$("$B" app env "$item" | sed -n 's/.*APP_PID=\([0-9]*\).*/\1/p')
 [ -n "$p1" ] && [ "$p1" != "$p0" ] && "$B" wait "$item" "$T" survives-restart 5 >/dev/null && ok "app restart: a new window ($p0 → $p1), the terminal and its output kept" || no "restart: $p0 → $p1"
-f=$(mktemp -t boxcheck).png
-"$B" shot "$item" "$f" >/dev/null && [ "$(head -c 8 "$f" | od -An -tx1 | tr -d ' \n')" = 89504e470d0a1a0a ] && ok "shot: a PNG of the current frame" || no "shot"
-rm -f "$f"
+# shot: the current frame, not the last one drawn. Zoom in between two shots: they must differ.
+"$B" shot "$item" "$OUT/shot-1.png" >/dev/null
+"$B" do "$item" app.zoom_in >/dev/null; sleep 0.5
+"$B" shot "$item" "$OUT/shot-2.png" >/dev/null
+"$B" do "$item" app.zoom_reset >/dev/null
+[ -s "$OUT/shot-1.png" ] && [ -s "$OUT/shot-2.png" ] && ! cmp -s "$OUT/shot-1.png" "$OUT/shot-2.png" &&
+  ok "shot: the current frame (zoomed in between two shots, they differ: shot-1.png, shot-2.png)" || no "shot: the two shots are the same or missing"
 if "$B" wait "$item" "$T" "never-printed-text" 1 >/dev/null 2>&1; then no "wait found text that isn't there"; else ok "wait: a missing text fails (exit 1, with a dump)"; fi
 
+"$B" app down "$item" >/dev/null
+
+# The refusals: what keeps a run's names and links from reaching this host.
+refused() { local name=$1; shift; if "$@" >/dev/null 2>&1; then no "$name: not refused"; else ok "$name: refused"; fi; }
+refused "a run name with .." "$B" run "$item" --run 'a/../../x' basic
+refused "an absolute run name" "$B" run "$item" --run /tmp/x basic
+refused "--script outside the repo" "$B" run "$item" --run x --script ../x.sh
+P=${BOX_PROOF_DIR:-$HOME/.cache/herdr-chat-box}/$item
+mkdir -p "$P/lk"; ln -sfn "$OUT" "$P/lk/run"
+refused "a run dir that is a link" "$B" run "$item" --run lk/run basic
+rm -rf "$P/lk"
+"$B" app up "$item" >/dev/null
+refused "a run while the live app is up" "$B" run "$item" --run busy basic
 "$B" app down "$item" >/dev/null
 echo "$([ $fails = 0 ] && echo "all passed" || echo "$fails failed")"
 exit $((fails > 0))

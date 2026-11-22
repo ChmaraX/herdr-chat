@@ -7,15 +7,18 @@ BOX="$(cd "$(dirname "$0")" && pwd)/box"
 item=${1:?item}; shift
 flows=("$@")
 if [ ${#flows[@]} = 0 ]; then
-  # Every flow but the live ones (they need the person's real logins and network).
-  read -ra flows <<<"$(grep -ho 'want [a-z0-9-]*' "$(dirname "$0")/../e2e/"*.sh | awk '{print $2}' | sort -u | grep -v '^live' | tr '\n' ' ')"
+  # Every flow an `if want <flow> [|| want <flow>…]` line names, but the live ones (real logins, network).
+  read -ra flows <<<"$(grep -hE '^\s*if want [a-z0-9-]+' "$(dirname "$0")/../e2e/"*.sh | grep -oE 'want [a-z0-9-]+' | awk '{print $2}' | sort -u | grep -v '^live' | tr '\n' ' ')"
 fi
 root=${BOX_PROOF_DIR:-$HOME/.cache/herdr-chat-box}/$item/each
-mkdir -p "$root"; : >"$root/summary.tsv"
+mkdir -p "$root"
+summary=$(mktemp)
 for f in "${flows[@]}"; do
   s=$SECONDS
-  "$BOX" run "$item" --run "each/$f" "$f" >"$root/$f.out" 2>&1; rc=$?
-  log="$root/$f/run.log"
+  out=$("$BOX" run "$item" --run "each/$f" "$f" 2>&1); rc=$?
+  printf '%s\n' "$out" >"$root/$f/box.out" 2>/dev/null || true
+  log="$root/$f/box/run.log"
   pass=$(grep -c '^PASS' "$log" 2>/dev/null); skip=$(grep -c '^SKIP' "$log" 2>/dev/null); fail=$(grep -m1 '^FAIL' "$log" 2>/dev/null | cut -c1-140)
-  printf '%s\t%s\t%s\t%s\t%ss\t%s\n' "$f" "$([ $rc = 0 ] && echo ok || echo FAIL)" "$pass" "$skip" "$((SECONDS - s))" "$fail" | tee -a "$root/summary.tsv"
+  printf '%s\t%s\t%s\t%s\t%ss\t%s\n' "$f" "$([ $rc = 0 ] && echo ok || echo FAIL)" "${pass:-0}" "${skip:-0}" "$((SECONDS - s))" "$fail" | tee -a "$summary"
 done
+mv "$summary" "$root/summary.tsv"

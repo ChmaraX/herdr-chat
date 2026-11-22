@@ -67,7 +67,7 @@ PY
   CHAT=$(open_chat keymap-2)
   B=$CHAT
   ready
-  key_until "46:$PK,shift" '[ "$(d "(d[\"picker\"] or {}).get(\"kind\")")" = model ]' && ok "$(chord_label $PK-shift-m) opens the model picker (a chat shortcut)" || fail "$(chord_label $PK-shift-m) did nothing"
+  key_until "46:$PK,shift" '[ "$(d "(d[\"picker\"] or {}).get(\"kind\")")" = model ]' && ok "$(label model) opens the model picker (a chat shortcut)" || fail "$(label model) did nothing"
   key_until esc '[ "$(d "d[\"picker\"]")" = null ]' && ok "Esc closes it (a composer key)" || fail "Esc didn't close the picker"
   type_text "in a new chat"
   enter_sends "in a new chat" "Enter sends in the new chat"

@@ -5,9 +5,9 @@
 # moved on screen. Every check here is on frames:
 #   - bottom: chat.scroll:by:<dy> steps from the bottom move it dy × zoom pt (the
 #     first unstick, rows measured for the first time);
-#   - wheel: real wheel events. macOS (E2E_WHEEL=1): 48 pt each (wheel.py, at the session's event tap; moves the
-#     pointer for a moment). Linux test box (always): one notch each on the box's own pointer (wheel_x11.py)
-#     move it 48 pt at any zoom: the content follows the finger;
+#   - wheel: real wheel events (platform.sh wheel). macOS (E2E_WHEEL=1): 48 pt each, at the session's
+#     event tap (moves the pointer for a moment). Linux test box (always): one notch each on the box's
+#     own pointer. Every step moves it the same amount at any zoom: the content follows the finger;
 #   - history: the step where older history pages in, whose first row splits a
 #     tool group (the group's row id changes; another row on screen holds the view).
 # At 1.2 only:
@@ -72,22 +72,19 @@ PY
   }
   by() { cmd "scroll:by:$ZSTEP"; }
   # Over the transcript column (shift.py's box: left of x 420 is the pane's margin, which doesn't scroll), at the first point no other window covers (exit 2: all covered).
-  wheel_up() { "$PY" "$E2E/wheel.py" "$APP_PID" 420:1180 300 "$ZWHEEL" >>"$LOG"; }
-  # In the test box (Linux), real wheel events go through the box's own X pointer (wheel_x11.py), so
-  # they run by default: they move nobody's pointer. X11's wheel has notches, not pixels: one notch a
-  # step, and every step must move the transcript what the first one did (WHEEL_PT, measured).
-  if [ "$OS" != Darwin ]; then
-    E2E_WHEEL=1
-    wheel_up() { python3 "$E2E/wheel_x11.py" 420:1180 300 1 >>"$LOG"; }
-  fi
-  # How far one wheel step moves the transcript here: ZWHEEL pt on macOS (pixel deltas); on X11,
-  # measured once from one notch (shift.py over two frames).
+  wheel_up() { wheel 420:1180 300 "$ZWHEEL" >>"$LOG"; }
+  # In the test box (Linux) real wheel events go through the box's own X pointer, so they run by
+  # default: they move nobody's pointer.
+  [ "$OS" = Darwin ] || E2E_WHEEL=1
+  # How far one wheel step moves the transcript here: ZWHEEL pt on macOS (pixel deltas); on X11
+  # (notches, not pixels), measured from one notch (shift.py over two frames). Prints nothing when
+  # that notch couldn't be measured (too few rows matched).
   wheel_pt() {
     if [ "$OS" = Darwin ]; then echo "$ZWHEEL"; return; fi
     local dir="$ART/zoom-z$Z-wheel-notch"; rm -rf "$dir"; mkdir -p "$dir"
     frame "$dir" 0; wheel_up; frame "$dir" 1
     "$PY" "$E2E/shift.py" steps "$dir" 0 "$dir.json" >/dev/null 2>&1
-    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["perStep"][0]["moved"])' "$dir.json"
+    python3 -c 'import json,sys; s=json.load(open(sys.argv[1]))["perStep"][0]; print(s["moved"]) if s["measured"] and s["moved"] else None' "$dir.json" 2>/dev/null
   }
 
   for Z in 1.2 1; do
@@ -104,7 +101,10 @@ PY
       zsteps bottom 20 "$(python3 -c "print($ZSTEP * $Z)")" by
       if [ -z "${E2E_WHEEL:-}" ]; then
         skip "zoom $Z, wheel: real wheel events move your pointer for a moment; E2E_WHEEL=1 runs them (NOT checked)"
-      elif WPT=$(wheel_pt) && [ -n "$WPT" ] && [ "$WPT" != 0 ]; then
+      elif [ "$OS" != Darwin ] && WPT=$(wheel_pt) && [ -z "$WPT" ]; then
+        fail "zoom $Z, wheel: one notch moved nothing measurable (zoom-z$Z-wheel-notch.json)"
+      elif [ "$OS" != Darwin ] || wheel_up; then
+        [ "$OS" = Darwin ] && WPT=$ZWHEEL
         note "zoom $Z: one wheel step moves the transcript $WPT pt"
         zsteps wheel 10 "$WPT" wheel_up
       else

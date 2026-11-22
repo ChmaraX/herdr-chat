@@ -130,27 +130,27 @@ if want keys; then
   step "chat-scoped shortcuts: defaults (keys.default.json)"
   CHAT=$(open_chat keys abort) # (a tool that runs until stopped: ⌃C has time, even by command)
   ready
-  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"$PK-shift-m\"]" ]' "the defaults are loaded (model $(chord_label $PK-shift-m))" 5
+  expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"$PK-shift-m\"]" ]' "the defaults are loaded (model $(label model))" 5
   [ "$(d 'd["keyErrors"]')" = "[]" ] && ok "no key errors" || fail "key errors $(d 'd["keyErrors"]')"
   press_sc 46:$PK,shift model '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
-  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "$(chord_label $PK-shift-m)" ]' "$(chord_label $PK-shift-m) opens the model picker (its title shows the key)" 5
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "$(label model)" ]' "$(label model) opens the model picker (its title shows the key)" 5
   shot fix1-4-model-shortcut 0.3
   press_sc 46:$PK,shift model '[ "$(d "d[\"picker\"]")" = null ]'
-  expect '[ "$(d "d[\"picker\"]")" = null ]' "$(chord_label $PK-shift-m) again closes it" 5
+  expect '[ "$(d "d[\"picker\"]")" = null ]' "$(label model) again closes it" 5
   # The effort key: ⇧⌘T on macOS; Ctrl+Shift+I on Linux (Ctrl+Shift+T is the app's new tab there).
   if [ "$OS" = Darwin ]; then EK=17; else EK=34; fi
   press_sc $EK:$PK,shift effort '[ "$(d "d[\"picker\"][\"kind\"]")" = thinking ]'
   expect '[ "$(d "d[\"picker\"][\"kind\"]")" = thinking ]' "the effort key opens the thinking (effort) picker" 5
   keys esc; until_ '[ "$(d "d[\"picker\"]")" = null ]' 3 || cmd key:escape # (setup)
   press_sc 0:$PK,shift mode '[ "$(d "d[\"flash\"] is not None")" = true ]'
-  expect '[ "$(d "d[\"flash\"]")" = "Pi has no permission modes" ]' "$(chord_label $PK-shift-a): Pi has no permission modes, said in the hint line" 5
+  expect '[ "$(d "d[\"flash\"]")" = "Pi has no permission modes" ]' "$(label mode): Pi has no permission modes, said in the hint line" 5
   send_text "sleep a while"
   expect '[ "$(phase)" = working ]' "Pi works" 8
   press_sc 8:ctrl stop '[ "$(phase)" = idle ]'
   expect '[ "$(phase)" = idle ] && [ "$(d "d[\"lastShortcut\"][\"action\"]")" = stop ]' "⌃C stops it" 10
   cmd click:chip:model; sleep 0.5
   press_sc 37:$PK focusComposer '[ "$(d "d[\"picker\"]")" = null ]'
-  expect '[ "$(d "d[\"picker\"]")" = null ] && [ "$(d "d[\"lastShortcut\"][\"action\"]")" = focusComposer ]' "$(chord_label $PK-l): back in the composer" 5
+  expect '[ "$(d "d[\"picker\"]")" = null ] && [ "$(d "d[\"lastShortcut\"][\"action\"]")" = focusComposer ]' "$(label focus): back in the composer" 5
   TABS0=$(app_ls | python3 -c 'import json,sys; print(sum(len(s["tabs"]) for s in json.load(sys.stdin)["spaces"]))')
   # New chat: ⇧⌘N on macOS; Ctrl+Alt+N on Linux (Ctrl+Shift+N is the app's new space there).
   if [ "$OS" = Darwin ]; then press_sc 45:cmd,shift newChat '[ "$(d "d[\"lastNewChat\"] is not None")" = true ]'
@@ -164,7 +164,7 @@ if want keys; then
   expect '[ "$(d "d[\"shortcuts\"][\"model\"]")" = "[\"$PK-shift-y\"]" ] && [ "$(d "d[\"shortcuts\"][\"stop\"]")" = "[]" ]' "the reloaded chat reads data/herdr-chat/keys.json" 15
   do_ tab.select --id "$(d 'd["place"]["tab"]')"; sleep 0.5; cmd focus; sleep 0.3
   press_sc 16:$PK,shift model '[ "$(d "d[\"picker\"][\"kind\"]")" = model ]'
-  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "$(chord_label $PK-shift-y)" ]' "$(chord_label $PK-shift-y) now opens the model picker" 5
+  expect '[ "$(d "d[\"picker\"][\"kind\"]")" = model ] && [ "$(d "d[\"picker\"][\"hint\"]")" = "$(label model-y)" ]' "$(label model-y) now opens the model picker" 5
   keys esc; until_ '[ "$(d "d[\"picker\"]")" = null ]' 3 || cmd key:escape # (setup)
   rm -f "$STATE/keys.json"
   step "Claude Code: Shift+Tab cycles the permission mode"
