@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync } from "node:fs";
-import { resolve } from "node:path";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AgyAdapter, agySessionPath } from "../../host/providers/agy/adapter.ts";
 import { AGY_TOOLS } from "../../host/providers/agy/tools.ts";
@@ -84,6 +85,8 @@ test("AgyMapper maps thinking, tool calls, text, and replay turns", () => {
 });
 
 test("AgyAdapter full lifecycle: start, prompt, model/effort/mode, permissions, resume, and abort", async () => {
+  const prevSettings = process.env.AGY_SETTINGS_PATH;
+  process.env.AGY_SETTINGS_PATH = join(tmpdir(), `herdr-chat-nonexistent-${Date.now()}.json`);
   const { host, events, waitFor } = makeHost();
   const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
   try {
@@ -154,5 +157,70 @@ test("AgyAdapter full lifecycle: start, prompt, model/effort/mode, permissions, 
   } finally {
     await adapter.dispose();
     assert.equal(adapter.alive, false);
+    if (prevSettings === undefined) delete process.env.AGY_SETTINGS_PATH;
+    else process.env.AGY_SETTINGS_PATH = prevSettings;
+  }
+});
+
+test("AgyAdapter applies default model and agentMode from settings.json on new sessions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "herdr-chat-agy-settings-"));
+  const settingsFile = join(dir, "settings.json");
+  const prevSettings = process.env.AGY_SETTINGS_PATH;
+  process.env.AGY_SETTINGS_PATH = settingsFile;
+
+  try {
+    // 1. Config option label + agentMode
+    writeFileSync(settingsFile, JSON.stringify({ model: "Orchestrator (Neon)", agentMode: "accept-edits" }));
+    {
+      const { host, events } = makeHost();
+      const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
+      try {
+        await adapter.start(null, host);
+        const lastModel = [...events].reverse().find((e) => e.type === "model");
+        const lastMode = [...events].reverse().find((e) => e.type === "permission_mode");
+        assert.equal(lastModel?.type, "model");
+        if (lastModel?.type === "model") assert.equal(lastModel.model.id, "gemini-pro-orchestrator-neon");
+        assert.equal(lastMode?.type, "permission_mode");
+        if (lastMode?.type === "permission_mode") assert.equal(lastMode.mode, "accept-edits");
+      } finally {
+        await adapter.dispose();
+      }
+    }
+
+    // 2. availableModels label with effort (calls session/set_model + emits config_option_update)
+    writeFileSync(settingsFile, JSON.stringify({ model: "Gemini 3.8 Flash (Low)" }));
+    {
+      const { host, events, waitFor } = makeHost();
+      const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
+      try {
+        await adapter.start(null, host);
+        await waitFor((e) => e.type === "model" && e.model.id === "gemini-3.8-flash");
+        await waitFor((e) => e.type === "thinking" && e.level === "low");
+        const lastModel = [...events].reverse().find((e) => e.type === "model");
+        assert.equal(lastModel?.type, "model");
+        if (lastModel?.type === "model") assert.equal(lastModel.model.id, "gemini-3.8-flash");
+      } finally {
+        await adapter.dispose();
+      }
+    }
+
+    // 3. Unknown/stale model is ignored cleanly without failing session start
+    writeFileSync(settingsFile, JSON.stringify({ model: "Nonexistent Model 99" }));
+    {
+      const { host, events } = makeHost();
+      const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
+      try {
+        await adapter.start(null, host);
+        const lastModel = [...events].reverse().find((e) => e.type === "model");
+        assert.equal(lastModel?.type, "model");
+        if (lastModel?.type === "model") assert.equal(lastModel.model.id, "gemini-4-neon");
+      } finally {
+        await adapter.dispose();
+      }
+    }
+  } finally {
+    if (prevSettings === undefined) delete process.env.AGY_SETTINGS_PATH;
+    else process.env.AGY_SETTINGS_PATH = prevSettings;
+    rmSync(dir, { recursive: true, force: true });
   }
 });

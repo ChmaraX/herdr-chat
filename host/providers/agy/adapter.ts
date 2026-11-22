@@ -2,6 +2,7 @@
 // Uses the user's own `agy` CLI and login; supports streaming text & thinking,
 // tool cards, interactive permissions, model/effort/mode pickers, /resume via
 // session/list + session/load, images, and /tui via `agy --conversation <id>`.
+import { readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
 import { AgyProcess, AgyRpcError, type RequestId } from "./rpc.ts";
@@ -51,6 +52,22 @@ export function agySessionPath(sessionId: string): string {
 
 export function agySessionIdOf(ref: string): string {
   return basename(ref).replace(/\.db$/, "");
+}
+
+/** Read default `model` and `agentMode` from `~/.gemini/antigravity-cli/settings.json` (or `AGY_SETTINGS_PATH`), if set. */
+export function readAgyUserSettings(settingsPath?: string): { model?: string; agentMode?: string } {
+  const path = settingsPath ?? process.env.AGY_SETTINGS_PATH ?? join(homedir(), ".gemini", "antigravity-cli", "settings.json");
+  try {
+    const s = JSON.parse(readFileSync(path, "utf8")) as Rec;
+    const model = typeof s?.model === "string" ? s.model.trim() : "";
+    const agentMode = typeof s?.agentMode === "string" ? s.agentMode.trim() : "";
+    return {
+      ...(model ? { model } : {}),
+      ...(agentMode ? { agentMode } : {}),
+    };
+  } catch {
+    return {};
+  }
 }
 
 function str(v: unknown): string | undefined {
@@ -323,6 +340,34 @@ export class AgyAdapter implements ProviderAdapter {
     this.sessionId = sid;
     this.emit({ type: "session", id: sid, file: agySessionPath(sid), name: null });
     this.applySessionMeta(res);
+    await this.applyUserDefaults();
+  }
+
+  private async applyUserDefaults(): Promise<void> {
+    const s = readAgyUserSettings();
+    if (s.model) {
+      const want = s.model;
+      const opt = this.configOpt("model");
+      const options = Array.isArray(opt?.options) ? (opt.options as Rec[]) : [];
+      const avail = this.availableModels.find((m) => m.modelId === want || m.name === want);
+      const optMatch = options.find((o) => o?.value === want || o?.name === want);
+      const targetId = avail?.modelId ?? str(optMatch?.value);
+      const currentOptVal = str(opt?.currentValue);
+      if (targetId && targetId !== this.currentModelId && targetId !== currentOptVal) {
+        try {
+          await this.setModel("antigravity", targetId);
+        } catch (e) {
+          this.host?.log(`failed to apply agy default model (${want}): ${errText(e)}`);
+        }
+      }
+    }
+    if (s.agentMode && this.availableModes.some((m) => m.id === s.agentMode) && s.agentMode !== this.currentModeId) {
+      try {
+        await this.setPermissionMode(s.agentMode);
+      } catch (e) {
+        this.host?.log(`failed to apply agy default agentMode (${s.agentMode}): ${errText(e)}`);
+      }
+    }
   }
 
   private async openExistingSession(p: AgyProcess, sessionRef: string): Promise<boolean> {

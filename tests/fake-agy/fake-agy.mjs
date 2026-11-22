@@ -13,7 +13,7 @@ let pendingPermission = null;
 let lastPromptParams = null;
 
 function configOptions() {
-  return [
+  const opts = [
     {
       id: "model",
       name: "Model",
@@ -22,11 +22,14 @@ function configOptions() {
       currentValue: currentModel,
       options: [
         { value: "gemini-4-neon", name: "Gemini 4 Neon" },
+        { value: "gemini-pro-orchestrator-neon", name: "Orchestrator (Neon)" },
         { value: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
         { value: "claude-opus-5-5", name: "Claude Opus 5.5" },
       ],
     },
-    {
+  ];
+  if (currentModel !== "gemini-pro-orchestrator-neon") {
+    opts.push({
       id: "thought_level",
       name: "Thinking Level",
       category: "thought_level",
@@ -38,30 +41,32 @@ function configOptions() {
         { value: "high", name: "High" },
         { value: "xhigh", name: "Extra" },
       ],
-    },
-    {
-      id: "mode",
-      name: "Mode",
-      category: "mode",
-      type: "select",
-      currentValue: currentMode,
-      options: [
-        { value: "default", name: "Default" },
-        { value: "accept-edits", name: "Accept edits" },
-        { value: "auto", name: "Auto" },
-        { value: "plan", name: "Plan" },
-      ],
-    },
-  ];
+    });
+  }
+  opts.push({
+    id: "mode",
+    name: "Mode",
+    category: "mode",
+    type: "select",
+    currentValue: currentMode,
+    options: [
+      { value: "default", name: "Default" },
+      { value: "accept-edits", name: "Accept edits" },
+      { value: "auto", name: "Auto" },
+      { value: "plan", name: "Plan" },
+    ],
+  });
+  return opts;
 }
 
 function sessionResult(sessionId) {
   return {
     sessionId,
     models: {
-      currentModelId: `${currentModel}-${currentThought}`,
+      currentModelId: currentModel === "gemini-pro-orchestrator-neon" ? currentModel : `${currentModel}-${currentThought}`,
       availableModels: [
         { modelId: "gemini-4-neon-high", name: "Gemini 4 Neon (High)" },
+        { modelId: "gemini-pro-orchestrator-neon", name: "Orchestrator (Neon)" },
         { modelId: "gemini-3.8-flash-low", name: "Gemini 3.8 Flash (Low)" },
       ],
     },
@@ -173,6 +178,22 @@ rl.on("line", (line) => {
       if (msg.params?.configId === "thought_level") currentThought = msg.params.value;
       const opts = configOptions();
       send({ jsonrpc: "2.0", id: msg.id, result: { configOptions: opts } });
+      update(sid, { sessionUpdate: "config_option_update", configOptions: opts });
+      break;
+    }
+
+    case "session/set_model": {
+      const sid = msg.params?.sessionId;
+      const mid = String(msg.params?.modelId ?? "");
+      const m = mid.match(/^(.+)-(low|medium|high|xhigh)$/);
+      if (m) {
+        currentModel = m[1];
+        currentThought = m[2];
+      } else if (mid) {
+        currentModel = mid;
+      }
+      const opts = configOptions();
+      send({ jsonrpc: "2.0", id: msg.id, result: {} });
       update(sid, { sessionUpdate: "config_option_update", configOptions: opts });
       break;
     }
