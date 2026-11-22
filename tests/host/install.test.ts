@@ -7,7 +7,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT } from "./harness.ts";
@@ -445,4 +445,42 @@ test("version: a Herdr that won't say its version is a warning, not a refusal", 
   assert.equal(r.status, 0);
   assert.match(r.out, new RegExp(`herdr-chat: can't tell Herdr's version \\(.*--version.*\\): tested with ${TESTED.tested.app.replace(/\./g, "\\.")}\\. If something breaks, \`\\./install\\.sh --uninstall\``));
   assert.match(r.out, /can't tell herdr-core's version/);
+});
+
+test("symlinks: install/keys.ts and install/layout.ts preserve symlinked dotfiles", () => {
+  const d = mkdtempSync(join(tmpdir(), "herdr-chat-symlink-"));
+  const dot = join(d, "dotfiles");
+  const home = join(d, "app");
+  mkdirSync(join(dot, "layouts"), { recursive: true });
+  mkdirSync(join(home, "layouts"), { recursive: true });
+  mkdirSync(join(home, "data", "herdr-chat"), { recursive: true });
+  writeFileSync(join(home, "installed.json"), JSON.stringify({ "layout:main": {} }));
+  writeFileSync(join(home, "shared.json"), JSON.stringify({ layout: "mine" }));
+
+  const realKeys = join(dot, "keys.json");
+  const linkKeys = join(home, "keys.json");
+  writeFileSync(realKeys, JSON.stringify(herdrKeys(), null, 2) + "\n");
+  symlinkSync(realKeys, linkKeys);
+
+  const realLayout = join(dot, "layouts", "mine.json");
+  const linkLayout = join(home, "layouts", "mine.json");
+  writeFileSync(realLayout, JSON.stringify(personal(), null, 2) + "\n");
+  symlinkSync(realLayout, linkLayout);
+
+  const runKeys = (...args: string[]) => execFileSync(process.execPath, [join(ROOT, "install", "keys.ts"), ...args], { encoding: "utf8" });
+  const runLayout = (...args: string[]) => execFileSync(process.execPath, [LAYOUT, ...args], { encoding: "utf8" });
+
+  runKeys("install", home, "--no-direct", "--platform", "linux");
+  assert.equal(lstatSync(linkKeys).isSymbolicLink(), true, "keys.json stays a symlink after install");
+  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], "mod.open:new-chat");
+  runKeys("uninstall", home);
+  assert.equal(lstatSync(linkKeys).isSymbolicLink(), true, "keys.json stays a symlink after uninstall");
+  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], undefined);
+
+  runLayout("install", home);
+  assert.equal(lstatSync(linkLayout).isSymbolicLink(), true, "layout stays a symlink after install");
+  assert.equal(JSON.parse(readFileSync(realLayout, "utf8")).terminal_menu, "chat-menu");
+  runLayout("uninstall", home);
+  assert.equal(lstatSync(linkLayout).isSymbolicLink(), true, "layout stays a symlink after uninstall");
+  assert.equal(JSON.parse(readFileSync(realLayout, "utf8")).terminal_menu, undefined);
 });
