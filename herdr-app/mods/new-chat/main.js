@@ -31,21 +31,28 @@ import { randomBytes } from "crypto";
 import { UpdateQuestion, checkHosts, checkRelease, checkRunning } from "./update.js";
 
 const CHOICES = [
-  { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
+  { id: "terminal", label: "Terminal (zsh)", icon: "terminal", tint: true, letter: "z", altLetter: "t", isTerminal: true },
+  { id: "agy", label: "Antigravity", icon: "agy", letter: "a" },
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
 ];
 const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
 
-/** A chat with `provider` in a new tab, in the focused terminal's folder (else the space's). */
+/** A chat with `provider` (or a plain terminal tab) in the focused terminal's folder (else the space's). */
 async function openChat(provider) {
   const f = focused();
-  const space = spaces().find((s) => s.id === f?.space);
+  const space = spaces().find((s) => s.id === f?.space) ?? spaces().find((s) => s.active);
+  const cwd = f?.cwd || space?.folder || null;
+  if (provider === "terminal") {
+    run("tab.new", { ...(space?.id ? { space: space.id } : {}), ...(cwd ? { folder: cwd } : {}) });
+    await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
+    await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
+    return;
+  }
   // Another machine's (`hc machine`) focused terminal or space: its folder is there, a chat's host would run here.
   // A focused layout block or window terminal (pane null) isn't the space's; Herdr's own mods tell it the same way.
   const [what, machine] = f?.pane === null ? ["This terminal", machineOf(f.terminal)] : ["This space", space?.machine ?? null];
   if (machine) throw new Error(`${what} is on ${machine}: chats run on this computer only.`);
-  const cwd = f?.cwd || space?.folder || null;
   const chat = `c-${randomBytes(4).toString("hex")}`;
   run("tab.new", { name: provider, mod: "chat", props: { chat, provider, ...(cwd ? { cwd } : {}) } });
   await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
@@ -70,7 +77,7 @@ const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
 const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
 
 // Herdr's names for the agents (its status reports Claude Code as claude-code) → ours.
-const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex" };
+const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex", agy: "agy", antigravity: "agy" };
 
 /** The agent a terminal runs, as Herdr reports it (an id of CHOICES), else null. */
 export function agentOf(t) {
@@ -309,7 +316,7 @@ export default class NewChat extends View {
     cx.spawn(async (cx) => {
       try {
         const known = await knownAgents();
-        this.installed = Object.fromEntries(CHOICES.map((c) => [c.id, known.find((a) => a.key === c.id)?.installed !== false]));
+        this.installed = Object.fromEntries(CHOICES.map((c) => [c.id, c.isTerminal ? true : known.find((a) => a.key === c.id || HERDR_AGENTS[a.key] === c.id)?.installed !== false]));
       } catch {}
       cx.notify();
     });
@@ -327,7 +334,7 @@ export default class NewChat extends View {
 
   // An agent knownAgents() says isn't installed (unknown yet: every one is offered).
   available(c) {
-    return this.installed?.[c.id] !== false;
+    return c.isTerminal || this.installed?.[c.id] !== false;
   }
 
   open(i, cx) {
@@ -339,7 +346,7 @@ export default class NewChat extends View {
       try {
         await openChat(provider);
       } catch (e) {
-        toast({ title: "New chat", body: String(e?.message ?? e), level: "error" });
+        toast({ title: "New tab", body: String(e?.message ?? e), level: "error" });
       } finally {
         if (overlay) closeOverlay(overlay);
       }
@@ -348,9 +355,12 @@ export default class NewChat extends View {
 
   key(e, cx) {
     const k = e.keystroke;
-    const letter = CHOICES.findIndex((c) => c.letter === k && this.available(c));
+    const letter = CHOICES.findIndex((c) => (c.letter === k || c.altLetter === k) && this.available(c));
     if (letter >= 0) this.open(letter, cx);
-    else if (/^[1-9]$/.test(k)) this.open(Number(k) - 1, cx);
+    else if (/^[1-9]$/.test(k)) {
+      const idx = Number(k) - 1;
+      if (CHOICES[idx] && this.available(CHOICES[idx])) this.open(idx, cx);
+    }
     else if (k === "up") this.sel = (this.sel + CHOICES.length - 1) % CHOICES.length;
     else if (k === "down" || k === "tab") this.sel = (this.sel + 1) % CHOICES.length;
     else if (k === "enter") this.open(this.sel, cx);
@@ -363,19 +373,22 @@ export default class NewChat extends View {
     if (this.update) return this.update.render(this.handle);
     const t = theme();
     const mark = (c) => {
-      const path = `mods/chat/icons/providers/${c.icon}.svg`;
+      const path = c.isTerminal ? `mods/chat/icons/${c.icon}.svg` : `mods/chat/icons/providers/${c.icon}.svg`;
       return (c.tint ? svg(path).text_color(t.foreground) : image(path)).size(18).flex_none();
     };
-    const letters = CHOICES.filter((c) => this.available(c)).map((c) => c.letter.toUpperCase()).join(" ");
+    const badge = (text) => div().px(5).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.dim).child(text);
+    const avail = CHOICES.map((c, i) => ({ c, n: i + 1 })).filter(({ c }) => this.available(c));
+    const nums = avail.map(({ n }) => String(n)).join("/");
+    const letters = avail.map(({ c }) => c.letter.toUpperCase()).join(" ");
     return v_flex().id("launcher").size_full().p(8).gap(2).bg(t.popover).text_color(t.foreground)
       .track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
-      .child(div().px(8).pt(4).pb(6).text_size(11.5).text_color(t.dim).child("New chat"))
+      .child(div().px(8).pt(4).pb(6).text_size(11.5).text_color(t.dim).child("New tab"))
       .children(CHOICES.map((c, i) => h_flex().id(`choice-${c.id}`).h(36).px(10).gap(10).items_center().rounded(8).cursor_pointer()
         .when(i === this.sel, (e) => e.bg(t.selected))
         .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.open(i, cx))
         .child(mark(c))
         .child(div().flex_1().text_size(13).text_color(this.available(c) ? t.foreground : t.dim).child(this.available(c) ? c.label : `${c.label} (not installed)`))
-        .when(this.available(c), (e) => e.child(div().px(5).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.dim).child(c.letter.toUpperCase())))))
-      .child(div().px(8).pt(6).text_size(10.5).text_color(t.dim).child(`${letters} or ↑↓ Enter · Esc`));
+        .when(this.available(c), (e) => e.child(h_flex().gap(4).items_center().child(badge(String(i + 1))).child(badge(c.altLetter ? `${c.letter.toUpperCase()}/${c.altLetter.toUpperCase()}` : c.letter.toUpperCase()))))))
+      .child(div().px(8).pt(6).text_size(10.5).text_color(t.dim).child(`${nums}, ${letters} or ↑↓ Enter · Esc`));
   }
 }
