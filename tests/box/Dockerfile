@@ -4,11 +4,12 @@
 # worktree is mounted read-only and copied in. See tests/box/README.md.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
-# Xvfb + xdotool: the display and real X input (XTest). Mesa: software Vulkan/GL
+# Xvfb + xdotool + python3-xlib: the display and real X input (XTest). librsvg: the cursor
+# SVGs (box record). Mesa: software Vulkan/GL
 # (the app renders on the CPU; there is no GPU here). ffmpeg: videos from shots.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl xz-utils git openssl jq procps bash zsh lsof iproute2 vim-tiny patch diffutils \
-      xvfb xauth x11-utils xdotool xclip \
+      xvfb xauth x11-utils xdotool xclip xsel python3-xlib librsvg2-bin \
       mesa-vulkan-drivers libvulkan1 libegl1 libgl1-mesa-dri \
       libxcb1 libxkbcommon0 libxkbcommon-x11-0 libwayland-client0 libfontconfig1 libfreetype6 \
       fonts-dejavu-core fonts-noto-color-emoji \
@@ -29,7 +30,7 @@ RUN set -e; arch=$(uname -m); case $arch in aarch64) a=aarch64 n=arm64 ;; x86_64
 # Links the app would open are logged, never opened.
 RUN printf '#!/bin/sh\necho "$*" >> /tmp/opened.log\n' > /usr/local/bin/xdg-open && chmod +x /usr/local/bin/xdg-open
 COPY image/ /opt/box/
-RUN chmod +x /opt/box/*.sh && (useradd -m -u 1000 -s /bin/bash box 2>/dev/null || useradd -m -s /bin/bash box)
+RUN chmod +x /opt/box/*.sh /opt/box/*.py && (useradd -m -u 1000 -s /bin/bash box 2>/dev/null || useradd -m -s /bin/bash box)
 USER box
 # A person's shell has its rc files: without ~/.zshrc, zsh -i stops at its first-run wizard.
 RUN printf '# test box\n' > /home/box/.zshrc && printf '# test box\n' > /home/box/.zprofile

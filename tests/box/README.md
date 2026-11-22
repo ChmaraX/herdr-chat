@@ -16,7 +16,37 @@ tests/box/box test pr-33                  # npm test, in the box
 tests/box/box down pr-33
 ```
 
-`tests/box/box --help` lists every command. `tests/box/each.sh <item> [flows…]` runs each flow
+`tests/box/box --help` lists every command.
+
+## The live app: explore, then film
+
+`box run` starts a fresh app for each run. To look into a bug by hand, keep one running:
+
+```sh
+tests/box/box app up pr-33                 # a private app with the mods, a fake project, fake agents
+tests/box/box chat pr-33 tools             # a chat tab on a fake-pi scenario
+tests/box/box click pr-33 480 700          # real X input, in the window's pixels
+tests/box/box type pr-33 "look around"; tests/box/box key pr-33 Return
+tests/box/box dbg pr-33 'd["phase"]'       # the chat's debug dump
+tests/box/box shot pr-33 /tmp/now.png      # the app's current frame
+tests/box/box record pr-33 tests/box/scenes/model-picker.sh --run before
+tests/box/box app down pr-33
+```
+
+The verbs are Herdr's own `scripts/sandbox` verbs (herdr-app, Apache-2.0): `move`, `click`
+(button 1 left, 3 right), `drag`, `scroll`, `type`, `key <keysym> [mods]` (`key l Control_L`),
+`hold`/`release`, and `sequence '<json>'` for a scene over one connection (hover and held keys
+survive). Also `do`, `status`, `ls`, `check <mod>`, `hc`, `opened` (links the app tried to open),
+`clip get|set`, `log`, `wait <terminal> <text>` (until it shows, else a dump), and
+`app restart` (the window only; terminals live on).
+
+A scene (`tests/box/scenes/*.sh`, the form of Herdr's `scripts/notes-clips`) has `setup` (not
+filmed), `play` (filmed) and `crop` (`width:height:x:y`). `box record` films `play` at 12 fps
+from the app's own frames, draws the cursor on each frame, and writes `clip.mp4`, `clip.webp`,
+`frames/` and `pointer.jsonl` into a stamped run dir.
+
+Other app versions: `tests/box/box build --app 0.1.15` makes `herdr-chat-box:app0.1.15-core…`
+(the default image stays), and `tests/box/box up <item> <worktree> --image <that tag>` uses it. `tests/box/each.sh <item> [flows…]` runs each flow
 on its own (a run stops at a flow's first FAIL) and writes a summary.
 
 ## Proof

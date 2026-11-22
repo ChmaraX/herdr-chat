@@ -22,29 +22,60 @@ usage() {
 box: the herdr-chat test box (Docker). The real Herdr app + herdr-core +
 the chat's host, on a private display, offline, the worktree read-only.
 
-  box build [--no-cache]            build the image (pinned app/core/node: Dockerfile ARGs)
-  box up <item> <worktree>          start box <item> with <worktree> (read-only), copy it in
+The box
+  box build [--app VER] [--core VER] [--no-cache]
+                                    build the image (the Dockerfile's pinned versions); with
+                                    --app/--core, another one, tagged herdr-chat-box:app<A>-core<C>
+  box up <item> <worktree> [--image TAG]
+                                    start box <item> with <worktree> (read-only), copy it in;
+                                    --image: an image box build --app/--core made
   box sync <item>                   copy the worktree in again (after a change)
-  box run <item> [--run NAME] [--replace] [--allow-dirty] [--script PATH] [args...]
-                                    tests/e2e/run.sh in the box (args: flows; none: all), or
-                                    --script PATH (in the repo, e.g. a factory replay) with
-                                    the run dir first and then args; artifacts go to
-                                    <proof>/<item>/<NAME or e2e>/, stamped (below)
-  box test <item> [args...]         npm test in the box (args go to node --test)
-  box exec <item> -- <cmd...>       a command in the box, in the snapshot (~/src)
-  box shot <item> <file.png>        the app's current frame (an app the e2e left running: E2E_KEEP=1)
   box doctor <item>                 is it fit to test on: JSON, exit 1 on problems
-  box logs <item>                   the box's own log (display) and the last run's app log
-  box ls                            the boxes
+  box exec <item> -- <cmd...>       a command in the box, in the snapshot (~/src)
+  box logs <item>                   the box's log and the last app log
+  box ls | box versions [item]      the boxes | the versions in the image (a box's own)
   box down <item> | --all           remove the box (proof stays)
-  box versions                      the versions in the image
+
+Tests and replays (each starts its own fresh app)
+  box run <item> [--run NAME] [--replace] [--allow-dirty] [--script PATH] [args...]
+                                    tests/e2e/run.sh flows (args; none: all), or --script PATH
+                                    (in the repo, e.g. a replay) with the run dir first
+  box test <item> [args...]         npm test in the box
+
+The live app (one per box, kept running: explore a bug by hand, then film it)
+  box app up|down|restart <item>    start / stop it; restart: the window only (terminals live on)
+  box app env <item>                its home, core session, project space and terminal
+  box do <item> <command> [json]    herdr-app do (app and mod commands), e.g. chat.focus
+  box status|ls <item>              herdr-app status | ls (box ls with no item: the boxes)
+  box check <item> <mod>            herdr-app check: load a mod once, report what's wrong
+  box sync-mods <item>              the snapshot's mods into the live app (after box sync)
+  box chat <item> [scenario] [name] a chat tab on tests/fake-pi/scenarios/<scenario>.json
+  box dbg <item> [expr]             the newest chat's debug dump (a python expr over d)
+  box hc <item> <args...>           hc on the live app's core
+  box shot <item> <file.png>        the app's current frame
+  box opened <item>                 the links the app tried to open (logged, never opened)
+  box clip <item> get|set <text>    the box's clipboard
+  box log <item> [lines]            the live app's log
+  box wait <item> <terminal> <text> [s]
+                                    until the terminal shows text; else dump it and exit 1
+
+Input: real X events, in the Herdr window's pixels (Herdr's scripts/sandbox verbs)
+  box move <item> x0 y0 x1 y1 [steps]   box click <item> x y [button: 1 left, 3 right]
+  box drag <item> x0 y0 x1 y1 [steps]   box scroll <item> x y notches (+ up, - down)
+  box type <item> <text>                box key <item> <keysym> [mods...]  (key l Control_L)
+  box hold|release <item> <keysym>...   box sequence <item> '<json>'  (a scene, one connection)
+
+Film it
+  box record <item> <scene.sh> [--run NAME] [--replace] [--allow-dirty] [--seconds N]
+                                    a scene (setup / play / crop, as Herdr's notes-clips) in the
+                                    live app at 12 fps, the cursor drawn in: clip.mp4, clip.webp,
+                                    frames/; stamped like a run (before/after: clean worktree)
 
 <item>: a short id like pr-33 or issue-28 ([a-z0-9][a-z0-9._-]*).
 Proof: $BOX_PROOF_DIR (default ~/.cache/herdr-chat-box)/<item>/. A run dir has
-.worktree-rev (the commit, "(dirty)" if the worktree had changes),
-versions.txt, run.log, screenshots, frames and the app log. --run before|after
-refuses a dirty worktree (--allow-dirty saves the diff) and an existing run
-dir (--replace).
+.worktree-rev (the commit, "(dirty)" if the worktree had changes), versions.txt,
+and what the run wrote. --run before|after refuses a dirty worktree (--allow-dirty
+saves the diff) and an existing run dir (--replace).
 
 Dependencies: the box has no network, so node_modules comes from the worktree.
 For code you didn't write, install them without running its scripts:
@@ -67,25 +98,52 @@ rev_of() { # the worktree's commit, "(dirty)" when it has changes
   [ -z "$(git -C "$w" status --porcelain 2>/dev/null)" ] || r="$r (dirty)"
   echo "$r"
 }
-bexec() { local item=$1; shift; docker exec -e DISPLAY=:9 -e XDG_RUNTIME_DIR=/tmp/xdg -w /home/box "$(cname "$item")" bash -c 'cd ~/src 2>/dev/null; exec "$@"' bexec "$@"; }
+# A command in the box, in the snapshot, with the box's display (entry.sh writes it to /tmp/display.env).
+bexec() { local item=$1; shift; docker exec -w /home/box "$(cname "$item")" bash -c '. /tmp/display.env; cd ~/src 2>/dev/null; exec "$@"' bexec "$@"; }
+# The live app's verbs (image/app.sh). Paths given as proof files are under /proof in the box.
+appv() { local item=$1; shift; check_item "$item"; need_box "$item"; bexec "$item" /opt/box/app.sh "$@"; }
 
+# The default image is $IMAGE (the Dockerfile's pinned versions). --app/--core build another,
+# tagged $IMAGE:app<A>-core<C>, which `box up --image <tag>` uses: the default stays as it was.
 cmd_build() {
   need_docker
-  docker build "$@" -t "$IMAGE" "$BOX_DIR"
+  local args=() app= core= tag=$IMAGE
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --app) app=$2; args+=(--build-arg "HERDR_APP=$2"); shift ;;
+      --core) core=$2; args+=(--build-arg "HERDR_CORE=$2"); shift ;;
+      *) args+=("$1") ;;
+    esac
+    shift
+  done
+  if [ -n "$app$core" ]; then
+    local d_app d_core
+    d_app=$(sed -n 's/^ARG HERDR_APP=//p' "$BOX_DIR/Dockerfile"); d_core=$(sed -n 's/^ARG HERDR_CORE=//p' "$BOX_DIR/Dockerfile")
+    tag="$IMAGE:app${app:-$d_app}-core${core:-$d_core}"
+  fi
+  docker build ${args[@]+"${args[@]}"} -t "$tag" "$BOX_DIR" && echo "image: $tag"
 }
 
 cmd_up() {
-  local item=${1:-} wt=${2:-}
+  local item=${1:-} wt=${2:-} image=$IMAGE
+  shift 2 || true
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --image) image=$2; shift ;;
+      *) die "unknown option $1" ;;
+    esac
+    shift
+  done
   check_item "$item"; [ -n "$wt" ] || die "usage: box up <item> <worktree>"
   wt=$(cd "$wt" && pwd) || die "no worktree $2"
   [ -f "$wt/package.json" ] || die "$wt isn't a herdr-chat checkout"
   need_docker
-  docker image inspect "$IMAGE" >/dev/null 2>&1 || { info "no image yet: building it"; cmd_build; }
+  docker image inspect "$image" >/dev/null 2>&1 || { [ "$image" = "$IMAGE" ] || die "no image $image (box build --app/--core)"; info "no image yet: building it"; cmd_build; }
   if docker inspect "$(cname "$item")" >/dev/null 2>&1; then die "box $item exists (box down $item first)"; fi
   [ -d "$wt/node_modules" ] || info "note: $wt has no node_modules; run \`npm ci --ignore-scripts\` there (the box has no network)"
   mkdir -p "$PROOF_ROOT/$item"
   docker run -d --name "$(cname "$item")" --label "$LABEL" --network none --cpus "$CPUS" --memory "$MEMORY" \
-    --shm-size 512m -v "$wt:/work:ro" -v "$PROOF_ROOT/$item:/proof" "$IMAGE" >/dev/null
+    --shm-size 512m -v "$wt:/work:ro" -v "$PROOF_ROOT/$item:/proof" "$image" >/dev/null
   for _ in $(seq 50); do docker logs "$(cname "$item")" 2>&1 | grep -q '^ready' && break; sleep 0.2; done
   docker logs "$(cname "$item")" 2>&1 | grep -q '^ready' || { docker logs "$(cname "$item")" >&2; die "box $item didn't start"; }
   bundle "$wt" "$item"
@@ -112,21 +170,13 @@ cmd_run() {
     esac
     shift
   done
-  [[ "$run" =~ ^[a-z0-9][a-z0-9._/-]*$ ]] || die "bad run name $run"
   need_box "$item"
   local wt rev dir
-  wt=$(worktree_of "$item"); rev=$(rev_of "$wt"); dir="$PROOF_ROOT/$item/$run"
-  if [ "$run" = before ] || [ "$run" = after ]; then
-    [[ "$rev" != *dirty* ]] || [ -n "$dirty" ] || die "the worktree has changes; a $run run needs a clean one (commit, or --allow-dirty)"
-    [ ! -e "$dir" ] || [ -n "$replace" ] || die "$dir exists (--replace to run it again)"
-  fi
+  wt=$(worktree_of "$item"); rev=$(rev_of "$wt")
   # The snapshot must be the worktree as it is now.
   bundle "$wt" "$item"
   bexec "$item" /opt/box/sync.sh "$rev" >/dev/null
-  rm -rf "$dir"; mkdir -p "$dir"
-  echo "$rev" >"$dir/.worktree-rev"
-  [[ "$rev" != *dirty* ]] || { git -C "$wt" diff HEAD >"$dir/dirty.diff"; git -C "$wt" status --porcelain >"$dir/dirty.status"; }
-  cmd_versions >"$dir/versions.txt"
+  dir=$(stamp_run "$item" "$run" "$replace" "$dirty")
   local rc=0
   [[ "$script" != /* && "$script" != *..* ]] || die "--script is a path in the repo (e.g. tests/repro/run.sh)"
   bexec "$item" env E2E_KEEP_BASE= "$script" "/proof/$run" ${flows[@]+"${flows[@]}"} || rc=$?
@@ -142,9 +192,38 @@ cmd_exec() {
 }
 cmd_shot() {
   local item=${1:-} file=${2:-}; check_item "$item"; need_box "$item"; [ -n "$file" ] || die "usage: box shot <item> <file.png>"
-  local env; env=$(bexec "$item" sh -c 'ls -t /tmp/pce.*/env.sh 2>/dev/null | head -1')
-  [ -n "$env" ] || die "no running private app in box $item (run the e2e with E2E_KEEP=1)"
-  bexec "$item" bash -c ". $env; herdr-app shot /proof/.shot.png" >/dev/null && mv "$PROOF_ROOT/$item/.shot.png" "$file" && echo "$file"
+  appv "$item" shot /proof/.shot.png >/dev/null && mv "$PROOF_ROOT/$item/.shot.png" "$file" && echo "$file"
+}
+
+# Stamp a run dir: before/after need a clean worktree (or --allow-dirty) and a new dir (or --replace).
+stamp_run() { # stamp_run <item> <run> <replace> <dirty>; prints the dir
+  local item=$1 run=$2 replace=$3 dirty=$4 wt rev dir
+  [[ "$run" =~ ^[a-z0-9][a-z0-9._/-]*$ ]] || die "bad run name $run"
+  wt=$(worktree_of "$item"); rev=$(rev_of "$wt"); dir="$PROOF_ROOT/$item/$run"
+  if [ "$run" = before ] || [ "$run" = after ]; then
+    [[ "$rev" != *dirty* ]] || [ -n "$dirty" ] || die "the worktree has changes; a $run run needs a clean one (commit, or --allow-dirty)"
+    [ ! -e "$dir" ] || [ -n "$replace" ] || die "$dir exists (--replace to run it again)"
+  fi
+  rm -rf "$dir"; mkdir -p "$dir"
+  echo "$rev" >"$dir/.worktree-rev"
+  [[ "$rev" != *dirty* ]] || { git -C "$wt" diff HEAD >"$dir/dirty.diff"; git -C "$wt" status --porcelain >"$dir/dirty.status"; }
+  cmd_versions "$item" >"$dir/versions.txt"
+  echo "$dir"
+}
+
+cmd_record() {
+  local item=${1:-} scene=${2:-}; check_item "$item"; shift 2 || die "usage: box record <item> <scene.sh> [--run NAME]"
+  local run=clip replace= dirty= secs=30
+  while [ $# -gt 0 ]; do
+    case $1 in --run) run=$2; shift ;; --replace) replace=1 ;; --allow-dirty) dirty=1 ;; --seconds) secs=$2; shift ;; *) die "unknown option $1" ;; esac
+    shift
+  done
+  need_box "$item"
+  [ -f "$scene" ] || die "no scene $scene"
+  local dir; dir=$(stamp_run "$item" "$run" "$replace" "$dirty")
+  # The scene goes in with the proof (it may live outside the worktree, e.g. the factory's item folder).
+  cp "$scene" "$dir/.scene.sh"
+  appv "$item" record "/proof/$run/.scene.sh" "/proof/$run" "$secs"
 }
 
 cmd_doctor() {
@@ -189,8 +268,10 @@ cmd_down() {
   if [ "${1:-}" = --all ]; then docker ps -aq --filter "label=$LABEL" | xargs -r docker rm -f >/dev/null; echo "all boxes removed"; return; fi
   local item=${1:-}; check_item "$item"; docker rm -f "$(cname "$item")" >/dev/null 2>&1 && echo "box $item removed" || echo "no box $item"
 }
-cmd_versions() {
-  docker run --rm --network none --entrypoint sh "$IMAGE" -c 'echo "image: '"$IMAGE"'"; herdr-app --version; hc --version; echo "node $(node --version)"; . /etc/os-release; echo "$PRETTY_NAME $(uname -m)"; Xvfb -version 2>&1 | grep -i "x.org x server" ; dpkg-query -W -f "mesa \${Version}\n" mesa-vulkan-drivers'
+cmd_versions() { # [item]: that box's image, else the default image
+  local image=$IMAGE
+  if [ -n "${1:-}" ]; then image=$(docker inspect -f '{{.Config.Image}}' "$(cname "$1")" 2>/dev/null) || die "no box $1"; fi
+  docker run --rm --network none --entrypoint sh "$image" -c 'echo "image: '"$image"'"; herdr-app --version; hc --version; echo "node $(node --version)"; . /etc/os-release; echo "$PRETTY_NAME $(uname -m)"; Xvfb -version 2>&1 | grep -i "x.org x server" ; dpkg-query -W -f "mesa \${Version}\n" mesa-vulkan-drivers'
 }
 
 case "${1:-}" in
@@ -201,11 +282,18 @@ case "${1:-}" in
   test) shift; cmd_test "$@" ;;
   exec) shift; cmd_exec "$@" ;;
   shot) shift; cmd_shot "$@" ;;
+  record) shift; cmd_record "$@" ;;
+  app)
+    shift; v=${1:-}; item=${2:-}; shift 2 || die "usage: box app up|down|restart|env <item>"
+    case $v in up|down|restart|env) appv "$item" "$v" "$@" ;; *) die "box app up|down|restart|env <item>" ;; esac ;;
+  sync-mods) shift; item=${1:-}; shift || true; appv "$item" sync "$@" ;;
+  ls) shift; if [ -z "${1:-}" ]; then cmd_ls; else item=$1; shift; appv "$item" ls "$@"; fi ;; # box ls: the boxes; box ls <item>: herdr-app ls
+  do|status|check|chat|dbg|hc|opened|clip|log|wait|move|click|drag|scroll|type|key|hold|release|sequence)
+    v=$1; shift; item=${1:-}; shift || true; appv "$item" "$v" "$@" ;;
   doctor) shift; cmd_doctor "$@" ;;
   logs) shift; cmd_logs "$@" ;;
-  ls) cmd_ls ;;
   down) shift; cmd_down "$@" ;;
-  versions) cmd_versions ;;
+  versions) shift; cmd_versions "$@" ;;
   ""|-h|--help|help) usage ;;
   *) usage >&2; exit 2 ;;
 esac
