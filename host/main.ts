@@ -124,7 +124,8 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   let shuttingDown = false;
   let registryCheck: NodeJS.Timeout | undefined;
   const attachments = new Attachments(join(stateDir, "attachments", chatId));
-  const term = new Terminal(process.stdout, process.stdin, provider);
+  const termApp = provider === "agy" ? "antigravity" : provider;
+  const term = new Terminal(process.stdout, process.stdin, termApp);
   const chat = new Chat({
     chat: chatId, cwd, session, adapter, terminal: terminalId, log,
     afterPid: handOver ? afterPid : null,

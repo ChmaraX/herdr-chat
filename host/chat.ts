@@ -1603,7 +1603,7 @@ export class Chat {
     const program = argv[i];
     if (!token || !program) return Promise.resolve(null);
     const base = (p: string) => p.replace(/^.*\//, "").replace(/\.[mc]?[jt]s$/, "");
-    const names = new Set(["pi", "claude", "codex", base(program)]);
+    const names = new Set(["pi", "claude", "codex", "agy", base(program)]);
     return new Promise((resolve) => {
       execFile("ps", ["-Ao", "pid=,args="], { timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
         if (err) return resolve(null);

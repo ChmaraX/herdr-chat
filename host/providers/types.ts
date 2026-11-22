@@ -11,7 +11,7 @@ import type { ToolMap } from "../tools.ts";
 export type { ToolDetail, UserSource, StopReason, Usage, PlanStep };
 
 /** Provider ids. The core treats this as an opaque string; these are the known ones. */
-export type ProviderId = "pi" | "claude" | "codex" | (string & {});
+export type ProviderId = "pi" | "claude" | "codex" | "agy" | (string & {});
 
 /** Base64 image content, as it arrives from the agent. The core saves it to a file. */
 export type ImageBlock = { data: string; mimeType: string };

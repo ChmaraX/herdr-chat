@@ -34,6 +34,7 @@ const CHOICES = [
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
+  { id: "agy", label: "Antigravity", icon: "agy", letter: "a" },
 ];
 const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
 
@@ -70,7 +71,7 @@ const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
 const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
 
 // Herdr's names for the agents (its status reports Claude Code as claude-code) → ours.
-const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex" };
+const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex", agy: "agy", antigravity: "agy" };
 
 /** The agent a terminal runs, as Herdr reports it (an id of CHOICES), else null. */
 export function agentOf(t) {
@@ -309,7 +310,7 @@ export default class NewChat extends View {
     cx.spawn(async (cx) => {
       try {
         const known = await knownAgents();
-        this.installed = Object.fromEntries(CHOICES.map((c) => [c.id, known.find((a) => a.key === c.id)?.installed !== false]));
+        this.installed = Object.fromEntries(CHOICES.map((c) => [c.id, known.find((a) => a.key === c.id || HERDR_AGENTS[a.key] === c.id)?.installed !== false]));
       } catch {}
       cx.notify();
     });
