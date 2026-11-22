@@ -147,13 +147,17 @@ export function liveHolder(sessionId: string, exceptPid?: number): { pid: number
   return null;
 }
 
-/** `effortLevel` and `permissions.defaultMode` from the user's settings, if set. */
-export function readUserSettings(): { effortLevel?: string; defaultMode?: string } {
+/** `effortLevel`, `permissions.defaultMode`, and configured model (`env.ANTHROPIC_MODEL` or `model`) from the user's settings, if set. */
+export function readUserSettings(): { effortLevel?: string; defaultMode?: string; model?: string } {
   try {
     const s = JSON.parse(readFileSync(join(configDir(), "settings.json"), "utf8"));
+    const envModel = typeof s?.env?.ANTHROPIC_MODEL === "string" ? s.env.ANTHROPIC_MODEL.trim() : "";
+    const topModel = typeof s?.model === "string" ? s.model.trim() : "";
+    const model = envModel || topModel;
     return {
       ...(typeof s?.effortLevel === "string" ? { effortLevel: s.effortLevel } : {}),
       ...(typeof s?.permissions?.defaultMode === "string" ? { defaultMode: s.permissions.defaultMode } : {}),
+      ...(model ? { model } : {}),
     };
   } catch {
     return {};

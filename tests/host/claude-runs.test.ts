@@ -2,8 +2,12 @@
 // model/effort/permission-mode switching, a crash, a stall, a wedged CLI.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { idle, sleep } from "./harness.ts";
 import { startClaude } from "../fake-claude/host.ts";
+import { readUserSettings } from "../../host/providers/claude/sessions.ts";
 
 const ticking = (n: number, everyMs = 400) => ({ tool: "Bash", ask: false, input: { command: "make build", description: "Build" }, task: { lines: Array.from({ length: n }, (_, i) => `compiling unit ${i + 1}`), everyMs } });
 
@@ -72,6 +76,22 @@ test("claude: a steer folds into the running turn at the next tool boundary; a f
     h.artifact("claude-steer-followup");
   } finally {
     await h.stop();
+  }
+});
+
+test("claude: readUserSettings prefers env.ANTHROPIC_MODEL over top-level model", () => {
+  const dir = mkdtempSync(join(tmpdir(), "herdr-claude-settings-"));
+  const prev = process.env.CLAUDE_CONFIG_DIR;
+  try {
+    process.env.CLAUDE_CONFIG_DIR = dir;
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ env: { ANTHROPIC_MODEL: "opusplan" }, model: "opus[1m]", effortLevel: "low" }));
+    assert.deepEqual(readUserSettings(), { effortLevel: "low", model: "opusplan" });
+    writeFileSync(join(dir, "settings.json"), JSON.stringify({ model: "opus[1m]" }));
+    assert.deepEqual(readUserSettings(), { model: "opus[1m]" });
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = prev;
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
