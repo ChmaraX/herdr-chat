@@ -157,7 +157,7 @@ type ChatState = {
   statuses: { key: string; spans: Span[] }[];             // extension setStatus, key order
   widgets: { key: string; placement: "aboveEditor" | "belowEditor"; lines: Span[][] }[];
   title: string | null;          // extension setTitle (ANSI stripped)
-  editorText: string | null;     // extension set_editor_text; client puts it in the composer, then calls ack_editor_text
+  editorText: string | null;     // text for the composer (extension set_editor_text; unsent text the host returns); client adds it after any typed text, then calls ack_editor_text
   commands: Command[];           // the slash menu, built-ins first
 };
 
@@ -553,6 +553,11 @@ same for every provider, so remove, edit and move work alike.
   in `restored`, after the steers. A run stopped from elsewhere, a failed run,
   an agent exit, `resume`, a conflict: they go to `state.editorText` (the
   composer).
+- **Rejected message:** a `send` the agent rejects fails with the agent's
+  error, and the client puts its draft back. Rejected after `send` answered
+  `pending` (no error left to fail with), a composer message's text goes to
+  `state.editorText` instead; one from another sender (`source: "external"`,
+  `from`) does not.
 - **Idle:** `mode: "followUp"` just sends. A held command (`/compact`, `/name …`)
   runs when its turn comes; one that answers without a run lets the next go.
 - **Reconnect:** the held follow-ups are in `state.queue`, so a snapshot has them.

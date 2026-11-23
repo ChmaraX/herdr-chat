@@ -792,8 +792,13 @@ export class Chat {
     if (!this.held.length) return;
     const texts = this.held.map((h) => h.text);
     this.held = [];
-    this.set({ editorText: [this.state.editorText, ...texts].filter(Boolean).join("\n\n") });
+    this.returnToComposer(texts);
     this.publishQueue();
+  }
+
+  /** Unsent text goes back to the person's composer (`editorText`), after any not yet acknowledged. */
+  private returnToComposer(texts: string[]): void {
+    this.set({ editorText: [this.state.editorText, ...texts].filter(Boolean).join("\n\n") });
   }
 
   /** Idle with follow-ups held: send the next one as a prompt. One per run; the next waits for this one's run to settle. */
@@ -807,7 +812,7 @@ export class Chat {
     const giveBack = () => {
       if (returned) return;
       returned = true;
-      this.set({ editorText: [this.state.editorText, h.text].filter(Boolean).join("\n\n") });
+      this.returnToComposer([h.text]);
     };
     this.send({ text: h.text, images: h.images, mode: "auto", source: "queued", from: h.from }, { onRejected: giveBack })
       .catch((e) => {
@@ -1177,40 +1182,35 @@ export class Chat {
       return { disposition: String(d.disposition) };
     });
     const exited = (e: unknown) => e instanceof AgentError && e.agentExited;
-    let returnedPending = false;
-    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+    // `send` answers `pending` if the agent hasn't replied in SEND_REPLY_WAIT_MS.
+    let answeredPending = false;
+    let wait: ReturnType<typeof setTimeout> | undefined;
+    const pending = new Promise<{ disposition: string }>((r) => {
+      wait = setTimeout(() => {
+        answeredPending = true;
+        r({ disposition: "pending" });
+      }, SEND_REPLY_WAIT_MS);
+    });
     reply.catch((e) => {
       if (isCommand) this.clearCommandHint();
       undo();
       opts.onRejected?.();
       if (!exited(e)) {
-        // `send` already returned `pending`, so the client won't get an error from it:
-        // return the unsent draft through `editorText` (like `returnHeld` / `drainHeld`).
-        if (returnedPending && !opts.onRejected && args.source !== "external" && !args.from && text.trim()) {
-          this.set({ editorText: [this.state.editorText, text].filter(Boolean).join("\n\n") });
-        }
+        // Rejected after `send` answered: the client gets no error to restore its draft from, so the
+        // text goes back to the composer here. Not a held follow-up (`onRejected` returns it) and not
+        // another sender's message (`hc send`): that isn't the person's draft.
+        if (answeredPending && !opts.onRejected && args.source !== "external" && !args.from) this.returnToComposer([text]);
         this.toast("error", errText(e));
         this.notice("error", `${this.agent} rejected the message: ${errText(e)}`);
       }
     });
-    const pending = new Promise<{ disposition: string }>((r) => {
-      pendingTimer = setTimeout(() => {
-        returnedPending = true;
-        r({ disposition: "pending" });
-      }, SEND_REPLY_WAIT_MS);
-    });
     // The agent exiting before it replies is reported by the exit notice, not as a failed send.
-    const settled = reply.then(
-      (d) => {
-        if (pendingTimer) clearTimeout(pendingTimer);
-        return d;
-      },
-      (e) => {
-        if (pendingTimer) clearTimeout(pendingTimer);
+    const settled = reply
+      .catch((e) => {
         if (exited(e)) return { disposition: "pending" };
         throw e;
-      },
-    );
+      })
+      .finally(() => clearTimeout(wait));
     return Promise.race([settled, pending]);
   }
 
