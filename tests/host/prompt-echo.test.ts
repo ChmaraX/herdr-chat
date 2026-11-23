@@ -139,8 +139,10 @@ test("pi: a rejection after send returned pending restores a composer draft via 
     await c.waitFor((x) => x.items.some((i) => i.kind === "tool" && i.status === "running"), 5000, "tool running");
     assert.equal((await c.req("send", { text: "nope followup", mode: "followUp" })).disposition, "queued");
     await c.waitFor((x) => x.items.some((i) => i.kind === "notice" && /Rejected: nope followup/.test(i.text)), 8000, "follow-up rejected");
-    await c.waitFor((x) => x.state.editorText === "nope followup", 2000, "follow-up restored once");
-    assert.equal(c.state.editorText, "nope followup");
+    await c.waitFor((x) => x.state.editorText === "nope followup", 2000, "follow-up restored");
+    await c.waitFor(idle, 5000, "the run settled");
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(c.state.editorText, "nope followup", "returned once, not twice");
   } finally {
     await h.stop();
   }

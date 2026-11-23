@@ -34,7 +34,7 @@ import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
 import { SHORTCUTS, actionName, chordOf, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
 import { keepKeys } from "./keymap.js";
-import { Connection, readConfig, readRegistry, registeredHost, runsHost } from "./connection.js";
+import { Connection, NotTaken, readConfig, readRegistry, registeredHost, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
 import { lineOf, planProgress, row, samePlan } from "./cards.js";
@@ -788,8 +788,10 @@ export default class HerdrChat extends View {
     this.composer.dialogKeys = s.dialog?.method === "select" || s.dialog?.method === "confirm";
     this.composer.askCard = s.dialog?.method === "permission" || s.dialog?.method === "questions" ? s.dialog.method : null;
     if (s.editorText != null && s.editorText !== this.editorAcked) {
+      // The host piles up text until it is acknowledged: only what this view hasn't added yet goes in.
+      const added = this.editorAcked && s.editorText.startsWith(`${this.editorAcked}\n\n`) ? s.editorText.slice(this.editorAcked.length + 2) : s.editorText;
       this.editorAcked = s.editorText;
-      this.toComposer(s.editorText);
+      this.toComposer(added);
       this.req("ack_editor_text", {}, cx);
     } else if (s.editorText == null) this.editorAcked = null;
     if (this.composer.menu?.kind === "slash") this.updateMenu(cx);
@@ -819,14 +821,13 @@ export default class HerdrChat extends View {
     });
   }
 
-  // Run an op from an event: errors go to the flash line, after `failed`.
-  fire(op, args, cx, then, failed) {
+  // Run an op from an event: errors go to the flash line.
+  fire(op, args, cx, then) {
     cx.spawn(async (cx) => {
       try {
         const d = await this.req(op, args, cx);
         then?.(d, cx);
       } catch (e) {
-        failed?.(e, cx);
         this.flash(`${op}: ${message(e)}`, cx);
       }
       cx.notify();
@@ -873,10 +874,18 @@ export default class HerdrChat extends View {
     this.composer.clear();
     this.timeline.toBottom();
     // A failed send's draft goes back to the composer (a rejection after the host answered `pending`
-    // comes back as `editorText` instead).
-    this.fire("send", { text, ...(images.length ? { images } : {}), mode }, cx, null, () => {
-      this.toComposer(draft.text, draft.images);
-      this.editingQueued ??= editing;
+    // comes back as `editorText` instead). A send that timed out or lost the link may have gone through
+    // all the same: the draft comes back, with a warning.
+    const sendTimeout = 90_000; // past the host's wait for a starting agent (2 × 30 s) and its 1.5 s for the reply
+    cx.spawn(async (cx) => {
+      try {
+        await this.req("send", { text, ...(images.length ? { images } : {}), mode }, cx, { timeout: sendTimeout });
+      } catch (e) {
+        this.toComposer(draft.text, draft.images);
+        this.editingQueued ??= editing;
+        this.flash(`send: ${message(e)}${e instanceof NotTaken ? "" : " (it may have been sent)"}`, cx);
+      }
+      cx.notify();
     });
   }
 
