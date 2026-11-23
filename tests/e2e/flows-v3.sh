@@ -39,10 +39,10 @@ plan_markers() { d "' | '.join(i['text'] for i in d['items'] if i['kind']=='noti
 # Opens the strip's steps, takes shot $1, closes them.
 plan_open_shot() {
   cmd click:plan
-  expect '[ "$(d "d[\"plan\"][\"open\"]")" = true ]' "a click on the strip opens its steps" 5
+  need '[ "$(d "d[\"plan\"][\"open\"]")" = true ]' "click:plan" 5
   shot "$1" 0.5
   cmd click:plan
-  expect '[ "$(d "d[\"plan\"][\"open\"]")" = false ]' "another click closes them" 5
+  need '[ "$(d "d[\"plan\"][\"open\"]")" = false ]' "click:plan again" 5
 }
 # A plan's last turn: every step done → "N/N done", gone at the next message; the next plan's strip starts closed.
 plan_done() {
@@ -50,7 +50,7 @@ plan_done() {
   expect '[ "$(phase)" = idle ] && [ "$(strip)" = "[3, 3, null]" ]' "every step done: the strip says 3/3 done" 15
   shot "$1" 0.5
   cmd click:plan
-  expect '[ "$(d "d[\"plan\"][\"open\"]")" = true ]' "the finished plan's steps open" 5
+  need '[ "$(d "d[\"plan\"][\"open\"]")" = true ]' "click:plan on the finished plan" 5
   send_text "thanks"
   expect '[ "$(phase)" = idle ] && [ "$(strip)" = null ]' "the next message clears the finished plan" 15
   send_text "start a new list"

@@ -158,6 +158,9 @@ until_() {
 # Now, in seconds with a fraction (for timings).
 now_s() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
 expect() { until_ "$1" "${3:-10}" && ok "$2" || fail "$2"; }
+# Setup, not a check: wait for state the next step needs, and fail as expect does. For state a
+# command writes and the dump reads straight back (a toggle), which proves nothing on its own.
+need() { until_ "$1" "${3:-10}" || fail "$2"; }
 screen() { hc read "$1" --lines 0 2>/dev/null; }
 # Draw a frame now. On macOS the hidden window draws only when asked: `herdr-app
 # shot` draws the current frame (into a throwaway file here). The Linux box's

@@ -124,19 +124,6 @@ if want commands; then
 fi
 
 # --- flow: messages from outside (hc send), with the sender shown -------------------------------
-if want external; then
-  step "hc send from another terminal reaches the chat, tagged with the sender"
-  CHAT=$(open_chat external)
-  ready
-  HOST_T=$(d 'd["host"]["address"]')
-  hc run --bg --no-parent --name sender -- sh -c "hc send $HOST_T 'please summarise'; sleep 3" >>"$LOG" 2>&1
-  expect '[ "$(d "[i[\"source\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][-1]")" = external ]' "a user item with source external" 15
-  FROM=$(d "[i['from'] for i in d['items'] if i['kind']=='user'][-1]")
-  note "from: $FROM" # (the attribution: extras' envelope and fix1 reports)
-  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "Pi answered it" 15
-  shot external-1-from 0.3
-fi
-
 # --- flow: Pi's TUI hand-off and back ---------------------------------------------------------------
 if want handoff; then
   step "/tui: Pi's TUI in a dialog over the chat (no pane: the tab stays as it is), then back"
@@ -547,6 +534,7 @@ if want extras; then
   step "an <hc from> envelope shows as the sender, without the envelope"
   hc send "$(d 'd["host"]["address"]')" '<hc from="t9 reviewer">please summarise</hc>' >>"$LOG" 2>&1
   expect '[ "$(d "[i[\"from\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][-1]")" = "t9 reviewer" ]' "from: t9 reviewer" 15
+  [ "$(d "[i['source'] for i in d['items'] if i['kind']=='user'][-1]")" = external ] && ok "a user item from outside the chat (source external)" || fail "source"
   expect '[ "$(phase)" = idle ]' "answered" 15
   shot extras-2-from-badge 0.4
   step "a long conversation: the reopened chat pages older items in"

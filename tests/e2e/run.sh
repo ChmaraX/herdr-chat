@@ -255,7 +255,7 @@ EOF
   BASH=$(d "[i['id'] for i in d['items'] if i['kind']=='tool' and i['name']=='bash'][0]")
   cmd "toggle:$EDIT"
   cmd "toggle:$BASH"
-  expect '[ "$(d "sorted(d[\"expanded\"])")" = "$(python3 -c "import json; print(json.dumps(sorted([\"$EDIT\",\"$BASH\"])))")" ]' "toggle expands the edit and bash cards"
+  need '[ "$(d "sorted(d[\"expanded\"])")" = "$(python3 -c "import json; print(json.dumps(sorted([\"$EDIT\",\"$BASH\"])))")" ]' "toggle: the edit and bash cards"
   expect '[ "$(d "d[\"tabName\"]")" = "$(d "d[\"name\"]")" ] && [ "$(d "d[\"name\"]")" != "New chat" ]' "the launcher's tab \"pi\" took the chat's name ($(d 'd["name"]'))" 5
   shot basic-1-cards-expanded 0.6
 fi

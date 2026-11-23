@@ -1,5 +1,5 @@
 // Claude Code: every tool kind becomes the card a user expects, including a
-// subagent's steps nested under its card and a todo list as the chat's plan.
+// subagent's steps nested under its card. TodoWrite as the chat's plan: claude-session.test.ts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { idle } from "./harness.ts";
@@ -10,7 +10,7 @@ const editResult = {
   structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-one", "+two"] }],
 };
 
-test("claude: bash (exit codes, live output), read, edit, write, web, MCP, subagent and todos as a user sees them", async () => {
+test("claude: bash (exit codes, live output), read, edit, write, web, MCP and subagent as a user sees them", async () => {
   const h = await startClaude({
     name: "claude-tools", speed: 4,
     scenario: {
@@ -28,7 +28,6 @@ test("claude: bash (exit codes, live output), read, edit, write, web, MCP, subag
           { tool: "WebFetch", ask: false, input: { url: "https://en.wikipedia.org/wiki/Pelican", prompt: "pouch size" }, result: { content: "About 11 litres." } },
           { tool: "mcp__figma__get_file", ask: false, input: { file_key: "abc" }, result: { content: [{ type: "text", text: "{\"name\":\"Design\"}" }] } },
           { subagent: { description: "Find the config", type: "Explore", prompt: "Find where the config is loaded.", steps: [{ tool: "Bash", input: { command: "grep -rn config src" }, result: { content: "src/app.ts:3:config" } }], report: "The config is loaded in src/app.ts." } },
-          { todos: [{ content: "Fix util test", status: "in_progress", activeForm: "Fixing" }, { content: "Update notes", status: "pending", activeForm: "Updating" }] },
           { text: "All done." },
         ],
       }],
@@ -54,7 +53,6 @@ test("claude: bash (exit codes, live output), read, edit, write, web, MCP, subag
       ["Fetch https://en.wikipedia.org/wiki/Pelican", "done"],
       ["mcp figma · get_file", "done"],
       ["Agent Find the config", "done"],
-      ["TodoWrite", "done"],
     ]);
     assert.equal(by(/ls src/).detail.exitCode, 0);
     assert.equal(by(/make test/).detail.exitCode, 2, "the exit code parsed from 'Exit code 2'");
@@ -76,8 +74,6 @@ test("claude: bash (exit codes, live output), read, edit, write, web, MCP, subag
     assert.equal(agent.output, "The config is loaded in src/app.ts.", "the subagent's report, not the harness note");
     const nested = c.items.filter((i) => i.parent === agent.id);
     assert.deepEqual(nested.map((i) => [i.kind, i.title ?? i.text, i.status]), [["tool", "$ grep -rn config src", "done"]], "the subagent's step, nested under its card");
-    assert.deepEqual(c.state.plan.steps, [{ text: "Fix util test", status: "in_progress" }, { text: "Update notes", status: "pending" }], "TodoWrite is the chat's plan");
-    assert.equal(c.items.filter((i) => i.kind === "plan").length, 0, "not a card in the transcript");
     assert.ok(h.controls("get_task_output").length >= 1, "live output came from get_task_output");
     await h.waitTranscript(/· \$ make test ✗/);
     h.artifact("claude-tools");

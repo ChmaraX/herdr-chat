@@ -7,8 +7,9 @@ BOX="$(cd "$(dirname "$0")" && pwd)/box"
 item=${1:?item}; shift
 flows=("$@")
 if [ ${#flows[@]} = 0 ]; then
-  # Every flow an `if want <flow> [|| want <flow>…]` line names, but the live ones (real logins, network).
-  read -ra flows <<<"$(grep -hE '^\s*if want [a-z0-9-]+' "$(dirname "$0")/../e2e/"*.sh | grep -oE 'want [a-z0-9-]+' | awk '{print $2}' | sort -u | grep -v '^live' | tr '\n' ' ')"
+  # Every flow an `if want <flow> [|| want <flow>…]` line names, but the live ones (real logins, network)
+  # and v3, the name for launcher + claude + codex together (each of them runs on its own here).
+  read -ra flows <<<"$(grep -hE '^\s*if want [a-z0-9-]+' "$(dirname "$0")/../e2e/"*.sh | grep -oE 'want [a-z0-9-]+' | awk '{print $2}' | sort -u | grep -vE '^(live|v3$)' | tr '\n' ' ')"
 fi
 root=${BOX_PROOF_DIR:-$HOME/.cache/herdr-chat-box}/$item/each
 mkdir -p "$root"

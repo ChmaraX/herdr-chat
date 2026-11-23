@@ -69,13 +69,6 @@ function live(dir: string, gen: number): Claim | null {
   return c && !existsSync(releasedPath(dir, gen)) && processRuns(c.pid, c.started) ? c : null;
 }
 
-/** The chat's live host claim, if any. */
-export function chatHolder(stateDir: string, chat: string): Claim | null {
-  const dir = claimDir(stateDir, chat);
-  const top = generations(dir)[0];
-  return top === undefined ? null : live(dir, top);
-}
-
 export type ClaimResult =
   | { ok: true; claim: Claim; tookOver: Claim | null; release: () => void }
   | { ok: false; holder: Claim };

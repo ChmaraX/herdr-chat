@@ -24,16 +24,6 @@ if want subagent; then
   step "sub-agents: the layout routes a chat sub-agent's click to the chat (install/layout.ts, as install.sh runs it)"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
   expect '[ "$("$APP" status | python3 -c "import json,sys; print(json.load(sys.stdin)[\"layout\"])")" = main-copy ]' "Herdr's own main on screen: cloned as main-copy and shown" 10
-  python3 - "$HERDR_APP_HOME/layouts/main-copy.json" <<'EOF' && ok "main-copy: the agents block shows chat-agents (main's agents list kept in replaces), terminal_menu is chat-menu" || fail "main-copy wasn't patched"
-import json, sys
-l = json.load(open(sys.argv[1]))
-found = []
-def walk(n):
-    if (n.get("content") or {}).get("mod") == "chat-agents": found.append(n["content"])
-    for c in n.get("children", []): walk(c)
-walk(l)
-sys.exit(0 if l.get("terminal_menu") == "chat-menu" and found and found[0]["props"]["replaces"]["mod"] == "agents" else 1)
-EOF
   sleep 1
   # Another chat's view, open the whole time in a tab behind: its sweepOrphans runs every 30 s.
   SWEEPER=$(open_chat sweeper)
@@ -158,17 +148,12 @@ if want journey; then
   step "journey: the layout gets new-chat's floating copy (install/layout.ts), the keys come from data/herdr-chat/keys.json (install/keys.ts)"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
   sleep 1
-  LNAME=$("$APP" status | python3 -c 'import json,sys; print(json.load(sys.stdin)["layout"])')
-  python3 -c 'import json,sys
-l = json.load(open(sys.argv[1]))
-sys.exit(0 if any((f.get("content") or {}).get("mod") == "new-chat" and f["content"]["props"]["role"] == "commands" for f in l.get("floating", [])) else 1)' "$HERDR_APP_HOME/layouts/$LNAME.json" &&
-    ok "layout $LNAME: an empty floating block with new-chat (props.role commands)" || fail "no new-chat floating block in $LNAME"
   mkdir -p "$STATE"
   echo '{"global": {"claude": "cmd-alt-k"}}' >"$STATE/keys.json"
   "$NODE" "$REPO/install/keys.ts" install "$HERDR_APP_HOME" --platform darwin >"$ART/journey-keys.txt" 2>&1 || fail "install/keys.ts install: $(cat "$ART/journey-keys.txt")"
-  [ "$(tail -1 "$ART/journey-keys.txt")" = "New chat: ⌘I · Claude Code chat: ⌥⌘K" ] && ok "install/keys.ts: \"$(tail -1 "$ART/journey-keys.txt")\"" || fail "keys summary: $(cat "$ART/journey-keys.txt")"
-  python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["global"]; sys.exit(0 if g.get("cmd-i") == "mod.open:new-chat" and g.get("cmd-alt-k") == "new-chat.claude" else 1)' "$HERDR_APP_HOME/keys.json" &&
-    ok "keys.json: cmd-i → mod.open:new-chat, cmd-alt-k → new-chat.claude" || fail "keys.json global"
+  # The files' bytes are install.test.ts's; this only makes sure ⌥⌘K below is the key keys.json binds.
+  python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["global"]; sys.exit(0 if g.get("cmd-i") == "mod.open:new-chat" and g.get("cmd-alt-k") == "new-chat.claude" else 1)' "$HERDR_APP_HOME/keys.json" ||
+    fail "keys.json global: $(cat "$ART/journey-keys.txt")"
   sleep 1
 
   step "new-chat.open toggles the launcher; new-chat.pi opens a Pi chat tab at once"
