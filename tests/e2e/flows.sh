@@ -41,6 +41,33 @@ if want dialogs; then
   [ "$(d 'd["lastAnswer"]["cancelled"]')" = true ] && ok "sent cancelled: true" || fail "cancel"
 fi
 
+# --- flow: a select whose title is a 64-line command -------------------------------------------
+if want long-dialog; then
+  step "long-dialog: a select with a whole command as its title keeps its options and the chat in view"
+  CHAT=$(open_chat long-dialog long-dialog)
+  ready
+  visible
+  V0=$(d 'd["viewH"]')
+  send_text "rewrite the guard"
+  expect '[ "$(d "d[\"dialog\"][\"method\"]")" = select ]' "the select is open" 10
+  until_ '[ "$(d "d[\"bottomH\"]")" != null ] && [ "$(d "d[\"viewH\"]")" != "$V0" ]' 3 || true
+  shot long-dialog-1-open 0.6
+  BH=$(d 'd["bottomH"]'); VH=$(d 'd["viewH"]')
+  note "chat bottom $BH px, timeline $VH px (was $V0 px before the card)"
+  if [ "$BH" = null ] || [ "$VH" = null ]; then skip "the card's height (no frames)"
+  else
+    python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) <= 600 else 1)' "$BH" \
+      && ok "the card and composer take $BH px, not the 64 lines' height" || fail "the card grew with its title: $BH px"
+    python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= 120 else 1)' "$VH" \
+      && ok "the timeline keeps $VH px to scroll in" || fail "the timeline was squeezed to $VH px"
+  fi
+  cmd focus; sleep 0.3
+  keys_or enter '[ "$(d "d[\"lastAnswer\"][\"value\"]")" = "Allow once" ]' "key:enter" "Enter picked Allow once" quick
+  expect '[ "$(d "d[\"dialog\"]")" = null ] && [ "$(phase)" = idle ]' "the card closed and the run settled" 10
+  shot long-dialog-2-answered 0.4
+  hidden
+fi
+
 # --- flow: Esc mid-tool, with a steer queued ---------------------------------------------------
 if want abort; then
   step "abort: Esc while a tool runs puts the queued steer back in the composer"
