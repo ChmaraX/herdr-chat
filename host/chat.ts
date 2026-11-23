@@ -1177,21 +1177,40 @@ export class Chat {
       return { disposition: String(d.disposition) };
     });
     const exited = (e: unknown) => e instanceof AgentError && e.agentExited;
+    let returnedPending = false;
+    let pendingTimer: ReturnType<typeof setTimeout> | null = null;
     reply.catch((e) => {
       if (isCommand) this.clearCommandHint();
       undo();
       opts.onRejected?.();
       if (!exited(e)) {
+        // `send` already returned `pending`, so the client won't get an error from it:
+        // return the unsent draft through `editorText` (like `returnHeld` / `drainHeld`).
+        if (returnedPending && !opts.onRejected && args.source !== "external" && !args.from && text.trim()) {
+          this.set({ editorText: [this.state.editorText, text].filter(Boolean).join("\n\n") });
+        }
         this.toast("error", errText(e));
         this.notice("error", `${this.agent} rejected the message: ${errText(e)}`);
       }
     });
-    const pending = new Promise<{ disposition: string }>((r) => setTimeout(() => r({ disposition: "pending" }), SEND_REPLY_WAIT_MS));
-    // The agent exiting before it replies is reported by the exit notice, not as a failed send.
-    const settled = reply.catch((e) => {
-      if (exited(e)) return { disposition: "pending" };
-      throw e;
+    const pending = new Promise<{ disposition: string }>((r) => {
+      pendingTimer = setTimeout(() => {
+        returnedPending = true;
+        r({ disposition: "pending" });
+      }, SEND_REPLY_WAIT_MS);
     });
+    // The agent exiting before it replies is reported by the exit notice, not as a failed send.
+    const settled = reply.then(
+      (d) => {
+        if (pendingTimer) clearTimeout(pendingTimer);
+        return d;
+      },
+      (e) => {
+        if (pendingTimer) clearTimeout(pendingTimer);
+        if (exited(e)) return { disposition: "pending" };
+        throw e;
+      },
+    );
     return Promise.race([settled, pending]);
   }
 

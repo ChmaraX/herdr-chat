@@ -69,6 +69,7 @@ Behaviour that mirrors Pi 1.5:
   "default": [Step, ...],                   // when no prompt matches
   "extensionCommands": {"name": [Step, ...]},  // "/name args" → disposition handled; "{args}" is replaced by args
   "rejectPrompts": "regex",                 // a matching prompt fails (success: false), as Pi's do
+  "rejectDelayMs": 0,                       // wait ms (scaled) before replying with the rejection error
   "expandPrompts": {"regex": "replacement"}, // the prompt as Pi expands it (a skill, a template): the echo and the turn get this text
   "abort": [Step, ...],                     // extra steps emitted after an aborted run's steps stop
   "compactMs": 150,

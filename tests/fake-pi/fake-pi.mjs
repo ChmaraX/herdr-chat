@@ -604,7 +604,9 @@ function runScenario() {
       }
       // Pi's own failures (an extension's input handler, a bad template), and its skill/template expansion.
       if (scenario.rejectPrompts && new RegExp(scenario.rejectPrompts, "s").test(text)) {
-        respond(rec.id, "prompt", undefined, `Rejected: ${text}`);
+        const fail = () => respond(rec.id, "prompt", undefined, `Rejected: ${text}`);
+        if (scenario.rejectDelayMs) setTimeout(fail, scaled(scenario.rejectDelayMs));
+        else fail();
         return;
       }
       for (const [re, to] of Object.entries(scenario.expandPrompts ?? {})) text = text.replace(new RegExp(re, "s"), to);

@@ -98,6 +98,7 @@ export default class HerdrChat extends View {
     this.logLines = [];
     this.loadingOlder = false;
     this.editorAcked = null;
+    this.rejectedDrafts = []; // drafts rejected by the agent, for ↑ recall
     this.hover = null; // the message under the pointer (its action row shows)
     this.copiedAt = new Map(); // copy button id → when (✓ for 1.5 s)
     this.groups = new Map(); // work group id → open (the person's choice)
@@ -756,7 +757,9 @@ export default class HerdrChat extends View {
         cx.notify();
       });
     } else if (rec.t === "snapshot") {
+      const prevSession = this.store.state.sessionFile;
       this.store.snapshot(rec);
+      if (prevSession && this.store.state.sessionFile !== prevSession) this.rejectedDrafts = [];
       this.loadedAt = Date.now();
       if (!this.cwd) this.cwd = this.store.state.cwd;
       this.full.clear();
@@ -789,8 +792,14 @@ export default class HerdrChat extends View {
     this.composer.askCard = s.dialog?.method === "permission" || s.dialog?.method === "questions" ? s.dialog.method : null;
     if (s.editorText != null && s.editorText !== this.editorAcked) {
       this.editorAcked = s.editorText;
-      this.composer.set(s.editorText);
-      this.composer.focus();
+      if (!this.composer.value.trim() && !this.composer.chips.length) {
+        this.composer.set(s.editorText);
+        this.composer.focus();
+        this.rememberRejectedDraft(s.editorText);
+      } else if (s.editorText.trim()) {
+        this.rememberRejectedDraft(s.editorText);
+        this.flash("Returned draft saved (press ↑ to recover)", cx);
+      }
       this.req("ack_editor_text", {}, cx);
     } else if (s.editorText == null) this.editorAcked = null;
     if (this.composer.menu?.kind === "slash") this.updateMenu(cx);
@@ -820,26 +829,79 @@ export default class HerdrChat extends View {
     });
   }
 
-  // Run an op from an event: errors go to the flash line.
-  fire(op, args, cx, then) {
+  // Run an op from an event: errors go to the flash line (unless `onError` handles them).
+  fire(op, args, cx, then, onError) {
     cx.spawn(async (cx) => {
       try {
         const d = await this.req(op, args, cx);
         then?.(d, cx);
       } catch (e) {
-        this.flash(`${op}: ${message(e)}`, cx);
+        if (!onError?.(e, cx)) this.flash(`${op}: ${message(e)}`, cx);
       }
       cx.notify();
     });
   }
 
+  sentCount() {
+    let n = 0;
+    for (const it of this.store.items) {
+      if (it.kind === "user" && (it.source === "composer" || it.source === "queued") && typedText(it)) n++;
+    }
+    return n;
+  }
+
+  rememberRejectedDraft(text, at = this.sentCount()) {
+    const t = String(text ?? "").replace(/\s+$/, "");
+    if (!t.trim()) return;
+    const last = this.rejectedDrafts[this.rejectedDrafts.length - 1];
+    if (last?.text === t && last.at === at) return;
+    this.rejectedDrafts.push({ text: t, at });
+    if (this.rejectedDrafts.length > 20) this.rejectedDrafts.shift();
+  }
+
+  // Put a failed send back in the composer if it's still empty; always keep it in ↑ recall.
+  restoreDraft(text, chips, at = this.sentCount()) {
+    this.rememberRejectedDraft(text, at);
+    const hasText = Boolean(text?.trim());
+    const hasChips = Boolean(chips?.length);
+    if (!hasText && !hasChips) return false;
+    if (!this.composer.value.trim() && !this.composer.chips.length) {
+      if (hasText) this.composer.set(text);
+      for (const ch of chips ?? []) this.composer.addChip(ch.path, { size: ch.size ?? null });
+      this.composer.focus();
+      return true;
+    }
+    return false;
+  }
+
+  // Prompts sent before plus rejected drafts, newest first (for ↑/↓ recall).
+  recallList() {
+    if (!this.rejectedDrafts.length) return this.store.sentPrompts();
+    const sent = [];
+    for (const it of this.store.items) {
+      const text = it.kind === "user" ? typedText(it) : "";
+      if (it.kind === "user" && (it.source === "composer" || it.source === "queued") && text) sent.push(text);
+    }
+    const out = [];
+    const push = (t) => { if (t && out[out.length - 1] !== t) out.push(t); };
+    let r = this.rejectedDrafts.length - 1;
+    for (let i = sent.length; i >= 0; i--) {
+      while (r >= 0 && this.rejectedDrafts[r].at >= i) push(this.rejectedDrafts[r--].text);
+      if (i > 0) push(sent[i - 1]);
+    }
+    return out;
+  }
+
   // `mode`: "auto" (Enter: steers while the agent works) or "followUp" (Alt+Enter: after this run).
   // A follow-up taken out of its lane for editing goes back to it on Enter (its lane never changes implicitly).
   send(cx, mode = "auto") {
-    if (mode === "auto" && this.editingQueued?.lane === "followUp") mode = "followUp";
+    const wasEditingQueued = this.editingQueued;
+    if (mode === "auto" && wasEditingQueued?.lane === "followUp") mode = "followUp";
     this.editingQueued = null;
+    const rawDraft = this.composer.value.replace(/\s+$/, "");
+    const draftChips = this.composer.chips.map((c) => ({ path: c.path, size: c.size ?? null }));
     const text = this.composer.message().replace(/\s+$/, "");
-    const images = this.composer.chips.map((c) => c.path);
+    const images = draftChips.map((c) => c.path);
     if (!text.trim() && !images.length) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
     // /reload on a host older than the install restarts the host, not just the agent.
@@ -857,9 +919,16 @@ export default class HerdrChat extends View {
         return;
       }
     }
+    const sentAt = this.sentCount();
     this.composer.clear();
     this.timeline.toBottom();
-    this.fire("send", { text, ...(images.length ? { images } : {}), mode }, cx);
+    this.fire("send", { text, ...(images.length ? { images } : {}), mode }, cx, null, (e, cx) => {
+      const restored = this.restoreDraft(rawDraft, draftChips, sentAt);
+      if (restored && wasEditingQueued && !this.editingQueued) this.editingQueued = wasEditingQueued;
+      const hint = restored ? " (draft restored)" : rawDraft.trim() ? " (press ↑ to recover draft)" : "";
+      this.flash(`send: ${message(e)}${hint}`, cx);
+      return true;
+    });
   }
 
   abort(cx) {
@@ -1348,8 +1417,8 @@ export default class HerdrChat extends View {
     else if (a === "herdrchat_down" && m) this.composer.moveSel(1);
     else if (a === "herdrchat_enter" && m) return this.pickMenu(null, cx);
     else if (a === "herdrchat_tab" && m) return this.pickMenu(null, cx, { complete: true });
-    else if (a === "herdrchat_up") this.composer.recall(this.store.sentPrompts(), -1);
-    else if (a === "herdrchat_down") this.composer.recall(this.store.sentPrompts(), 1);
+    else if (a === "herdrchat_up") this.composer.recall(this.recallList(), -1);
+    else if (a === "herdrchat_down") this.composer.recall(this.recallList(), 1);
     else if (a === "herdrchat_enter") this.send(cx);
     else if (a === "herdrchat_stop") this.abort(cx);
     else if (a === "herdrchat_escape") {

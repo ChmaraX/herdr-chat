@@ -89,6 +89,58 @@ test("pi: an expanded prompt template's echo updates the shown item; a prompt Pi
     await c.waitFor((x) => x.items.some((i) => i.kind === "notice" && /rejected the message/.test(i.text)), 3000, "the error notice");
     assert.deepEqual(c.items.filter((i) => i.kind !== "notice").map((i) => i.id), before, "the rejected prompt's item is gone");
     assert.equal(c.state.phase, "idle");
+    assert.equal(c.state.editorText, null, "fast rejection errors send directly, without also setting editorText");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("pi: a rejection after send returned pending restores a composer draft via editorText, not external sends, and doesn't duplicate drained follow-ups", async () => {
+  const h = await startHost({
+    name: "echo-pi-late-reject", speed: 1,
+    scenario: {
+      rejectPrompts: "^nope",
+      rejectDelayMs: 1700,
+      prompts: [
+        {
+          match: "^work",
+          once: false,
+          steps: [
+            { assistant: { text: "Working.", tools: [{ name: "bash", args: { command: "sleep 1" } }] } },
+            { tool: { name: "bash", duration: 600, output: "ok\n" } },
+            { assistant: { text: "Worked." } },
+          ],
+        },
+      ],
+    },
+  });
+  try {
+    const c = h.client;
+    await c.waitFor(idle, 10_000, "started");
+
+    // 1. Composer send that rejects after SEND_REPLY_WAIT_MS: send returns pending, so the host restores via editorText.
+    const res = await c.req("send", { text: "nope later" });
+    assert.equal(res.disposition, "pending");
+    await c.waitFor((x) => x.state.editorText === "nope later", 3000, "late rejection restores draft via editorText");
+    await c.waitFor((x) => x.items.some((i) => i.kind === "notice" && /Rejected: nope later/.test(i.text)), 2000, "the error notice");
+    assert.equal(c.items.filter((i) => i.kind === "user").length, 0, "the rejected prompt's item is gone");
+    assert.equal(c.state.phase, "idle");
+    await c.req("ack_editor_text");
+    await c.waitFor((x) => x.state.editorText === null, 2000);
+
+    // 2. External send (e.g. hc send) that rejects late must not land in the user's composer.
+    const ext = await c.req("send", { text: "nope external", source: "external", from: "reviewer" });
+    assert.equal(ext.disposition, "pending");
+    await c.waitFor((x) => x.items.some((i) => i.kind === "notice" && /Rejected: nope external/.test(i.text)), 3000, "external error notice");
+    assert.equal(c.state.editorText, null, "external send never populates editorText");
+
+    // 3. A held follow-up drained by the host that rejects late is returned via editorText once (not duplicated).
+    await c.req("send", { text: "work first" });
+    await c.waitFor((x) => x.items.some((i) => i.kind === "tool" && i.status === "running"), 5000, "tool running");
+    assert.equal((await c.req("send", { text: "nope followup", mode: "followUp" })).disposition, "queued");
+    await c.waitFor((x) => x.items.some((i) => i.kind === "notice" && /Rejected: nope followup/.test(i.text)), 8000, "follow-up rejected");
+    await c.waitFor((x) => x.state.editorText === "nope followup", 2000, "follow-up restored once");
+    assert.equal(c.state.editorText, "nope followup");
   } finally {
     await h.stop();
   }
