@@ -1,0 +1,5 @@
+{
+ "description": "Pi rejects every prompt that starts with nope at once (an extension's input handler throwing, a provider failure); the rest are answered.",
+ "rejectPrompts": "^nope",
+ "default": [{"assistant": {"text": "done"}}]
+}
