@@ -27,7 +27,8 @@ release is built (below).
 ```sh
 npm test                    # the host end to end: the real host, real TCP and WebSocket clients, fake Pi/Claude/Codex
 npx tsc --noEmit -p .       # typecheck the host (npm run typecheck)
-tests/e2e/run.sh            # the mods in a private Herdr app
+tests/e2e/run.sh            # the mods in a private Herdr app (macOS)
+tests/box/box run <item>    # the same flows in the test box: Linux, Docker, offline
 ```
 
 - **`npm test`** runs `tests/host/*.test.ts`: the real `herdr-chat-host`
@@ -37,17 +38,14 @@ tests/e2e/run.sh            # the mods in a private Herdr app
 - **`tests/e2e/run.sh [artifacts dir] [flows…]`** starts a private Herdr app
   with its own app home and its own herdr-core session, installs the mods
   there, and drives them as a person does: the launcher key, typing, Enter,
-  Esc. Keys go to the private app's process only; it never touches your
-  window. Checks read the host's state and the mod's debug dump, not the
-  screen. Screenshots, dumps and logs go to `tests/artifacts/` (not
-  committed).
-  - **`E2E_NO_VISUAL=1`** never brings the private window to the front. Use
-    it while you work in other apps: GPUI draws only a frontmost window, so
-    the screenshot passes would otherwise take the front for a moment and
-    hand it back. The checks pass either way; only the screenshots go
-    stale.
-  - `E2E_VISUAL=1` runs the whole suite in visual passes, for a full set of
-    screenshots.
+  Esc. The private app starts in the background and stays hidden: it never
+  takes your focus, and keys go to its process only. Checks read the host's
+  state and the mod's debug dump; screenshots are the app's own frames
+  (`herdr-app shot`, fresh for a hidden window since 0.1.16). Screenshots,
+  dumps and logs go to `tests/artifacts/` (not committed).
+  - **`tests/box/box`** runs the same flows in a Docker container on Linux,
+    with real X input, no network and the worktree read-only: for code you
+    didn't write, and to run several at once. See `tests/box/README.md`.
   - `LIVE=1 PROVIDER=pi|claude|codex tests/e2e/run.sh` runs one flow on the
     real CLI, on its cheapest model, with your login.
 

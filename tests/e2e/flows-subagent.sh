@@ -73,7 +73,7 @@ EOF
   expect '[ "$(d "[i[\"text\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][0].endswith(\"quick: review src/a.ts only\")")" = true ] && [ "$(count_kind assistant)" -ge 1 ]' "the dialog shows the task (template body + task) and its answer" 10
   # The keyboard is the composer's on open: a key typed now lands there (no focus command first).
   keys "text:x"
-  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = x ]' 3 && ok "the composer has the keyboard on open (a typed key lands there)" || skip "a key typed on open didn't land (the window $(drawn && echo "is drawn" || echo "isn't drawn"))"
+  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = x ]' 3 && ok "the composer has the keyboard on open (a typed key lands there)" || skip "a key typed on open didn't land"
   cmd clear
   until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || fail "chat.clear didn't empty the composer"
 
@@ -234,7 +234,8 @@ JS
   menu_offers() {
     rm -f "$STATE/debug/chat-menu.json"
     do_ "chat-agents.menu:$TUI"
-    until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("cantContinue") is None else 1)' "$STATE/debug/chat-menu.json"
+    # Offered: the menu knows the terminal and finds no reason it can't (no terminal also gives cantContinue null).
+    until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("terminal") and d.get("cantContinue") is None else 1)' "$STATE/debug/chat-menu.json"
   }
   for _ in 1 2 3 4 5; do menu_offers && break; do_ overlay.close; sleep 1; done
   expect 'overlay_open chat-menu' "its right-click menu (chat-menu)" 5
@@ -301,10 +302,13 @@ JS
   TIP=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
   hc label "$TIP" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
   expect '[ "$(term_field "$TIP" "(t.get(\"foreground\") or {}).get(\"argv\",[None])[0]")" = pi ] && [ "$(term_field "$TIP" "(t.get(\"status\") or {}).get(\"state\")")" = idle ]' "the shell's foreground is pi, idle" 10
-  TIPTAB=$(app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print([t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])][0])' "$TIP")
+  tip_tab() { app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])), ""))' "$TIP"; }
+  expect '[ -n "$(tip_tab)" ]' "the app shows the terminal in a tab (it learns of it after the core)" 10
+  TIPTAB=$(tip_tab)
   PIPID=$(term_field "$TIP" 't["foreground"]["pid"]')
   BEFORE=$(chat_dumps)
   step "Continue as chat (new-chat.continue:$TIP)"
+  expect 'app_sees_agent "$TIP"' "the app knows it as an idle agent (it learns this after the core)" 10
   do_ "new-chat.continue:$TIP"
   expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened (its dump appeared)" 15
   J=$(new_chat_since "$BEFORE")
@@ -396,6 +400,7 @@ JS
   AMBIGPIS=$(pis_of two | tr '\n' ' ')
   expect '[ -n "$(tab_of "$AMBIG")" ]' "the app shows the terminal in a tab" 10
   expect '[ "$(basename "$(term_field "$AMBIG" "(t.get(\"foreground\") or {}).get(\"argv\",[\"\"])[0]")")" = zsh ]' "its foreground is the shell" 5
+  expect 'app_sees_agent "$AMBIG"' "the app knows it as an idle agent" 10
   BEFORE=$(chat_dumps); M=$(toast_mark)
   do_ "new-chat.continue:$AMBIG"
   until_ '[ -n "$(toasts_since "$M")" ]' 10 || true
@@ -425,6 +430,7 @@ JS
   shot tuc-1-tui-under-command 1
   BEFORE=$(chat_dumps)
   step "Continue as chat (new-chat.continue:$TUC)"
+  expect 'app_sees_agent "$TUC"' "the app knows it as an idle agent" 10
   do_ "new-chat.continue:$TUC"
   expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened (its dump appeared)" 15
   J=$(new_chat_since "$BEFORE")
@@ -445,6 +451,7 @@ JS
   PIPID=$(pis_of slow)
   expect '[ -n "$(tab_of "$SLOW")" ]' "the app shows the terminal in a tab" 10
   SLOWTAB=$(tab_of "$SLOW")
+  expect 'app_sees_agent "$SLOW"' "the app knows it as an idle agent" 10
   BEFORE=$(chat_dumps); M=$(toast_mark)
   do_ "new-chat.continue:$SLOW"
   expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 15
@@ -471,6 +478,7 @@ JS
   expect '[ -n "$(tab_of "$HELP")" ]' "the app shows the terminal in a tab" 10
   HELPTAB=$(tab_of "$HELP")
   HSH=$(term_field "$HELP" 't["pid"]')
+  expect 'app_sees_agent "$HELP"' "the app knows it as an idle agent" 10
   BEFORE=$(chat_dumps); M=$(toast_mark)
   do_ "new-chat.continue:$HELP"
   until_ '[ -n "$(new_chat_since "$BEFORE")" ] || [ -n "$(toasts_since "$M")" ]' 15 || true
