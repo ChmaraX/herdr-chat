@@ -84,7 +84,7 @@ test("codex: a steer mid-run lands in the same turn; a follow-up (held by the ho
   }
 });
 
-test("codex: a plan item and a todo list; a retried error, then a failed turn shows its error", async () => {
+test("codex: a proposed plan is a markdown answer; a retried error, then a failed turn shows its error", async () => {
   const h = await codexHost({
     name: "cx-plan",
     scenario: {
@@ -92,9 +92,7 @@ test("codex: a plan item and a todo list; a retried error, then a failed turn sh
         {
           match: "plan",
           steps: [
-            { todo: { explanation: "Two steps", plan: [{ step: "Pick a word", status: "inProgress" }, { step: "Say it", status: "pending" }] } },
             { reasoning: ["**Planning**"] },
-            { todo: { plan: [{ step: "Pick a word", status: "completed" }, { step: "Say it", status: "inProgress" }] } },
             { plan: "# Greeting\n\n1. Pick a word\n2. Say it\n" },
           ],
         },
@@ -108,8 +106,6 @@ test("codex: a plan item and a todo list; a retried error, then a failed turn sh
     await c.waitFor(idle, 10_000);
     await c.req("send", { text: "make a plan" });
     await c.waitFor(answered(/^# Greeting/), 5000);
-    assert.deepEqual(c.state.plan, { steps: [{ text: "Pick a word", status: "completed" }, { text: "Say it", status: "in_progress" }] }, "the todo list is the chat's plan, the last update's");
-    assert.equal(c.items.filter((i) => i.kind === "plan").length, 0, "no card in the transcript");
     const proposal = c.items.find((i) => i.kind === "assistant");
     assert.match(proposal.text, /1\. Pick a word/);
     assert.equal(proposal.blocks[0].type, "markdown");

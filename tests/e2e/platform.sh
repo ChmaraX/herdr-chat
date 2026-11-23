@@ -4,7 +4,8 @@
 #
 #   keys SPEC...       keys.py's specs: macOS posts them to the app's process (keys.py),
 #                      Linux types them on the box's display (x11input.py spec, XTest)
-#   click X Y          a left click at window pt X, Y (macOS: posted to the app's process)
+#   click X Y          Linux: a left click at window pt X, Y on the box's display. macOS refuses:
+#                      the app takes no mouse event posted to its process
 #   wheel X0:X1 Y DY   one real wheel step up at row Y. macOS: DY pt at the first point of
 #                      X0..X1 no other window covers (it moves your pointer for a moment,
 #                      so flows run it only with E2E_WHEEL=1). Linux: one notch at X0 on the
@@ -15,7 +16,7 @@ OS=$(uname -s)
 if [ "$OS" = Darwin ]; then
   PK=cmd
   keys() { "$PY" "$E2E/keys.py" "$APP_PID" "$@"; }
-  click() { "$PY" "$E2E/click.py" "$APP_PID" "$1" "$2"; }
+  click() { echo "click: the app takes no synthetic mouse events on macOS; use the test box (tests/box)" >&2; return 2; }
   wheel() { "$PY" "$E2E/wheel.py" "$APP_PID" "$@"; }
 else
   PK=ctrl

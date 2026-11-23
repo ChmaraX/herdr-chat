@@ -84,11 +84,10 @@ test("fixture abort: abort mid-bash with a message in Pi's queue", async () => {
     await c.waitFor(idle, 10_000);
     await c.req("send", { text: "Use the bash tool to run `for i in 1 2 3 4 5 6 7 8 9 10; do echo tick $i; sleep 1; done`." });
     await c.waitFor((x) => x.items.some((i) => i.kind === "tool" && /tick 2/.test(i.output)), 10_000, "ticking");
-    // The recording queued it as Pi's follow-up. The host holds its own follow-ups now (queue.test.ts),
-    // so it goes as a steer, which hands it to Pi's queue as the recording did.
+    // The recording has a second prompt here; the replay waits for one before it plays the abort.
+    // What clear_queue gives back is the recording's answer, so steer-abort.test.ts owns `restored`.
     await c.req("send", { text: "Then say hi.", mode: "steer" });
-    const { restored } = await c.req("abort");
-    assert.deepEqual(restored, ["Then say hi."]);
+    await c.req("abort");
     await c.waitFor(idle, 10_000, "idle after abort");
     const tool = c.items.find((i) => i.kind === "tool");
     assert.equal(tool.status, "error");

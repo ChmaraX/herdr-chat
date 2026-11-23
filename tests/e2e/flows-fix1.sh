@@ -206,7 +206,7 @@ if want reports; then
   expect '[ "$(phase)" = idle ]' "answered" 20
   shot fix1-6-report-card 0.4
   cmd "toggle:report:$R"
-  expect '[ "$(d "\"report:$R\" in d[\"expanded\"]")" = true ]' "Show all opens the long report" 5
+  need '[ "$(d "\"report:$R\" in d[\"expanded\"]")" = true ]' "toggle:report:$R" 5
   shot fix1-7-report-open 0.4
 fi
 
