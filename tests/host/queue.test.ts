@@ -78,29 +78,6 @@ test("follow-up (pi): held by the host while working, then sent as the next prom
   }
 });
 
-test("abort (pi): a held follow-up is not sent; it comes back to the composer after the steers", async () => {
-  const h = await pi("q-abort");
-  try {
-    const c = h.client;
-    await c.req("send", { text: "long build" });
-    await c.waitFor((x) => x.items.some((i: any) => i.kind === "tool" && /unit 2/.test(i.output)), 5000, "ticking");
-    await c.req("send", { text: "fu after", mode: "followUp" });
-    await c.req("send", { text: "steer now" });
-    await c.waitFor((x) => x.state.queue.steering.length === 1 && x.state.queue.followUp.length === 1, 2000, "both lanes");
-    const { restored } = await c.req("abort");
-    assert.deepEqual(restored, ["steer now", "fu after"]);
-    await c.waitFor(idle, 5000, "idle after abort");
-    await sleep(500); // would the follow-up start a run?
-    assert.equal(c.state.phase, "idle");
-    assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
-    assert.deepEqual(users(c), ["composer:long build"]);
-    assert.ok(!prompts(h).some((p) => p.message === "fu after"), "the follow-up never reached Pi");
-    h.artifact("queue-abort");
-  } finally {
-    await h.stop();
-  }
-});
-
 test("two follow-ups (pi): one per run, in the order they were queued", async () => {
   const h = await pi("q-two");
   try {

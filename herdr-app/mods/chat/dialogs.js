@@ -104,15 +104,23 @@ export class DialogCard {
         .child(h_flex().gap(8).child(btn("dlg-submit", "Submit", true, (_e, cx) => answer("submit", null, cx))));
     }
     const left = d.timeoutAt ? Math.max(0, Math.round((d.timeoutAt - Date.now()) / 1000)) : null;
+    // A title can be a whole prompt (Pi's ctx.ui.select(title, …) often carries a
+    // multi-line command): its first line heads the card, the rest scrolls, as
+    // a long message does, so the card never outgrows the window and hides its
+    // own options.
+    const [head, ...rest] = String(d.title ?? "").split("\n");
+    const more = rest.join("\n").trim();
     return v_flex().gap(8).p(12).rounded(10).border_1().border_color(t.blocked).bg(t.popover)
       .child(h_flex().gap(8).items_center()
         .child(icon("alert", 13).text_color(t.blocked))
-        .child(div().flex_1().min_w(0).text_size(13).font_semibold().text_color(t.foreground).child(d.title))
+        .child(div().flex_1().min_w(0).text_size(13).font_semibold().text_color(t.foreground).truncate().child(head))
         .when(pending > 1, (e) => e.child(div().text_size(11).text_color(t.dim).child(`${pending - 1} more waiting`)))
         .when(left != null, (e) => e.child(div().text_size(11).text_color(t.dim).child(`answers itself in ${left}s`)))
         .child(div().id("dlg-cancel").cursor_pointer().text_size(11).text_color(t.dim).hover((s) => s.text_color(t.foreground))
           .on_click((_e, cx) => answer("cancel", null, cx)).child("Esc")))
-      .when(Boolean(d.message), (e) => e.child(div().text_size(12.5).text_color(t.muted).child(d.message)))
+      .when(Boolean(more), (e) => e.child(div().id(`dlg-more-${d.id}`).max_h(240).overflow_y_scroll().px(10).py(6).rounded(8).bg(t.background)
+        .font_family(c.mono).text_size(11.5).text_color(t.muted).child(more)))
+      .when(Boolean(d.message), (e) => e.child(div().id(`dlg-message-${d.id}`).max_h(160).overflow_y_scroll().text_size(12.5).text_color(t.muted).child(d.message)))
       .child(body);
   }
 

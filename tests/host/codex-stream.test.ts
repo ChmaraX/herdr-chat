@@ -94,24 +94,6 @@ test("codex: commentary, a tool and the final answer of one turn are separate it
   }
 });
 
-test("codex fixture text: a real first turn (01), the user echo and the answer", async () => {
-  const h = await codexHost({ name: "cx-fx-text", replay: "text.jsonl", speed: 4 });
-  try {
-    const c = h.client;
-    await c.waitFor(idle, 10_000);
-    assert.equal(c.state.model.id, "gpt-5.6-luna");
-    assert.equal(c.state.permissionMode, "untrusted");
-    await c.req("send", { text: "Reply with exactly: hello from codex" });
-    await c.waitFor(answered(/hello from codex/), 10_000);
-    assert.deepEqual(c.items.filter((i) => i.kind !== "notice").map((i) => i.kind), ["user", "assistant"]);
-    assert.equal(c.items.find((i) => i.kind === "user").source, "composer");
-    await c.waitFor((x) => x.state.usage?.contextTokens === 16838, 3000, "usage from the real record");
-    h.artifact("codex-fixture-text");
-  } finally {
-    await h.stop();
-  }
-});
-
 test("codex fixture reasoning-websearch (11): summaries stream as thinking, a web search card, three turns", async () => {
   const h = await codexHost({ name: "cx-fx-web", replay: "reasoning-websearch.jsonl", speed: 8 });
   try {

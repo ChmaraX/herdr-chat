@@ -78,6 +78,14 @@ export class Host {
   }
 
   async start(): Promise<this> {
+    this.spawn();
+    await this.registered();
+    this.client = await this.connect();
+    return this;
+  }
+
+  /** Starts the host process only (no wait): for tests that start several at once. */
+  spawn(): this {
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("HC_") && !k.startsWith("HERDR_")) env[k] = v;
     env.FAKE_PI_LOG = this.piLog;
@@ -107,17 +115,19 @@ export class Host {
       this.exitCode = code;
       this.exitResolve(code);
     });
-    // Wait for the registry with a port.
+    return this;
+  }
+
+  /** Waits until the registry names this process, with a port. */
+  async registered(timeoutMs = 10_000): Promise<void> {
     const t0 = Date.now();
     for (;;) {
       const reg = readRegistry(this.stateDir, this.chat);
-      if (reg?.port && reg.pid === this.proc.pid) break;
+      if (reg?.port && reg.pid === this.proc.pid) return;
       if (this.exitCode !== null) throw new Error(`host exited early: ${this.screen}`);
-      if (Date.now() - t0 > 10_000) throw new Error(`host did not register: ${this.screen}`);
+      if (Date.now() - t0 > timeoutMs) throw new Error(`host did not register: ${this.screen}`);
       await sleep(20);
     }
-    this.client = await this.connect();
-    return this;
   }
 
   async connect(kind = "test"): Promise<ChatClient> {

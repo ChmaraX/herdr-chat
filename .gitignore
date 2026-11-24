@@ -10,3 +10,4 @@ node_modules/
 **/herdr.d.ts
 **/jsconfig.json
 /dist/
+__pycache__/

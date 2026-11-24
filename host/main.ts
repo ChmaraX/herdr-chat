@@ -9,9 +9,11 @@ import { Attachments } from "./attachments.ts";
 import { ChatServer } from "./server.ts";
 import { Terminal } from "./terminal.ts";
 import { writeRegistry, readRegistry, pidAlive } from "./registry.ts";
+import { claimChat } from "./claim.ts";
 import type { RegistryEntry } from "./registry.ts";
 import { ChatClient, parseWait } from "./client.ts";
-import { createAdapter, DEFAULT_PROVIDER, providerNames, tuiSession } from "./providers/index.ts";
+import { createAdapter, DEFAULT_PROVIDER, findTui, providerNames, tuiSession } from "./providers/index.ts";
+import { parseTuiGroup, processTable, terminalView, tuiBusy } from "./providers/tui.ts";
 import { parseArgs } from "./args.ts";
 import type { Args } from "./args.ts";
 import { appHomeOf, labelSelf, newChatId, planSubagent } from "./subagent.ts";
@@ -24,14 +26,21 @@ const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir>
   (--provider defaults to the chat's registered provider, else pi; --pi <cmd> or HERDR_CHAT_PI picks the pi binary)
 herdr-chat-host run     [--provider pi|claude|codex] [--session <file>] [--cwd <dir>] [-- <agent args>]
   (a sub-agent chat, for \`hc run\`: a fresh chat id, the app's state dir and the chat mod's config.json, labels its own terminal)
-herdr-chat-host tui-session --provider <id> --pid <pid> --cwd <dir> [--label <session>]
-  (Continue as chat: the session a running agent TUI has open, as JSON {session, model, thinking, args}; exit 1 with why not)
+herdr-chat-host tui-session --provider <id> --terminal <json> --cwd <dir> [--label <session>]
+  (Continue as chat: the TUI's process and the session it has open, as JSON {pid, group, session, model, thinking, args}; exit 2 with why not.
+   --terminal: the terminal as \`hc get --json\` reports it, at least {pid, argv, foreground: {pid, argv}})
+herdr-chat-host tui-busy --group <json> [--within <ms>]
+  (after Continue as chat stopped a TUI its terminal's command ran: what that command still runs, as JSON {running: <program> | null};
+   --group: tui-session's group; waits up to --within ms, default 3000, for it to be idle)
 herdr-chat-host inspect --chat <id> --state-dir <dir> [--wait 'phase=idle,items>=3'] [--timeout <s>]
   (inspect/send/op wait up to --timeout seconds, default 10 s for connecting and 30 s for --wait, for a starting host)
 herdr-chat-host send    --chat <id> --state-dir <dir> [--mode auto|steer|followUp] [--image <path>]... <text>
 herdr-chat-host op      --chat <id> --state-dir <dir> <op> ['<json args>']
 herdr-chat-host build
   (this host's {version, build} as JSON: the install records it, so a chat can tell a host older than the install)`;
+
+/** serve's exit when another live host has the chat (claim.ts). */
+const EXIT_CHAT_TAKEN = 3;
 
 function die(msg: string): never {
   process.stderr.write(`herdr-chat-host: ${msg}\n`);
@@ -49,9 +58,28 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   const stateDir = resolve(a.flags.get("state-dir")?.[0] ?? defaultStateDir());
   const sessionArg = a.flags.get("session")?.[0];
   const session = sessionArg ? resolve(sessionArg) : null;
+  const terminalId = process.env.HC_TERMINAL_ID ?? null;
+  const logDir = join(stateDir, "logs");
+  mkdirSync(logDir, { recursive: true, mode: 0o700 });
+  const logFile = join(logDir, `${chatId}.log`);
+  const log = (msg: string) => {
+    try {
+      appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`);
+    } catch {}
+  };
   const previous = readRegistry(stateDir, chatId);
   const provider = a.flags.get("provider")?.[0] ?? previous?.provider ?? DEFAULT_PROVIDER;
   if (!providerNames().includes(provider)) die(`unknown --provider ${provider} (known: ${providerNames().join(", ")})`);
+  // One host per chat (claim.ts): before the registry, the chat's files or the agent.
+  const claimed = claimChat(stateDir, chatId, terminalId);
+  if (!claimed.ok) {
+    const h = claimed.holder;
+    const msg = `chat ${chatId} already has a host (pid ${h.pid}${h.terminal ? `, terminal ${h.terminal}` : ""}): not starting a second one`;
+    log(`refused: ${msg} (pid=${process.pid}${terminalId ? ` terminal=${terminalId}` : ""})`);
+    process.stderr.write(`herdr-chat-host: ${msg}\n`);
+    process.exit(EXIT_CHAT_TAKEN);
+  }
+  if (claimed.tookOver) log(`took over the claim of a host that died (pid ${claimed.tookOver.pid})`);
   const agentCommand = a.flags.get(provider)?.[0];
   // --after-pid: the Pi TUI this chat takes over (chat-menu's Continue as
   // chat), waited for while it lives; --model provider/id and --thinking: the
@@ -62,16 +90,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   const handOver = Boolean(afterPid && session && (!previous || pidAlive(afterPid)));
   const handModel = handOver ? a.flags.get("model")?.[0] ?? null : null;
   const handThinking = handOver ? a.flags.get("thinking")?.[0] ?? null : null;
-  const terminalId = process.env.HC_TERMINAL_ID ?? null;
   const token = randomBytes(32).toString("hex");
-  const logDir = join(stateDir, "logs");
-  mkdirSync(logDir, { recursive: true, mode: 0o700 });
-  const logFile = join(logDir, `${chatId}.log`);
-  const log = (msg: string) => {
-    try {
-      appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`);
-    } catch {}
-  };
   const adapter = createAdapter(provider, { cwd, args: a.after, log, ...(agentCommand ? { command: agentCommand } : {}) });
   log(`serve chat=${chatId} cwd=${cwd} session=${session ?? "-"} provider=${provider} cmd=${agentCommand ?? "(default)"} pid=${process.pid}`);
 
@@ -85,16 +104,25 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     sessionFile: session ?? (previous?.provider === provider ? previous?.sessionFile ?? null : null),
     terminal: terminalId, startedAt, agentVersion: null, ...hostBuild(),
   };
+  // Only the chat's claim holder writes the registry: none after the claim is released.
+  let holding = true;
   const save = (patch: Partial<RegistryEntry>) => {
     entry = { ...entry, ...patch };
+    if (!holding) return;
     try {
       writeRegistry(stateDir, entry);
     } catch (e) {
       log(`registry write failed: ${e}`);
     }
   };
+  // The claim goes last on the way out: the next host of this chat may start as soon as it does.
+  const release = () => {
+    holding = false;
+    claimed.release();
+  };
 
   let shuttingDown = false;
+  let registryCheck: NodeJS.Timeout | undefined;
   const attachments = new Attachments(join(stateDir, "attachments", chatId));
   const term = new Terminal(process.stdout, process.stdin, provider);
   const chat = new Chat({
@@ -147,18 +175,25 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     shuttingDown = true;
     log("shutting down");
     watch?.stop();
+    clearInterval(registryCheck);
     try {
       await chat.stopAgent();
     } catch {}
     chat.releaseLock();
-    save({ pid: null, port: null, wsPort: null });
+    // Cleared only while the registry names this host: a second host from before the claim may have
+    // written it since, and the chat (connected to that one) must keep finding it.
+    if (readRegistry(stateDir, chatId)?.pid === process.pid) save({ pid: null, port: null, wsPort: null });
+    release();
     term.status("idle");
     term.close();
     await server.close().catch(() => {});
     process.exit(code);
   };
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) process.on(sig, () => void exit(0));
-  process.on("exit", () => chat.killAgent());
+  process.on("exit", () => {
+    chat.killAgent();
+    release();
+  });
   process.on("uncaughtException", (e) => {
     log(`uncaught: ${e?.stack ?? e}`);
   });
@@ -167,6 +202,15 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   });
 
   save(await server.listen());
+  // The claim says who the chat's host is; the registry is how clients find it, so it must agree.
+  // Anything else that wrote it (a host from before the claim, on its way out) or removed it would
+  // leave this host serving a chat nobody can reach, and the mod starting hosts that refuse.
+  registryCheck = setInterval(() => {
+    if (shuttingDown || readRegistry(stateDir, chatId)?.token === entry.token) return;
+    log("the registry didn't name this host: written back");
+    save({});
+  }, Number(process.env.HERDR_CHAT_REGISTRY_CHECK_MS) || 2000);
+  registryCheck.unref();
   term.line(`herdr-chat-host · chat ${chatId} · ${cwd}`);
   if (extra.hint) term.line(extra.hint);
   if (extra.warning) term.line(`! ${extra.warning}`);
@@ -238,15 +282,28 @@ async function main(): Promise<void> {
     }
     case "tui-session": {
       const provider = a.flags.get("provider")?.[0] ?? "";
-      const pid = Number(a.flags.get("pid")?.[0]);
-      if (!(pid > 0)) die("tui-session needs --pid");
       try {
-        const r = tuiSession(provider, { pid, cwd: resolve(a.flags.get("cwd")?.[0] ?? process.cwd()), label: a.flags.get("label")?.[0] || null });
-        process.stdout.write(JSON.stringify(r) + "\n");
+        const terminal = terminalView(JSON.parse(a.flags.get("terminal")?.[0] ?? "null"));
+        const found = findTui(provider, terminal);
+        const r = tuiSession(provider, { pid: found.pid, cwd: resolve(a.flags.get("cwd")?.[0] ?? process.cwd()), label: a.flags.get("label")?.[0] || null });
+        process.stdout.write(JSON.stringify({ ...found, ...r }) + "\n");
       } catch (e) {
         die(e instanceof Error ? e.message : String(e));
       }
       return;
+    }
+    case "tui-busy": {
+      const group = parseTuiGroup(a.flags.get("group")?.[0] ?? "");
+      if (!group) die("tui-busy needs --group <json> (tui-session's group: {id, shell, before})");
+      const within = Number(a.flags.get("within")?.[0] ?? 3000);
+      // A prompt's own commands (git status) come and go: idle once, within the time, is idle.
+      for (const end = Date.now() + (within > 0 ? within : 0); ; await new Promise((r) => setTimeout(r, 200))) {
+        const p = tuiBusy(processTable(), group);
+        if (!p || Date.now() >= end) {
+          process.stdout.write(JSON.stringify({ running: p?.program ?? null }) + "\n");
+          return;
+        }
+      }
     }
     case "inspect": {
       const startedAt = Date.now();

@@ -8,8 +8,9 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
-import { icon, plural } from "./util.js";
+import { icon, plural, uiScale } from "./util.js";
 import { rank } from "./composer.js";
+import { PLATFORM } from "./platform.js";
 
 export const ROWS = 8;
 const ROW_H = 28;
@@ -29,7 +30,7 @@ export function follow(m, rows = ROWS) {
   if (m.sel >= m.top + rows) m.top = m.sel - rows + 1;
 }
 
-// The wheel: px (positive = up, as GPUI reports it) → whole rows.
+// The wheel: layout px (positive = up) → whole rows.
 export function wheel(m, dy, n, rows = ROWS) {
   m.acc = (m.acc ?? 0) + dy;
   const steps = Math.trunc(m.acc / ROW_H);
@@ -37,7 +38,6 @@ export function wheel(m, dy, n, rows = ROWS) {
   m.acc -= steps * ROW_H;
   const before = m.top ?? 0;
   m.top = Math.max(0, Math.min(before - steps, Math.max(0, n - rows)));
-  m.wheeled = (m.wheeled ?? 0) + 1;
   return m.top !== before;
 }
 
@@ -51,10 +51,10 @@ export function slashItems(commands, query) {
 
 const SOURCE = { builtin: "", extension: "ext", prompt: "prompt", skill: "skill" };
 
-// The card every menu and picker sits in. `o`: {id, onWheel(dy, cx), onOutside(cx)}.
+// The card every menu and picker sits in. `o`: {id, onWheel(dy, cx), onOutside(cx)}; dy in layout px.
 function card(t, o) {
   let el = v_flex().id(o.id).p(4).rounded(10).border_1().border_color(t.border).bg(t.popover).shadow_md();
-  if (o.onWheel) el = el.on_scroll_wheel((e, cx) => { cx.stop_propagation(); o.onWheel(e.delta.y, cx); });
+  if (o.onWheel) el = el.on_scroll_wheel((e, cx) => { cx.stop_propagation(); o.onWheel(e.delta.y / uiScale(), cx); }); // window pt → layout px
   if (o.onOutside) el = el.on_mouse_down_out((_e, cx) => o.onOutside(cx));
   return el;
 }
@@ -221,6 +221,8 @@ export class Picker {
     const { start, list } = windowOf(items, this, 10);
     let wrap = div().id("picker-input").key_context("HerdrChatMenu");
     for (const a of ["herdrchat_enter", "herdrchat_up", "herdrchat_down", "herdrchat_tab", "herdrchat_escape"]) wrap = wrap.on_action(a, (_e, cx) => actions(a, cx));
+    // The composer's extra paste keys (composer.js) bind in this context too: the filter takes the clipboard's text.
+    if (PLATFORM.pasteChords.length) wrap = wrap.on_action("herdrchat_paste", (_e, cx) => { const text = cx.read_from_clipboard(); if (text) this.input.replace(text); });
     wrap = wrap.child(Input.new(this.input).h(30).px(8).rounded(7).border_1().border_color(t.input).bg(t.background).text_size(12.5));
     const more = items.length > 10 ? ` · ${start + 1}–${start + list.length} of ${items.length}` : "";
     const p = this.progress;
