@@ -44,6 +44,7 @@ export async function startClaude(o: ClaudeHostOptions): Promise<ClaudeHost> {
     FAKE_CLAUDE_LOG: join(h.dir, "claude-in.jsonl"),
     FAKE_CLAUDE_SPEED: String(o.speed ?? 4),
     HERDR_CHAT_CLAUDE_POLL_MS: "150",
+    ANTHROPIC_MODEL: "", // not the developer's own: a test sets it
     ...o.env,
   };
   if (o.scenario) {
