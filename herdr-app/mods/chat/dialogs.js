@@ -143,11 +143,18 @@ export class DialogCard {
     const tl = d.tool;
     const choices = d.choices ?? [];
     const hasDeny = choices.some((x) => x.kind === "deny");
-    const head = tl ? h_flex().h(34).px(10).gap(8).items_center().rounded(10).border_1().border_color(t.border).bg(t.surface)
+    const permId = `perm-${d.id}`;
+    const hasCmd = tl?.detail?.type === "bash" && Boolean(tl.detail.command);
+    const open = hasCmd && c.expanded.has(permId);
+    const head = tl ? h_flex().id(`dlg-head-${d.id}`).h(34).px(10).gap(8).items_center().rounded(10).border_1().border_color(t.border).bg(t.surface)
+      .when(hasCmd, (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)).on_click((_e, cx) => c.toggle(permId, cx)))
       .child(icon(toolIcon(tl.detail), 13).text_color(t.dim))
       .child(toolTitle({ ...tl, id: `perm-${d.id}` }, tl.detail ?? { type: "generic", tool: tl.name }, c)) : null;
     // An edit to approve: its change, as an edit card shows it.
     const diff = tl?.detail?.diffLines?.length ? div().id(`dlg-diff-${d.id}`).max_h(240).overflow_y_scroll().child(diffView(`perm-${d.id}`, tl.detail.diffLines, c)) : null;
+    // A bash command: the header truncates it; click it to read it whole (wrapped, scrolling when long).
+    const cmd = open ? div().id(`dlg-cmd-${d.id}`).max_h(200).overflow_y_scroll().px(10).py(6).rounded(8).bg(t.background)
+      .font_family(c.mono).text_size(11.5).text_color(t.foreground).child(tl.detail.command) : null;
     const args = tl && !tl.detail && tl.args && tl.args !== "{}" ? div().px(10).py(6).rounded(8).bg(t.background).font_family(c.mono).text_size(11.5)
       .text_color(t.dim).max_h(120).overflow_hidden().child(tl.args) : null;
     const button = (ch, i) => {
@@ -169,6 +176,7 @@ export class DialogCard {
     }
     return this.frame(d, pending, t, answer, "shield", hasDeny ? "deny" : "cancel")
       .children(head ? [head] : [])
+      .children(cmd ? [cmd] : [])
       .children(diff ? [diff] : [])
       // A plan to approve (Claude's ExitPlanMode) is markdown: render it as such, scrolling when long.
       .when(Boolean(d.message), (e) => e.child(/\n|^#|\*\*/.test(d.message)
