@@ -147,19 +147,23 @@ export function liveHolder(sessionId: string, exceptPid?: number): { pid: number
   return null;
 }
 
-/** `effortLevel`, `permissions.defaultMode`, and configured model (`env.ANTHROPIC_MODEL` or `model`) from the user's settings, if set. */
+/**
+ * `effortLevel` and `permissions.defaultMode` from the user's settings, if set, and
+ * `model`: the model Claude Code starts on without `--model`, in its order: the
+ * settings' `env.ANTHROPIC_MODEL` (the env block overrides the process env), then
+ * our env's `ANTHROPIC_MODEL` (the CLI inherits it), then the settings' `model`.
+ * Project settings can still override it; the CLI's init reports what it really runs.
+ */
 export function readUserSettings(): { effortLevel?: string; defaultMode?: string; model?: string } {
+  let s: Rec = {};
   try {
-    const s = JSON.parse(readFileSync(join(configDir(), "settings.json"), "utf8"));
-    const envModel = typeof s?.env?.ANTHROPIC_MODEL === "string" ? s.env.ANTHROPIC_MODEL.trim() : "";
-    const topModel = typeof s?.model === "string" ? s.model.trim() : "";
-    const model = envModel || topModel;
-    return {
-      ...(typeof s?.effortLevel === "string" ? { effortLevel: s.effortLevel } : {}),
-      ...(typeof s?.permissions?.defaultMode === "string" ? { defaultMode: s.permissions.defaultMode } : {}),
-      ...(model ? { model } : {}),
-    };
-  } catch {
-    return {};
-  }
+    s = JSON.parse(readFileSync(join(configDir(), "settings.json"), "utf8")) ?? {};
+  } catch {}
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+  const model = str(s.env?.ANTHROPIC_MODEL) ?? str(process.env.ANTHROPIC_MODEL) ?? str(s.model);
+  return {
+    ...(typeof s.effortLevel === "string" ? { effortLevel: s.effortLevel } : {}),
+    ...(typeof s.permissions?.defaultMode === "string" ? { defaultMode: s.permissions.defaultMode } : {}),
+    ...(model ? { model } : {}),
+  };
 }

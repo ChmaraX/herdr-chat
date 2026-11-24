@@ -67,7 +67,7 @@ export class ClaudeAdapter implements ProviderAdapter {
   private commandList: Rec[] = [];
   /** The model alias we launch with (`--model`), once the user picked one. */
   private modelValue: string | null = null;
-  /** The model configured in env (`ANTHROPIC_MODEL`) or `~/.claude/settings.json`, for display before a picker override. */
+  /** The model Claude Code starts on without `--model` (settings or `ANTHROPIC_MODEL`), read at each start. */
   private configuredModel: string | null = null;
   private effort: string | null;
   private permissionMode: string;
@@ -93,7 +93,6 @@ export class ClaudeAdapter implements ProviderAdapter {
     }
     this.opts = { ...opts, args };
     const s = readUserSettings();
-    this.configuredModel = process.env.ANTHROPIC_MODEL?.trim() || s.model || null;
     this.effort = s.effortLevel && EFFORT_LEVELS.includes(s.effortLevel) ? s.effortLevel : null;
     // The user's default may be anything (even "auto"); pass it explicitly, and never a bypass mode we can't offer.
     const want = s.defaultMode;
@@ -117,6 +116,7 @@ export class ClaudeAdapter implements ProviderAdapter {
 
   async start(session: string | null, host: AdapterHost): Promise<StartInfo> {
     this.host = host;
+    this.configuredModel = readUserSettings().model ?? null;
     this.mapper = new ClaudeMapper();
     this.mapper.permissionMode = this.permissionMode;
     let id: string;
@@ -185,20 +185,18 @@ export class ClaudeAdapter implements ProviderAdapter {
     return { streaming: false, hasHistory: Boolean(fork) || (resume && hasMessages(this.file)) };
   }
 
-  /** ModelInfo for the current model: the alias we launched with, else settings/env, else init's resolved model. */
+  /**
+   * ModelInfo for the current model: the alias we launched with, else the one the
+   * user's config names, else "default"; once init reports a model that isn't that
+   * one (a project setting we don't read, a pinned id), init's wins.
+   */
   private currentModel(): ModelInfo {
     const want = this.modelValue ?? this.configuredModel ?? "default";
     const live = this.mapper.initModel;
-    const base = (v: string) => v.replace(/\[[^\]]+\]$/, "");
-    const byValue = (v: string) => this.models.find((x) => x.value === v || x.value === base(v));
-    let m = byValue(want);
-    if (live && (!m || (m.resolvedModel !== live && m.value !== live))) {
-      const resolved = this.models.find((x) => x.value === live) ?? this.models.find((x) => x.resolvedModel === live && x.value !== "default");
-      if (resolved) m = resolved;
-    }
-    if (m?.value === "default" && typeof m.resolvedModel === "string") {
-      const resolved = this.models.find((x) => x.value === m!.resolvedModel) ?? this.models.find((x) => x.resolvedModel === m!.resolvedModel && x.value !== "default");
-      if (resolved) m = resolved;
+    // An exact alias first; `opus[1m]` falls back to `opus` only when the list has no `opus[1m]`.
+    let m = this.models.find((x) => x.value === want) ?? this.models.find((x) => x.value === want.replace(/\[[^\]]+\]$/, ""));
+    if (live && m?.resolvedModel !== live && m?.value !== live) {
+      m = this.models.find((x) => x.value === live) ?? this.models.find((x) => x.resolvedModel === live && x.value !== "default") ?? m;
     }
     const id = m ? String(m.value) : live ?? want;
     return {
