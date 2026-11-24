@@ -20,6 +20,7 @@ import { appHomeOf, labelSelf, newChatId, planSubagent } from "./subagent.ts";
 import { readChatConfig } from "./settings.ts";
 import { PaneWatch } from "./panewatch.ts";
 import { hostBuild } from "./build.ts";
+import { StatuslineCache } from "./statusline.ts";
 
 const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir> [--provider pi] [--session <file>] [--after-pid <pid> [--model <provider/id>] [--thinking <level>]] [--app-home <dir>] [--<provider> <cmd>] [-- <agent args>]
   (--app-home: the Herdr app's home, whose app it asks to close its hidden pane once its chat's pane is gone; default $HERDR_APP_HOME, else ~/.config/herdr-app)
@@ -125,6 +126,8 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   let registryCheck: NodeJS.Timeout | undefined;
   const attachments = new Attachments(join(stateDir, "attachments", chatId));
   const term = new Terminal(process.stdout, process.stdin, provider);
+  const statuslineDir = process.env.HERDR_STATUSLINE_DIR ?? join(homedir(), ".cache", "herdr-statusline");
+  const statusline = new StatuslineCache({ dir: statuslineDir, terminal: terminalId, provider });
   const chat = new Chat({
     chat: chatId, cwd, session, adapter, terminal: terminalId, log,
     afterPid: handOver ? afterPid : null,
@@ -146,11 +149,13 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
     patch: (p) => {
       term.observe(p.upsert);
       term.title(chat.chatTitle());
+      if ("model" in p.state || "usage" in p.state) statusline.sync(chat.state.model, chat.state.usage);
     },
     snapshot: () => {
       term.reset();
       term.observe(chat.timeline.items);
       term.title(chat.chatTitle());
+      statusline.sync(chat.state.model, chat.state.usage);
     },
     toast: (level, text) => term.line(`${level === "info" ? "·" : "!"} ${text}`),
     bye: () => {},

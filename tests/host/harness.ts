@@ -90,6 +90,7 @@ export class Host {
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("HC_") && !k.startsWith("HERDR_")) env[k] = v;
     env.FAKE_PI_LOG = this.piLog;
     env.FAKE_PI_SPEED = String(this.opts.speed ?? 4);
+    env.HERDR_STATUSLINE_DIR = join(this.dir, "statusline");
     if (this.opts.scenario) {
       let path: string;
       if (typeof this.opts.scenario === "string") path = join(SCENARIOS, this.opts.scenario);
