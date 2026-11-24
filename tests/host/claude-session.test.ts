@@ -2,7 +2,7 @@
 // local commands and /compact, images, sessions/switch/new, the TUI hand-off.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { idle, strip, markers } from "./harness.ts";
 import { startClaude } from "../fake-claude/host.ts";
@@ -408,7 +408,10 @@ function codeModeTranscript(id: string, cwd: string): string {
 }
 
 test("claude: a Code Mode session is listed by its messages, and switching to it is refused (Claude Code resumes it only in its terminal)", async () => {
-  const h = await startClaude({ name: "claude-code-mode", speed: 4, scenario: { default: [{ text: "ok: {prompt}" }] } });
+  const h = await startClaude({ name: "claude-code-mode", speed: 4, scenario: {
+    turns: [{ match: "slow", steps: [{ tool: "Bash", ask: false, durationMs: 8000, input: { command: "sleep 2" }, result: { content: "" } }, { text: "slow done" }] }],
+    default: [{ text: "ok: {prompt}" }],
+  } });
   try {
     const c = h.client;
     await c.waitFor(idle, 10_000);
@@ -432,6 +435,22 @@ test("claude: a Code Mode session is listed by its messages, and switching to it
     assert.equal(c.state.sessionFile, own, "the chat stays on its own session");
     await c.req("send", { text: "still here" });
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: still here"), 5000, "the chat's agent still answers");
+
+    // Picked mid-turn: refused before the run is stopped, so the turn goes on to its answer.
+    await c.req("send", { text: "slow" });
+    await c.waitFor((x) => x.state.phase === "working", 5000);
+    await assert.rejects(c.req("switch_session", { path: file }), /Code Mode/);
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "slow done"), 10_000, "the turn wasn't aborted");
+
+    // Its TUI still has it open (Claude Code's registry): refused before the conflict stops this chat's agent.
+    const registry = join(h.configDir, "sessions", `${process.pid}.json`);
+    mkdirSync(dirname(registry), { recursive: true });
+    writeFileSync(registry, JSON.stringify({ pid: process.pid, sessionId: id, cwd: h.cwd, kind: "interactive" }));
+    await assert.rejects(c.req("switch_session", { path: file }), /Code Mode/);
+    assert.equal(c.state.phase, "idle", "no conflict entered");
+    assert.equal(c.state.sessionFile, own);
+    await c.req("send", { text: "after the holder" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: after the holder"), 5000, "the chat's agent still answers");
   } finally {
     await h.stop();
   }

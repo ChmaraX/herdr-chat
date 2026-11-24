@@ -660,9 +660,12 @@ export class ClaudeAdapter implements ProviderAdapter {
     await this.restart(null);
   }
 
+  /** Claude Code would refuse it (`claude -p --resume` exits 1), and only once this chat's own agent had stopped. */
+  cantResume(path: string): string | null {
+    return codeModeSession(path) ? `That session ran in Code Mode, which Claude Code resumes only in its terminal for now: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --resume ${sessionIdOf(path)}` : null;
+  }
+
   async switchSession(path: string): Promise<void> {
-    // Claude Code would refuse it, and only once this chat's own agent had stopped.
-    if (codeModeSession(path)) throw new Error(`That session ran in Code Mode, which Claude Code resumes only in its terminal for now: CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --resume ${sessionIdOf(path)}`);
     await this.restart(path);
   }
 
