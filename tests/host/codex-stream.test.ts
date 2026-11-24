@@ -10,7 +10,9 @@ test("codex: thinking and text stream into their items, then the turn settles wi
   const long = "Here is a longer answer that streams in small chunks, so the chat sees it grow. ".repeat(6);
   const h = await codexHost({
     name: "cx-stream", speed: 1,
-    scenario: { prompts: [{ match: "explain", steps: [{ reasoning: ["**Planning the answer**", "Checking the details"], every: 20 }, { text: long, chunk: 6, every: 15 }] }] },
+    // Thinking streams for about half a second (11 chunks, 40 ms apart): long past the host's 50 ms batching,
+    // so a slow machine still sees it mid-stream.
+    scenario: { prompts: [{ match: "explain", steps: [{ reasoning: ["**Planning the answer**", "Checking the details"], chunk: 4, every: 40 }, { text: long, chunk: 6, every: 15 }] }] },
   });
   try {
     const c = h.client;
@@ -33,10 +35,18 @@ test("codex: thinking and text stream into their items, then the turn settles wi
     assert.equal(c.state.permissionMode, "auto");
     assert.equal(c.state.sessionFile, null, "no rollout before the first turn");
 
+    // Watch before sending: the streaming states are passing, and a watcher started after `send` returns can miss them.
+    let workingWhileStreaming = false;
+    const thinkingStreams = c.waitFor((x) => x.items.some((i) => i.kind === "thinking" && i.streaming && i.text.length > 0), 5000, "thinking streams");
+    const textStreams = c.waitFor((x) => {
+      const streaming = x.items.some((i) => i.kind === "assistant" && i.streaming && i.text.length > 10 && i.text.length < long.length);
+      if (streaming) workingWhileStreaming = x.state.phase === "working";
+      return streaming;
+    }, 5000, "text streams");
     await c.req("send", { text: "Please explain streaming" });
-    await c.waitFor((x) => x.items.some((i) => i.kind === "thinking" && i.streaming && i.text.length > 0), 5000, "thinking streams");
-    await c.waitFor((x) => x.items.some((i) => i.kind === "assistant" && i.streaming && i.text.length > 10 && i.text.length < long.length), 5000, "text streams");
-    assert.equal(c.state.phase, "working");
+    await thinkingStreams;
+    await textStreams;
+    assert.ok(workingWhileStreaming, "the chat is working while the answer streams");
     await c.waitFor(answered(/longer answer/), 10_000);
     const [user, thinking, assistant] = c.items;
     assert.deepEqual(c.items.map((i) => i.kind), ["user", "thinking", "assistant"]);
