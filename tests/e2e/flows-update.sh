@@ -64,8 +64,14 @@ if want update; then
   expect 'overlay_open new-chat' "the question opens (new-chat's floating block, after the reload)" 15
   expect '[ "$(dbg "$A" "d[\"update\"][\"outdated\"]")" = true ] && [ "$(dbg "$B" "d[\"update\"][\"outdated\"]")" = true ]' "A and B know their host is older" 10
   shot update-1-question 0.5
+  # An install can reload the mods again before anyone answers; the person keeps working in a terminal.
+  reload_mods; sleep 5
+  [ "$("$APP" status | python3 -c 'import json,sys; print(sum(1 for x in json.load(sys.stdin)["overlays"] if "new-chat" == (x if isinstance(x, str) else x.get("mod") or x.get("name"))))')" = 1 ] &&
+    ok "asked again by a reload: still one question" || fail "the question stacked after a reload"
+  do_ pane.focus --terminal "$SHELL_T"; sleep 0.5
+  keys "text:echo typed-in-terminal" enter
   sleep 3
-  [ "$(reg "$A" pid)" = "$A_PID" ] && ok "unanswered: A's host still runs (no restart without the person)" || fail "A restarted before the answer"
+  overlay_open new-chat && [ "$(reg "$A" pid)" = "$A_PID" ] && ok "unanswered, and an Enter in a terminal isn't an answer: A's host still runs" || fail "A restarted before the answer"
   do_ new-chat.update:restart
   expect '! overlay_open new-chat' "Restart closes the question" 5
 
