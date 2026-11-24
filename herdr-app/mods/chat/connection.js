@@ -55,9 +55,14 @@ export function runsHost(t) {
   return !Array.isArray(t.argv) || t.argv.some((a) => HOST_BIN.test(a));
 }
 
-// The live core terminal running this chat's host, if any.
-export function hostTerminal(chat) {
-  return terminals().find((t) => t.labels?.["herdr-chat.chat"] === chat && t.state === "live" && runsHost(t)) ?? null;
+// The chat's host: the live terminal its registry names (`terminal`), still
+// labelled with the chat (a core restart reuses addresses). A chat has one host
+// (host/claim.ts), and only that host writes the registry, so a terminal that
+// only carries the chat's label (a second host from before that, one that is
+// starting or refusing) is not it. new-chat/update.js pairs them the same way.
+export function registeredHost(entry) {
+  const a = entry?.terminal;
+  return (a && terminals().find((t) => t.address === a && t.state === "live" && runsHost(t) && t.labels?.["herdr-chat.chat"] === entry.chat)) || null;
 }
 
 // hc run's error, for the person. The host starts as /usr/bin/env, which is
@@ -71,6 +76,16 @@ export function startError(text, cwd) {
 }
 
 const BACKOFF = [250, 500, 1000, 2000, 2000];
+// A host this chat started is pending (none other is started) for START_GRACE after the
+// start whatever happened (terminals() lists a new terminal a moment after hc run returns;
+// a host that dies at once isn't restarted in a loop), then while its terminal runs a host,
+// up to START_MAX: one that never registers (hung) is given up on.
+const START_GRACE = 8000;
+const START_MAX = 60000;
+
+// A request the host never took: it answered with an error, or it was never sent. (A timeout or a
+// dropped link leaves it unknown: the host may have acted on it.)
+export class NotTaken extends Error {}
 
 export class Connection {
   // opts: {chat, cwd, attachOnly (never start a host), place: () => ({space, tab}) | null (a host starts only once the chat's tab is known), session, hostEnv, handOver ({pid, model, thinking} | null), onRecord(rec, cx), onChange(cx), log}
@@ -83,7 +98,8 @@ export class Connection {
     this.nextId = 1;
     this.closed = false;
     this.attempt = 0;
-    this.startedHostAt = 0;
+    this.entry = null; // the chat's registry entry as of the last connection attempt (hostTerminal)
+    this.started = null; // {address, at}: the host this connection started last (address null while hc run is out)
     this.welcome = null;
     this.connects = 0;
     // Start a host when none runs: on open, and after Restart. Once a host
@@ -91,11 +107,27 @@ export class Connection {
     this.autoStart = true;
   }
 
+  // Start a host when none runs (after Restart, or the old host of a replacement ended).
+  // A start already under way is not reset: it stays pending (startPending).
   restart() {
     this.startFailed = false;
     this.autoStart = true;
-    this.startedHostAt = 0;
     this.attempt = 0;
+  }
+
+  /** The chat's host terminal (the registry's, as of the last connection attempt), while it runs; null otherwise. */
+  hostTerminal() {
+    return registeredHost(this.entry);
+  }
+
+  /** Whether a host this connection started may still become the chat's (not in the registry or terminals() yet). */
+  startPending() {
+    const s = this.started;
+    if (!s) return false;
+    const age = Date.now() - s.at;
+    if (age < START_GRACE) return true;
+    const runs = !s.address || terminals().some((t) => t.address === s.address && t.state === "live" && runsHost(t));
+    return runs && age < START_MAX;
   }
 
   set(status, error, cx) {
@@ -134,6 +166,7 @@ export class Connection {
   // One connection attempt and, when it works, its whole read loop.
   async once(cx) {
     const entry = await readRegistry(this.o.chat);
+    this.entry = entry;
     if (!entry?.port || !entry?.pid) {
       await this.ensureHost(cx, entry);
       return;
@@ -171,7 +204,7 @@ export class Connection {
             if (p) {
               this.pending.delete(rec.id);
               if (rec.ok) p.resolve(rec.data ?? {});
-              else p.reject(new Error(rec.error ?? "failed"));
+              else p.reject(new NotTaken(rec.error ?? "failed"));
             }
           }
           if (welcomed && rec.t !== "ping") this.o.onRecord(rec, cx); // ping: the host's keepalive
@@ -189,22 +222,24 @@ export class Connection {
     }
   }
 
-  // No host answered: start one, unless a live terminal already runs it
-  // (it may still be starting) or we just did.
+  // No host answered: start one, unless the registry's host still runs (it may
+  // be starting, or between clients) or the one we started may not be in yet.
+  // Two starts at once can still happen (two windows on one core): the host
+  // refuses to be a chat's second (host/claim.ts), so this only saves a process.
   async ensureHost(cx, entry) {
-    const live = hostTerminal(this.o.chat);
     // A sub-agent's chat only attaches: its host is the parent's to start and end.
     if (this.o.attachOnly) {
-      if (live) this.set(this.connects ? "reconnecting" : "starting", null, cx);
+      if (this.hostTerminal()) this.set(this.connects ? "reconnecting" : "starting", null, cx);
       else this.set("stopped", "The sub-agent ended", cx);
       return;
     }
     // A start that failed stays failed (its error shown) until Retry (restart).
     if (this.startFailed) return;
-    if (live || Date.now() - this.startedHostAt < 8000) {
+    if (this.hostTerminal() || this.startPending()) {
       this.set(this.connects ? "reconnecting" : "starting", null, cx);
       return;
     }
+    this.started = null;
     if (!this.autoStart) {
       this.set("stopped", "The chat's host stopped", cx);
       return;
@@ -214,7 +249,7 @@ export class Connection {
       this.set("connecting", "waiting for the chat's tab", cx);
       return;
     }
-    this.startedHostAt = Date.now();
+    const started = (this.started = { address: null, at: Date.now() });
     this.set("starting", null, cx);
     const cfg = await readConfig();
     // The chat's agent: its props, else what the registry recorded (a reopened chat keeps it).
@@ -223,6 +258,7 @@ export class Connection {
     const host = cfg.host;
     const agent = cfg.agent(provider);
     if (!host) {
+      this.started = null;
       this.startFailed = true;
       this.set("failed", `mods/${MOD}/config.json has no "host"`, cx);
       return;
@@ -253,15 +289,20 @@ export class Connection {
     const r = await hc(args);
     this.o.log?.(`hc run host: code ${r.code} ${r.stdout.trim()} ${r.stderr.trim()}`);
     if (r.code !== 0) {
+      if (this.started === started) this.started = null;
       this.startFailed = true;
       this.set("failed", startError((r.stderr || r.stdout).trim(), this.o.cwd), cx);
+      return;
     }
-    else this.o.onHostStarted?.(r.stdout, cx);
+    try {
+      started.address = JSON.parse(r.stdout).address ?? null;
+    } catch {}
+    if (!started.address) started.at = Date.now(); // no address to watch: the grace from now
   }
 
   req(op, args = {}, { timeout = 30000 } = {}) {
     const link = this.link;
-    if (!link || this.status !== "connected") return Promise.reject(new Error("not connected to the host"));
+    if (!link || this.status !== "connected") return Promise.reject(new NotTaken("not connected to the host"));
     const id = `m${this.nextId++}`;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, op, deadline: Date.now() + timeout });

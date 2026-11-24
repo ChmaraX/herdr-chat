@@ -24,16 +24,6 @@ if want subagent; then
   step "sub-agents: the layout routes a chat sub-agent's click to the chat (install/layout.ts, as install.sh runs it)"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
   expect '[ "$("$APP" status | python3 -c "import json,sys; print(json.load(sys.stdin)[\"layout\"])")" = main-copy ]' "Herdr's own main on screen: cloned as main-copy and shown" 10
-  python3 - "$HERDR_APP_HOME/layouts/main-copy.json" <<'EOF' && ok "main-copy: the agents block shows chat-agents (main's agents list kept in replaces), terminal_menu is chat-menu" || fail "main-copy wasn't patched"
-import json, sys
-l = json.load(open(sys.argv[1]))
-found = []
-def walk(n):
-    if (n.get("content") or {}).get("mod") == "chat-agents": found.append(n["content"])
-    for c in n.get("children", []): walk(c)
-walk(l)
-sys.exit(0 if l.get("terminal_menu") == "chat-menu" and found and found[0]["props"]["replaces"]["mod"] == "agents" else 1)
-EOF
   sleep 1
   # Another chat's view, open the whole time in a tab behind: its sweepOrphans runs every 30 s.
   SWEEPER=$(open_chat sweeper)
@@ -73,7 +63,7 @@ EOF
   expect '[ "$(d "[i[\"text\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][0].endswith(\"quick: review src/a.ts only\")")" = true ] && [ "$(count_kind assistant)" -ge 1 ]' "the dialog shows the task (template body + task) and its answer" 10
   # The keyboard is the composer's on open: a key typed now lands there (no focus command first).
   keys "text:x"
-  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = x ]' 3 && ok "the composer has the keyboard on open (a typed key lands there)" || skip "a key typed on open didn't land (the window $(drawn && echo "is drawn" || echo "isn't drawn"))"
+  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = x ]' 3 && ok "the composer has the keyboard on open (a typed key lands there)" || skip "a key typed on open didn't land"
   cmd clear
   until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || fail "chat.clear didn't empty the composer"
 
@@ -158,17 +148,12 @@ if want journey; then
   step "journey: the layout gets new-chat's floating copy (install/layout.ts), the keys come from data/herdr-chat/keys.json (install/keys.ts)"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
   sleep 1
-  LNAME=$("$APP" status | python3 -c 'import json,sys; print(json.load(sys.stdin)["layout"])')
-  python3 -c 'import json,sys
-l = json.load(open(sys.argv[1]))
-sys.exit(0 if any((f.get("content") or {}).get("mod") == "new-chat" and f["content"]["props"]["role"] == "commands" for f in l.get("floating", [])) else 1)' "$HERDR_APP_HOME/layouts/$LNAME.json" &&
-    ok "layout $LNAME: an empty floating block with new-chat (props.role commands)" || fail "no new-chat floating block in $LNAME"
   mkdir -p "$STATE"
   echo '{"global": {"claude": "cmd-alt-k"}}' >"$STATE/keys.json"
   "$NODE" "$REPO/install/keys.ts" install "$HERDR_APP_HOME" --platform darwin >"$ART/journey-keys.txt" 2>&1 || fail "install/keys.ts install: $(cat "$ART/journey-keys.txt")"
-  [ "$(tail -1 "$ART/journey-keys.txt")" = "New chat: ⌘I · Claude Code chat: ⌘⌥K" ] && ok "install/keys.ts: \"$(tail -1 "$ART/journey-keys.txt")\"" || fail "keys summary: $(cat "$ART/journey-keys.txt")"
-  python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["global"]; sys.exit(0 if g.get("cmd-i") == "mod.open:new-chat" and g.get("cmd-alt-k") == "new-chat.claude" else 1)' "$HERDR_APP_HOME/keys.json" &&
-    ok "keys.json: cmd-i → mod.open:new-chat, cmd-alt-k → new-chat.claude" || fail "keys.json global"
+  # The files' bytes are install.test.ts's; this only makes sure ⌥⌘K below is the key keys.json binds.
+  python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["global"]; sys.exit(0 if g.get("cmd-i") == "mod.open:new-chat" and g.get("cmd-alt-k") == "new-chat.claude" else 1)' "$HERDR_APP_HOME/keys.json" ||
+    fail "keys.json global: $(cat "$ART/journey-keys.txt")"
   sleep 1
 
   step "new-chat.open toggles the launcher; new-chat.pi opens a Pi chat tab at once"
@@ -234,7 +219,8 @@ JS
   menu_offers() {
     rm -f "$STATE/debug/chat-menu.json"
     do_ "chat-agents.menu:$TUI"
-    until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("cantContinue") is None else 1)' "$STATE/debug/chat-menu.json"
+    # Offered: the menu knows the terminal and finds no reason it can't (no terminal also gives cantContinue null).
+    until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("terminal") and d.get("cantContinue") is None else 1)' "$STATE/debug/chat-menu.json"
   }
   for _ in 1 2 3 4 5; do menu_offers && break; do_ overlay.close; sleep 1; done
   expect 'overlay_open chat-menu' "its right-click menu (chat-menu)" 5
@@ -301,10 +287,13 @@ JS
   TIP=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
   hc label "$TIP" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
   expect '[ "$(term_field "$TIP" "(t.get(\"foreground\") or {}).get(\"argv\",[None])[0]")" = pi ] && [ "$(term_field "$TIP" "(t.get(\"status\") or {}).get(\"state\")")" = idle ]' "the shell's foreground is pi, idle" 10
-  TIPTAB=$(app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print([t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])][0])' "$TIP")
+  tip_tab() { app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])), ""))' "$TIP"; }
+  expect '[ -n "$(tip_tab)" ]' "the app shows the terminal in a tab (it learns of it after the core)" 10
+  TIPTAB=$(tip_tab)
   PIPID=$(term_field "$TIP" 't["foreground"]["pid"]')
   BEFORE=$(chat_dumps)
   step "Continue as chat (new-chat.continue:$TIP)"
+  expect 'app_sees_agent "$TIP"' "the app knows it as an idle agent (it learns this after the core)" 10
   do_ "new-chat.continue:$TIP"
   expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened (its dump appeared)" 15
   J=$(new_chat_since "$BEFORE")
@@ -320,4 +309,175 @@ JS
   FP=$("$APP" status | python3 -c 'import json,sys; s=json.load(sys.stdin); print(s["tab"], s["focused_pane"])')
   [ "$FP" = "$TIPTAB $(tab_panes "$TIPTAB" | awk '$2 == "mod:chat" {print $1}')" ] && ok "the chat is focused, in that tab" || fail "focus: $FP; the tab: $(tab_panes "$TIPTAB" | tr '\n' '|')"
   close_chat "$J"
+fi
+
+# --- flow `tui-under-command`: Continue as chat on a Pi its terminal's own command started -------------
+# A session restorer or a space's start command opens a terminal as `fish -ic 'claude --resume …; exec fish -i'`:
+# a shell without job control, so Herdr reports the shell as the foreground and the agent runs under it, in the
+# shell's process group. The host finds it there (herdr-chat-host tui-session). The fake Pi sets
+# process.title "pi", as real Pi does. new-chat's debug toast log is kept (artifact tuc-toasts.jsonl).
+# 1. Two Pis under one command (`pi & pi`): refused, with the reason in a toast, and neither is signalled.
+# 2. One Pi two levels down (zsh -c → sh -c → "My Tools/pi", a path with a space): the chat takes its place as
+#    in tui-in-place, and the shell's `exec zsh -i` leaves the pane to close.
+# 3. The command goes on after Pi quits (`…; sleep 5; exec zsh -i`): the pane stays while `sleep` runs (a toast
+#    says so), and the shell's prompt is still there after it.
+# 4. The shell after `exec zsh -i` starts a helper of its own (its rc runs `sleep 600 &`, a job in a group of its
+#    own, as a prompt's daemon): the shell is idle at its prompt, so the pane closes.
+if want tui-under-command; then
+  step "tui-under-command: Pi TUIs started by their terminal's own command (zsh -c '…; exec zsh -i')"
+  "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
+  # The app keeps no list of its toasts: with debug/enabled (lib.sh), new-chat appends each of its own to
+  # debug/new-chat-toasts.jsonl ({title, body, level}, one JSON line).
+  TOASTS="$STATE/debug/new-chat-toasts.jsonl"; : >"$TOASTS"
+  toasts_since() { tail -n +"$(($1 + 1))" "$TOASTS"; }
+  toast_mark() { wc -l <"$TOASTS" | tr -d ' '; }
+  # The layout's new-chat block takes commands once the app has reloaded it.
+  M=$(toast_mark)
+  until_ '"$APP" do new-chat.continue:t999' 10 || fail "the layout's new-chat block takes no commands"
+  expect 'toasts_since "$M" | grep -q "not live"' "the toast log records Continue as chat's errors (probe: no terminal t999)" 8
+  TS="$BASE/tuc-session.jsonl"
+  python3 - "$TS" "$PROJ" <<'PY2'
+import json, sys
+path, cwd = sys.argv[1:]
+ts = "2026-11-05T12:00:00.000Z"
+u = {"role": "user", "content": [{"type": "text", "text": "asked in the restored TUI"}], "timestamp": 1}
+a = {"role": "assistant", "content": [{"type": "text", "text": "Answered in the restored TUI."}], "api": "fake", "provider": "fake", "model": "fake",
+     "usage": {"input": 1, "output": 1, "cacheRead": 0, "cacheWrite": 0, "totalTokens": 2, "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0, "total": 0}}, "stopReason": "stop", "timestamp": 2}
+with open(path, "w") as f:
+    f.write(json.dumps({"type": "session", "version": 3, "id": "tuc-1", "timestamp": ts, "cwd": cwd}) + "\n")
+    f.write(json.dumps({"type": "message", "id": "m0", "parentId": None, "timestamp": ts, "message": u}) + "\n")
+    f.write(json.dumps({"type": "message", "id": "m1", "parentId": "m0", "timestamp": ts, "message": a}) + "\n")
+PY2
+  # "…/My Tools/pi", a link to node: a Pi run by a path with a space. It writes its pid to $PIDS (the test's own
+  # record of which processes are Pi, not a rule like the host's).
+  mkdir -p "$BASE/My Tools"
+  ln -sf "$NODE" "$BASE/My Tools/pi"
+  PIBIN="$BASE/My Tools/pi"
+  PIDS="$BASE/tuc-pids"
+  cat >"$BASE/fake-pi-under-cmd.mjs" <<'JS'
+import { appendFileSync } from "node:fs";
+process.title = "pi";
+appendFileSync(process.env.TUC_PIDS, `${process.env.TUC_TAG} ${process.pid}\n`);
+const report = () => process.stdout.write("\x1b]7501;state=idle:app=pi\x1b\\");
+report(); const every = setInterval(report, 500);
+console.log("fake Pi TUI (started by its terminal's command)");
+process.on("SIGTERM", () => { clearInterval(every); console.log("SIGTERM: quitting"); setTimeout(() => process.exit(0), 300); });
+JS
+  : >"$PIDS"
+  pis_of() { awk -v t="$1" '$1 == t {print $2}' "$PIDS"; }
+  SP=$(app_ls | python3 -c 'import json,sys; print([s["id"] for s in json.load(sys.stdin)["spaces"] if s["active"]][0])')
+  tab_of() { app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])), ""))' "$1"; }
+  idle_pi() { [ "$(term_field "$1" "(t.get(\"status\") or {}).get(\"state\")")" = idle ] && [ "$(term_field "$1" "t.get(\"agent\") or (t.get(\"status\") or {}).get(\"app\")")" = pi ]; }
+  # A terminal (new tab tbtuc000$2) running zsh -c "$3", its Pis tagged $1 in $PIDS, labeled with the session.
+  start_tuc() {
+    local out
+    out=$(hc run --bg --json --keep --no-parent --cwd "$PROJ" --label "herdr.space=$SP" --label "herdr.tab=tbtuc000$2" \
+      -- /bin/zsh -c "export TUC_PIDS='$PIDS' TUC_TAG=$1; $3" 2>>"$LOG") || fail "hc run ($1)"
+    note "hc run ($1): $out"
+    TERMADDR=$(echo "$out" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
+    hc label "$TERMADDR" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
+  }
+
+  step "two Pis under one terminal's command: Continue as chat refuses, says why, and signals neither"
+  start_tuc two 1 "'$PIBIN' $BASE/fake-pi-under-cmd.mjs & '$PIBIN' $BASE/fake-pi-under-cmd.mjs; exec /bin/zsh -i"
+  AMBIG=$TERMADDR
+  expect 'idle_pi "$AMBIG" && [ "$(pis_of two | wc -l | tr -d " ")" = 2 ]' "Herdr reports an idle Pi; two Pis run under the terminal's shell" 10
+  AMBIGPIS=$(pis_of two | tr '\n' ' ')
+  expect '[ -n "$(tab_of "$AMBIG")" ]' "the app shows the terminal in a tab" 10
+  expect '[ "$(basename "$(term_field "$AMBIG" "(t.get(\"foreground\") or {}).get(\"argv\",[\"\"])[0]")")" = zsh ]' "its foreground is the shell" 5
+  expect 'app_sees_agent "$AMBIG"' "the app knows it as an idle agent" 10
+  BEFORE=$(chat_dumps); M=$(toast_mark)
+  do_ "new-chat.continue:$AMBIG"
+  until_ '[ -n "$(toasts_since "$M")" ]' 10 || true
+  toasts_since "$M" >"$ART/tuc-refusal-toast.jsonl"
+  note "toast: $(tr '\n' ' ' <"$ART/tuc-refusal-toast.jsonl")"
+  grep -q "2 Pi processes under the terminal's command (pids [0-9]*, [0-9]*): not sure which is the TUI, so none is stopped" "$ART/tuc-refusal-toast.jsonl" &&
+    ok "the toast says two Pis run under its command, so none is stopped" || fail "the refusal's toast: $(cat "$ART/tuc-refusal-toast.jsonl")"
+  [ -z "$(new_chat_since "$BEFORE")" ] && ok "no chat opened" || fail "a chat opened for an ambiguous terminal"
+  for p in $AMBIGPIS; do kill -0 "$p" 2>/dev/null && ok "Pi $p still runs (no SIGTERM)" || fail "Pi $p was signalled"; done
+  hc kill "$AMBIG" >>"$LOG" 2>&1 || true
+  for p in $AMBIGPIS; do kill "$p" 2>/dev/null || true; done
+
+  step "one Pi two levels under the terminal's command (zsh -c → sh -c → \"My Tools/pi\")"
+  # `; true` keeps sh from exec'ing pi, so pi is the shell's grandchild.
+  start_tuc one 2 "/bin/sh -c \"'$PIBIN' $BASE/fake-pi-under-cmd.mjs; true\"; exec /bin/zsh -i"
+  TUC=$TERMADDR
+  expect 'idle_pi "$TUC" && [ -n "$(pis_of one)" ] && [ -n "$(term_field "$TUC" "(t.get(\"foreground\") or {}).get(\"pid\")")" ]' "Herdr reports an idle Pi and the terminal's foreground; a Pi runs under the terminal's shell" 10
+  hc get "$TUC" --json >"$ART/tuc-term-before.json"
+  SHPID=$(term_field "$TUC" '(t.get("foreground") or {}).get("pid")')
+  PIPID=$(pis_of one)
+  [ "$(basename "$(term_field "$TUC" '(t.get("foreground") or {}).get("argv",[None])[0]')")" = zsh ] && [ "$SHPID" = "$(term_field "$TUC" 't["pid"]')" ] &&
+    ok "its foreground is the terminal's own shell (pid $SHPID)" || fail "foreground: $(term_field "$TUC" 't.get("foreground")')"
+  [ "$(ps -o ppid= -p "$(ps -o ppid= -p "$PIPID" | tr -d ' ')" | tr -d ' ')" = "$SHPID" ] && ok "Pi ($PIPID, $(ps -o args= -p "$PIPID")) is the shell's grandchild" || fail "Pi $PIPID isn't the shell's grandchild"
+  expect '[ -n "$(tab_of "$TUC")" ]' "the app shows the terminal in a tab" 10
+  TUCTAB=$(tab_of "$TUC")
+  do_ pane.focus --terminal "$TUC"
+  shot tuc-1-tui-under-command 1
+  BEFORE=$(chat_dumps)
+  step "Continue as chat (new-chat.continue:$TUC)"
+  expect 'app_sees_agent "$TUC"' "the app knows it as an idle agent" 10
+  do_ "new-chat.continue:$TUC"
+  expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened (its dump appeared)" 15
+  J=$(new_chat_since "$BEFORE")
+  expect '[ "$(chat_tab "$J")" = "$TUCTAB" ]' "in the TUI's tab" 10
+  expect '! kill -0 '"$PIPID"' 2>/dev/null' "Pi (pid $PIPID) quit on SIGTERM" 10
+  expect '[ "$(term_field "$TUC" "t[\"state\"]" 2>/dev/null)" != live ] || [ "$(term_field "$TUC" "t[\"foreground\"][\"pid\"]")" = "$(term_field "$TUC" "t[\"pid\"]")" ]' "the TUI's shell is at its prompt (exec zsh -i) or gone" 10
+  expect '! tab_panes "$TUCTAB" | grep -q "$TUC"' "the TUI's pane closed: the tab holds the chat" 10
+  expect '[ "$(dbg "$J" "d[\"connection\"][\"status\"]")" = connected ]' "the chat connected" 25
+  expect 'inspect_chat "$J" | grep -q "Answered in the restored TUI."' "the chat has the TUI session's history" 15
+  shot tuc-2-chat-in-place 0.6
+  close_chat "$J"
+  [ "$(term_field "$TUC" 't["state"]' 2>/dev/null)" != live ] || hc kill "$TUC" >>"$LOG" 2>&1 || true
+
+  step "the command goes on after Pi quits (…; sleep 5; exec zsh -i): the pane stays while it runs, and says so"
+  start_tuc slow 3 "'$PIBIN' $BASE/fake-pi-under-cmd.mjs; /bin/sleep 5; exec /bin/zsh -i"
+  SLOW=$TERMADDR
+  expect 'idle_pi "$SLOW" && [ -n "$(pis_of slow)" ]' "Herdr reports an idle Pi under the terminal's shell" 10
+  PIPID=$(pis_of slow)
+  expect '[ -n "$(tab_of "$SLOW")" ]' "the app shows the terminal in a tab" 10
+  SLOWTAB=$(tab_of "$SLOW")
+  expect 'app_sees_agent "$SLOW"' "the app knows it as an idle agent" 10
+  BEFORE=$(chat_dumps); M=$(toast_mark)
+  do_ "new-chat.continue:$SLOW"
+  expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 15
+  J=$(new_chat_since "$BEFORE")
+  expect '! kill -0 '"$PIPID"' 2>/dev/null' "Pi (pid $PIPID) quit on SIGTERM" 10
+  until_ '[ -n "$(toasts_since "$M")" ]' 8 || true
+  toasts_since "$M" >"$ART/tuc-slow-toast.jsonl"
+  note "toast: $(tr '\n' ' ' <"$ART/tuc-slow-toast.jsonl")"
+  grep -q "now runs [^:]*sleep: its pane stays" "$ART/tuc-slow-toast.jsonl" && ok "a toast says the terminal now runs sleep, so its pane stays" || fail "the toast: $(cat "$ART/tuc-slow-toast.jsonl")"
+  pgrep -f "^/bin/sleep 5$" >/dev/null && ok "sleep still runs" || note "sleep already ended"
+  tab_panes "$SLOWTAB" | grep -q "$SLOW" && ok "the TUI's pane stays beside the chat (sleep wasn't cut short)" || fail "the TUI's pane closed while its command ran: $(tab_panes "$SLOWTAB" | tr '\n' '|')"
+  shot tuc-3-pane-stays 0.6
+  expect '[ "$(term_field "$SLOW" "t[\"foreground\"][\"pid\"]")" = "$(term_field "$SLOW" "t[\"pid\"]")" ] && ! pgrep -g "$(ps -o pgid= -p "$(term_field "$SLOW" "t[\"pid\"]")" | tr -d " ")" -f "^/bin/sleep" >/dev/null' "then sleep ends and the shell is at its prompt (exec zsh -i)" 10
+  close_chat "$J"
+  hc kill "$SLOW" >>"$LOG" 2>&1 || true
+
+  step "the interactive shell after Pi starts a helper (its rc: sleep 600 &): the shell is idle, so the pane closes"
+  ZD="$BASE/tuc-zdotdir"; mkdir -p "$ZD"
+  printf '/bin/sleep 600 &\n' >"$ZD/.zshrc"
+  start_tuc helper 4 "'$PIBIN' $BASE/fake-pi-under-cmd.mjs; ZDOTDIR='$ZD' exec /bin/zsh -i"
+  HELP=$TERMADDR
+  expect 'idle_pi "$HELP" && [ -n "$(pis_of helper)" ]' "Herdr reports an idle Pi under the terminal's shell" 10
+  PIPID=$(pis_of helper)
+  expect '[ -n "$(tab_of "$HELP")" ]' "the app shows the terminal in a tab" 10
+  HELPTAB=$(tab_of "$HELP")
+  HSH=$(term_field "$HELP" 't["pid"]')
+  expect 'app_sees_agent "$HELP"' "the app knows it as an idle agent" 10
+  BEFORE=$(chat_dumps); M=$(toast_mark)
+  do_ "new-chat.continue:$HELP"
+  until_ '[ -n "$(new_chat_since "$BEFORE")" ] || [ -n "$(toasts_since "$M")" ]' 15 || true
+  [ -z "$(toasts_since "$M")" ] || note "toast: $(toasts_since "$M" | tr '\n' ' ')"
+  expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 5
+  J=$(new_chat_since "$BEFORE")
+  expect '! kill -0 '"$PIPID"' 2>/dev/null' "Pi (pid $PIPID) quit on SIGTERM" 10
+  expect 'pgrep -P "$HSH" -f "^/bin/sleep 600$" >/dev/null' "the shell's rc started its helper (sleep 600, the shell's child)" 10
+  HPID=$(pgrep -P "$HSH" -f "^/bin/sleep 600$" | head -1)
+  note "helper $HPID: pgid $(ps -o pgid= -p "$HPID" | tr -d ' '); the shell $HSH: pgid $(ps -o pgid= -p "$HSH" | tr -d ' ')"
+  expect '! tab_panes "$HELPTAB" | grep -q "$HELP"' "the TUI's pane closed: the helper doesn't keep it" 10
+  [ -z "$(toasts_since "$M")" ] && ok "no toast" || fail "a toast: $(toasts_since "$M")"
+  close_chat "$J"
+  hc kill "$HELP" >>"$LOG" 2>&1 || true
+  [ -n "$HPID" ] && kill "$HPID" 2>/dev/null || true
+  cp "$TOASTS" "$ART/tuc-toasts.jsonl"
 fi

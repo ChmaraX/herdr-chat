@@ -2,6 +2,9 @@
 // model/effort/permission-mode switching, a crash, a stall, a wedged CLI.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { idle, sleep } from "./harness.ts";
 import { startClaude } from "../fake-claude/host.ts";
 
@@ -75,11 +78,59 @@ test("claude: a steer folds into the running turn at the next tool boundary; a f
   }
 });
 
+test("claude: with no --model the chip shows the configured model from the start, through turns, reloads and a pick", async () => {
+  // Claude Code's order: settings env.ANTHROPIC_MODEL, then the process's ANTHROPIC_MODEL, then settings model.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "pich-claude-configured-")));
+  const settings = join(dir, "claude-config", "settings.json");
+  mkdirSync(join(dir, "claude-config"), { recursive: true });
+  writeFileSync(settings, JSON.stringify({ model: "sonnet", env: { ANTHROPIC_MODEL: "haiku" } }));
+  const h = await startClaude({ name: "claude-configured-model", speed: 4, dir, env: { ANTHROPIC_MODEL: "opus" }, scenario: { default: [{ text: "model={model}" }] } });
+  try {
+    const c = h.client;
+    await c.waitFor((x) => idle(x) && x.state.model, 10_000);
+    assert.deepEqual([c.state.model.id, c.state.model.name], ["haiku", "Haiku 5.5"], "before any turn");
+    assert.deepEqual(c.state.capabilities.thinkingLevels, ["low", "medium", "high"]);
+    assert.ok(!h.inputs()[0].argv.includes("--model"), "Claude Code reads its own settings");
+    await c.req("send", { text: "which?" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "model=haiku"), 5000);
+    assert.equal(c.state.model.id, "haiku", "after the turn's init");
+    // Edited settings count at the next start: now the process env beats settings model.
+    writeFileSync(settings, JSON.stringify({ model: "sonnet" }));
+    await c.req("send", { text: "/reload" });
+    await c.waitFor((x) => idle(x) && x.state.model?.id === "opus", 10_000, "opus after reload");
+    // A project setting the chip can't see: its guess holds until init says what the CLI really runs.
+    const project = join(h.cwd, ".claude", "settings.json");
+    mkdirSync(join(h.cwd, ".claude"), { recursive: true });
+    writeFileSync(project, JSON.stringify({ env: { ANTHROPIC_MODEL: "claude-sonnet-4-5-20250929" } }));
+    await c.req("send", { text: "/reload" });
+    await c.req("send", { text: "pinned?" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "model=claude-sonnet-4-5-20250929"), 10_000);
+    assert.deepEqual([c.state.model.id, c.state.model.name], ["claude-sonnet-4-5-20250929", "claude-sonnet-4-5-20250929"], "an unlisted live model wins over the guess");
+    writeFileSync(project, JSON.stringify({ env: { ANTHROPIC_MODEL: "haiku" } }));
+    await c.req("send", { text: "/reload" });
+    await c.req("send", { text: "listed?" });
+    await c.waitFor((x) => idle(x) && x.items.filter((i) => i.text === "model=haiku").length === 2 && x.state.model?.id === "haiku", 10_000, "a listed live model switches the entry");
+    rmSync(project);
+    // A pick wins over the config, and keeps winning after a reload.
+    await c.req("set_model", { provider: "anthropic", modelId: "sonnet" });
+    await c.waitFor((x) => x.state.model?.id === "sonnet", 2000);
+    await c.req("send", { text: "/reload" });
+    await c.req("send", { text: "and now?" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "model=sonnet"), 10_000);
+    assert.deepEqual([c.state.model.id, c.state.model.name], ["sonnet", "Sonnet 5.5"]);
+    h.artifact("claude-configured-model");
+  } finally {
+    await h.stop();
+  }
+});
+
 test("claude: model, effort and permission mode switch live and reach the CLI", async () => {
   const h = await startClaude({ name: "claude-settings", speed: 4, scenario: { default: [{ text: "model={model} effort={effort} mode={mode}" }] } });
   try {
     const c = h.client;
-    await c.waitFor(idle, 10_000);
+    await c.waitFor((x) => idle(x) && x.state.model, 10_000);
+    // Nothing configured: the chip stays on Claude Code's own "default" entry.
+    assert.deepEqual([c.state.model.id, c.state.model.name], ["default", "Default"]);
     const { models } = await c.req("models");
     assert.deepEqual(models.map((m: any) => m.id), ["default", "opus", "sonnet", "haiku"]);
     assert.deepEqual(models[2], { provider: "anthropic", id: "sonnet", name: "Sonnet 5.5", reasoning: true, enabled: true });

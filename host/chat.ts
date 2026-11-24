@@ -13,7 +13,7 @@ import { mergeCommands, parseBuiltin, builtins } from "./commands.ts";
 import { splitSkills, typedText } from "./skill.ts";
 import type { SkillLead, SkillRef } from "./skill.ts";
 import type { Command } from "./commands.ts";
-import { takeLock, releaseLock, readLock, pidAlive, readRegistry } from "./registry.ts";
+import { takeLock, releaseLock, readLock, pidAlive, processRuns, processStamp, readRegistry, servesChat } from "./registry.ts";
 import { ChatClient } from "./client.ts";
 import { FileIndex } from "./files.ts";
 import { GitWatch } from "./git.ts";
@@ -403,10 +403,17 @@ export class Chat {
 
   // ---------------------------------------------------------------- one writer per session
 
-  /** Another live chat's host holding the session lock. An older host of this same chat doesn't count. */
+  /**
+   * Another live host holding the session lock: its pid runs, with the start time the lock
+   * recorded (a host that died leaves its lock; its pid may go to another process). One of this
+   * same chat counts too: a chat has one host (claim.ts), so a live one that isn't this process is
+   * a second writer, a host from before the claim (the mod's orphan sweep ends it). Such a host's
+   * lock records no start time: its pid must still run this chat's host (its command line).
+   */
   private lockHolder(file: string): Conflict | null {
     const l = readLock(file);
-    if (!l || !Number.isInteger(l.pid) || l.pid === process.pid || l.chat === this.opts.chat || !pidAlive(l.pid)) return null;
+    if (!l || !Number.isInteger(l.pid) || l.pid === process.pid || !processRuns(l.pid, l.stamp)) return null;
+    if (l.chat === this.opts.chat && !l.stamp && !servesChat(l.pid, this.opts.chat)) return null;
     return { chat: l.chat ?? null, terminal: l.terminal ?? null, pid: l.pid };
   }
 
@@ -416,9 +423,6 @@ export class Chat {
     if (!agentGuard) return null;
     const tui = this.opts.afterPid;
     if (tui && tui !== process.pid && file === this.opts.session && pidAlive(tui)) return { chat: null, terminal: null, pid: tui };
-    // A live lock of this same chat is an older instance of it; its agent is not a stranger.
-    const own = readLock(file);
-    if (own && own.chat === this.opts.chat && own.pid !== process.pid && pidAlive(own.pid)) return null;
     const agent = this.adapter.sessionHolder?.(file);
     return agent ? { chat: null, terminal: null, pid: agent.pid } : null;
   }
@@ -437,11 +441,13 @@ export class Chat {
   }
 
   private conflictText(c: Conflict): string {
+    if (c.chat === this.opts.chat) return `This session is open in a second host of this chat (pid ${c.pid}), one started before herdr-chat kept one host per chat.`;
     if (c.chat) return `This session is open in another chat${c.terminal ? ` (terminal ${c.terminal})` : ""}.`;
     return `This session is open in ${this.agent} outside a chat${c.pid ? ` (pid ${c.pid})` : ""}.`;
   }
 
   private conflictWayOut(c: Conflict): string {
+    if (c.chat === this.opts.chat) return "The chat ends that host within a minute; then use resume.";
     return c.chat ? "Go to that chat, or use take_over to move it here." : "Quit it there, then use resume.";
   }
 
@@ -577,7 +583,8 @@ export class Chat {
     if (this.lockedFile) releaseLock(this.lockedFile);
     this.lockedFile = file;
     if (file) {
-      const other = takeLock(file, { pid: process.pid, chat: this.opts.chat, terminal: this.opts.terminal, startedAt: Date.now() });
+      const stamp = processStamp(process.pid);
+      const other = takeLock(file, { pid: process.pid, chat: this.opts.chat, terminal: this.opts.terminal, startedAt: Date.now(), stamp: stamp === "gone" ? null : stamp });
       if (other) this.notice("warning", `This session is also open in another chat (pid ${other.pid}${other.terminal ? `, terminal ${other.terminal}` : ""}). Two writers can corrupt it.`);
     }
     this.opts.onSessionFile?.(file);
@@ -785,8 +792,13 @@ export class Chat {
     if (!this.held.length) return;
     const texts = this.held.map((h) => h.text);
     this.held = [];
-    this.set({ editorText: [this.state.editorText, ...texts].filter(Boolean).join("\n\n") });
+    this.returnToComposer(texts);
     this.publishQueue();
+  }
+
+  /** Unsent text goes back to the person's composer (`editorText`), after any not yet acknowledged. */
+  private returnToComposer(texts: string[]): void {
+    this.set({ editorText: [this.state.editorText, ...texts].filter(Boolean).join("\n\n") });
   }
 
   /** Idle with follow-ups held: send the next one as a prompt. One per run; the next waits for this one's run to settle. */
@@ -800,7 +812,7 @@ export class Chat {
     const giveBack = () => {
       if (returned) return;
       returned = true;
-      this.set({ editorText: [this.state.editorText, h.text].filter(Boolean).join("\n\n") });
+      this.returnToComposer([h.text]);
     };
     this.send({ text: h.text, images: h.images, mode: "auto", source: "queued", from: h.from }, { onRejected: giveBack })
       .catch((e) => {
@@ -1089,8 +1101,12 @@ export class Chat {
     return this.runActive || this.state.phase === "working" || this.state.phase === "compacting";
   }
 
-  /** `onRejected`: the agent refused the message after it was sent (the timeline item is gone again). */
-  async send(args: { text?: string; images?: string[]; mode?: string; source?: UserSource; from?: string }, opts: { onRejected?: () => void } = {}): Promise<{ disposition: string }> {
+  /**
+   * `onRejected`: the agent refused the message after it was sent, or exited before it replied (the
+   * timeline item is gone again). `unheard`: `send` has answered without an error (`pending`), so its
+   * caller won't learn of it: the caller gives the text back if it is anyone's to keep.
+   */
+  async send(args: { text?: string; images?: string[]; mode?: string; source?: UserSource; from?: string }, opts: { onRejected?: (unheard: boolean) => void } = {}): Promise<{ disposition: string }> {
     const text = String(args.text ?? "");
     const imagePaths = Array.isArray(args.images) ? args.images.map(String) : [];
     if (!text.trim() && !imagePaths.length) throw new Error("Nothing to send");
@@ -1170,21 +1186,31 @@ export class Chat {
       return { disposition: String(d.disposition) };
     });
     const exited = (e: unknown) => e instanceof AgentError && e.agentExited;
+    // `send` answers `pending` if the agent hasn't replied in SEND_REPLY_WAIT_MS.
+    let answeredPending = false;
+    let pendingTimer: ReturnType<typeof setTimeout> | undefined;
+    const pending = new Promise<{ disposition: string }>((r) => {
+      pendingTimer = setTimeout(() => {
+        answeredPending = true;
+        r({ disposition: "pending" });
+      }, SEND_REPLY_WAIT_MS);
+    });
     reply.catch((e) => {
       if (isCommand) this.clearCommandHint();
       undo();
-      opts.onRejected?.();
+      opts.onRejected?.(answeredPending || exited(e));
       if (!exited(e)) {
         this.toast("error", errText(e));
         this.notice("error", `${this.agent} rejected the message: ${errText(e)}`);
       }
     });
-    const pending = new Promise<{ disposition: string }>((r) => setTimeout(() => r({ disposition: "pending" }), SEND_REPLY_WAIT_MS));
     // The agent exiting before it replies is reported by the exit notice, not as a failed send.
-    const settled = reply.catch((e) => {
-      if (exited(e)) return { disposition: "pending" };
-      throw e;
-    });
+    const settled = reply
+      .catch((e) => {
+        if (exited(e)) return { disposition: "pending" };
+        throw e;
+      })
+      .finally(() => clearTimeout(pendingTimer));
     return Promise.race([settled, pending]);
   }
 
@@ -1273,8 +1299,10 @@ export class Chat {
     if (inLane) return {};
     const m = await this.takeQueued(id);
     const args = { text: m.text, images: m.images, ...(m.from ? { from: m.from } : {}) };
-    if (to === "steer") await this.send({ ...args, mode: "steer" });
-    else await this.send({ ...args, mode: "followUp" }); // held while working; sent now if the run just ended
+    // It has left its lane: rejected, it goes back to the composer, as a held follow-up does (drainHeld).
+    const onRejected = () => this.returnToComposer([m.text]);
+    if (to === "steer") await this.send({ ...args, mode: "steer" }, { onRejected });
+    else await this.send({ ...args, mode: "followUp" }, { onRejected }); // held while working; sent now if the run just ended
     return {};
   }
 
@@ -1673,8 +1701,14 @@ export class Chat {
   /** The `op` dispatcher used by the server. */
   async op(name: string, a: Rec): Promise<unknown> {
     switch (name) {
-      case "send":
-        return this.send({ text: a.text, images: a.images, mode: a.mode, source: a.source === "external" ? "external" : "composer", from: typeof a.from === "string" ? a.from : undefined });
+      case "send": {
+        const from = typeof a.from === "string" ? a.from : undefined;
+        const own = a.source !== "external" && !from; // the person's draft, not another sender's message
+        const text = String(a.text ?? "");
+        // A draft the client won't hear was rejected (the failed `send` gives it back otherwise) goes back to the composer.
+        const onRejected = own ? (unheard: boolean) => { if (unheard) this.returnToComposer([text]); } : undefined;
+        return this.send({ text: a.text, images: a.images, mode: a.mode, source: own ? "composer" : "external", from }, { onRejected });
+      }
       case "abort":
         return this.abort();
       // `message`, not `id`: `id` is the request's own.

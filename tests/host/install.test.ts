@@ -7,8 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT } from "./harness.ts";
 import { agentsBase, writeBases } from "../../install/mods.ts";
@@ -160,7 +160,8 @@ function keysHome(o: { keys?: object; mine?: object; record?: object } = {}) {
   writeFileSync(join(h, "data", "herdr-chat", "install.json"), JSON.stringify(o.record ?? { version: 2, global: { "cmd-j shift-p": { action: "mod.open:new-chat", was: null } } }));
   return h;
 }
-const keys = (cmd: string, h: string, ...a: string[]) => execFileSync(process.execPath, [KEYS, cmd, h, "--platform", "darwin", ...a], { encoding: "utf8" });
+const keysOn = (platform: string, cmd: string, h: string, ...a: string[]) => execFileSync(process.execPath, [KEYS, cmd, h, "--platform", platform, ...a], { encoding: "utf8" });
+const keys = (cmd: string, h: string, ...a: string[]) => keysOn("darwin", cmd, h, ...a);
 const global = (h: string) => JSON.parse(readFileSync(join(h, "keys.json"), "utf8")).global;
 
 test("keys: the default (⌘I opens the launcher), the older install's cmd-j shift-p taken out, a second install changes nothing", () => {
@@ -175,6 +176,13 @@ test("keys: the default (⌘I opens the launcher), the older install's cmd-j shi
   const once = readFileSync(join(h, "keys.json"), "utf8");
   keys("install", h);
   assert.equal(readFileSync(join(h, "keys.json"), "utf8"), once);
+});
+
+test("keys: each platform names the keys its own way: macOS glyphs in Apple's order, words with Super first on Linux", () => {
+  const mine = { global: { claude: "cmd-alt-k", codex: "shift-ctrl-x" } };
+  const last = (platform: string) => keysOn(platform, "install", keysHome({ mine })).trim().split("\n").at(-1);
+  assert.equal(last("darwin"), "New chat: ⌘I · Claude Code chat: ⌥⌘K · Codex chat: ⌃⇧X");
+  assert.equal(last("linux"), "New chat: Ctrl+Alt+Shift+P · Claude Code chat: Super+Alt+K · Codex chat: Ctrl+Shift+X");
 });
 
 test("keys: chords the person chose replace what had them; uninstall gives back exactly that keys.json (without the older install's key)", () => {
@@ -226,7 +234,7 @@ test("keys: without the layout's new-chat copy (--no-direct) only the launcher k
 const INSTR = join(ROOT, "install", "instructions.ts");
 function agentHomes(o: { pi?: string | null; claude?: string | null; codex?: string | null }) {
   const d = mkdtempSync(join(tmpdir(), "herdr-chat-instr-"));
-  const env = { ...process.env, HOME: join(d, "home"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
+  const env = { ...process.env, HOME: join(d, "home"), XDG_DATA_HOME: join(d, "data"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
   mkdirSync(join(d, "app", "data", "herdr-chat"), { recursive: true });
   const files = { pi: join(d, "pi", "AGENTS.md"), claude: join(d, "home", ".claude", "CLAUDE.md"), codex: join(d, "home", ".codex", "AGENTS.md") };
   for (const [k, f] of Object.entries(files)) {
@@ -304,7 +312,7 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   const realApp = execFileSync("sh", ["-c", "command -v herdr-app"], { encoding: "utf8" }).trim();
   const appAs = (v: string) => { const f = join(bin, `herdr-app-${v}`); writeFileSync(f, `#!/bin/sh\n[ "$1" = --version ] && { echo 'herdr-app ${v}'; exit 0; }\nexec '${realApp}' "$@"\n`, { mode: 0o755 }); return f; };
   for (const a of ["pi", "claude", "codex"]) writeFileSync(join(bin, a), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_APP_BIN: appAs("9.0.0"), HOME: join(d, "home"), HERDR_APP_HOME: app, XDG_CONFIG_HOME: join(d, "config"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
+  const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_APP_BIN: appAs("9.0.0"), HOME: join(d, "home"), HERDR_APP_HOME: app, XDG_CONFIG_HOME: join(d, "config"), XDG_DATA_HOME: join(d, "data"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
   const sh = (...a: string[]) => {
     const r = spawnSync(join(ROOT, "install.sh"), a, { encoding: "utf8", env });
     assert.equal(r.status, 0, r.stdout + r.stderr);
@@ -320,7 +328,8 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   const before = { layout: read(app, "mine"), keys: readFileSync(join(app, "keys.json"), "utf8") };
 
   const quiet = sh("--no-subagents");
-  assert.equal(quiet.trim().split("\n").at(-1), "  keys       New chat: ⌘I", "the summary's last line: the real chord");
+  const open = process.platform === "darwin" ? "⌘I" : "Ctrl+Alt+Shift+P";
+  assert.equal(quiet.trim().split("\n").at(-1), `  keys       New chat: ${open}`, "the summary's last line: the real chord");
   assert.match(quiet, /^ {2}templates  none \(--no-subagents\)$/m);
   assert.match(quiet, /^herdr-chat: Herdr 9\.0\.0 is newer than the tested .*\n/, "the warning first, then the install");
   assert.ok(!existsSync(join(tpl, "pi-chat.md")), "no templates");
@@ -436,4 +445,55 @@ test("version: a Herdr that won't say its version is a warning, not a refusal", 
   assert.equal(r.status, 0);
   assert.match(r.out, new RegExp(`herdr-chat: can't tell Herdr's version \\(.*--version.*\\): tested with ${TESTED.tested.app.replace(/\./g, "\\.")}\\. If something breaks, \`\\./install\\.sh --uninstall\``));
   assert.match(r.out, /can't tell herdr-core's version/);
+});
+
+test("symlinks: a keys.json and a layout kept in dotfiles stay links (chained, relative, dangling); the edits and their undo land in the dotfiles copies; no temporary file is left", () => {
+  const d = mkdtempSync(join(tmpdir(), "herdr-chat-symlink-"));
+  const dot = join(d, "dotfiles");
+  const home = keysHome();
+  rmSync(join(home, "keys.json"));
+  mkdirSync(join(home, "layouts"));
+  mkdirSync(join(dot, "herdr", "layouts"), { recursive: true });
+  writeFileSync(join(home, "installed.json"), JSON.stringify({ "layout:main": {} }));
+  writeFileSync(join(home, "shared.json"), JSON.stringify({ layout: "mine" }));
+
+  // keys.json: an absolute link, through a folder that is a link (as a stow folder), to a relative
+  // link with `..`, which the kernel resolves from the real folder (herdr/links), not the linked one.
+  const realKeys = join(dot, "herdr", "keys.json");
+  writeFileSync(realKeys, JSON.stringify(herdrKeys(), null, 2) + "\n");
+  mkdirSync(join(dot, "herdr", "links"));
+  symlinkSync(join("..", "keys.json"), join(dot, "herdr", "links", "keys.json"));
+  symlinkSync(join("herdr", "links"), join(dot, "stow"));
+  symlinkSync(join(dot, "stow", "keys.json"), join(home, "keys.json"));
+  // The layout: a relative link into a sibling folder.
+  const realLayout = join(dot, "herdr", "layouts", "mine.json");
+  const layoutText = JSON.stringify(personal(), null, 2) + "\n";
+  writeFileSync(realLayout, layoutText);
+  symlinkSync(relative(join(home, "layouts"), realLayout), join(home, "layouts", "mine.json"));
+
+  const links = () => [join(home, "keys.json"), join(dot, "herdr", "links", "keys.json"), join(home, "layouts", "mine.json")].map((f) => lstatSync(f).isSymbolicLink());
+  const leftovers = () => [home, join(home, "layouts"), dot, join(dot, "herdr"), join(dot, "herdr", "links"), join(dot, "herdr", "layouts")]
+    .flatMap((f) => readdirSync(f).filter((n) => n.endsWith(".herdr-chat.tmp")));
+  const keysWant = herdrKeys();
+  delete (keysWant.global as any)["cmd-j shift-p"];
+
+  keysOn("linux", "install", home, "--no-direct");
+  run("install", home);
+  assert.deepEqual(links(), [true, true, true], "the links stay links after install");
+  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], "mod.open:new-chat");
+  assert.equal(JSON.parse(readFileSync(realLayout, "utf8")).terminal_menu, "chat-menu");
+
+  keys("uninstall", home);
+  run("uninstall", home);
+  assert.deepEqual(links(), [true, true, true], "the links stay links after uninstall");
+  assert.equal(readFileSync(realKeys, "utf8"), JSON.stringify(keysWant, null, 2) + "\n");
+  assert.equal(readFileSync(realLayout, "utf8"), layoutText, "the dotfiles layout is as it was, byte for byte");
+  assert.deepEqual(leftovers(), [], "no temporary file left after install and uninstall");
+
+  // A dotfiles keys.json not made yet (a dangling link): the install makes it where the link points.
+  rmSync(realKeys);
+  keysOn("linux", "install", home, "--no-direct");
+  assert.deepEqual(links(), [true, true, true], "a dangling link stays a link");
+  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], "mod.open:new-chat");
+  assert.deepEqual(leftovers(), []);
 });

@@ -39,6 +39,8 @@ const num = (v: string | undefined, d: number) => (v && Number.isFinite(Number(v
 const STALL_MS = () => num(process.env.HERDR_CHAT_CLAUDE_STALL_MS, 90_000);
 const INTERRUPT_MS = () => num(process.env.HERDR_CHAT_CLAUDE_INTERRUPT_MS, 8_000);
 const POLL_MS = () => num(process.env.HERDR_CHAT_CLAUDE_POLL_MS, 1_000);
+/** A model without its context suffix: `opus[1m]` → `opus`, `claude-opus-5-5[1m]` → `claude-opus-5-5`. */
+const withoutContext = (model: string) => model.replace(/\[[^\]]+\]$/, "");
 
 type PendingAsk = { requestId: string; kind: "permission" | "plan" | "questions"; request: Rec };
 
@@ -67,6 +69,8 @@ export class ClaudeAdapter implements ProviderAdapter {
   private commandList: Rec[] = [];
   /** The model alias we launch with (`--model`), once the user picked one. */
   private modelValue: string | null = null;
+  /** The model Claude Code starts on without `--model` (settings or `ANTHROPIC_MODEL`), read at each start. */
+  private configuredModel: string | null = null;
   private effort: string | null;
   private permissionMode: string;
   private costBase = 0;
@@ -114,6 +118,7 @@ export class ClaudeAdapter implements ProviderAdapter {
 
   async start(session: string | null, host: AdapterHost): Promise<StartInfo> {
     this.host = host;
+    this.configuredModel = readUserSettings().model ?? null;
     this.mapper = new ClaudeMapper();
     this.mapper.permissionMode = this.permissionMode;
     let id: string;
@@ -182,13 +187,18 @@ export class ClaudeAdapter implements ProviderAdapter {
     return { streaming: false, hasHistory: Boolean(fork) || (resume && hasMessages(this.file)) };
   }
 
-  /** ModelInfo for the current model: the alias we launched with, else the one init reported. */
+  /**
+   * ModelInfo for the current model: the alias we launched with, else the one the
+   * user's config names, else "default"; once init reports a model that isn't that
+   * one (a project setting we don't read, a pinned id), init's wins.
+   */
   private currentModel(): ModelInfo {
-    const want = this.modelValue ?? "default";
+    const want = this.modelValue ?? this.configuredModel ?? "default";
     const live = this.mapper.initModel;
-    let m = this.models.find((x) => x.value === want);
-    if (live && m && m.resolvedModel !== live && m.value !== live) {
-      m = this.models.find((x) => x.value === live) ?? this.models.find((x) => x.resolvedModel === live && x.value !== "default") ?? undefined;
+    // An exact alias first; `opus[1m]` falls back to `opus` only when the list has no `opus[1m]`.
+    let m = this.models.find((x) => x.value === want) ?? this.models.find((x) => x.value === withoutContext(want));
+    if (live && m?.resolvedModel !== withoutContext(live) && m?.value !== live) {
+      m = this.models.find((x) => x.value === live) ?? this.models.find((x) => x.resolvedModel === live && x.value !== "default");
     }
     const id = m ? String(m.value) : live ?? want;
     return {
@@ -422,7 +432,7 @@ export class ClaudeAdapter implements ProviderAdapter {
           choices: [
             { id: "approve", label: "Approve", kind: "allow", description: "Leave plan mode and start; ask before edits" },
             { id: "approve_edits", label: "Approve, accept edits", kind: "other", description: "Leave plan mode and edit without asking" },
-            { id: "keep", label: "Keep planning", kind: "deny", description: "Tell Claude what to change" },
+            { id: "keep", label: "Keep planning", kind: "deny", description: "Tell Claude what to change", reasonPrompt: "What should change?" },
           ],
         },
       });

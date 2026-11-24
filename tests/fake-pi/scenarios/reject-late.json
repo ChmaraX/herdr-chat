@@ -1,0 +1,6 @@
+{
+ "description": "Pi rejects every prompt that starts with nope after 10 s (scaled: 5 s in the E2E), so after the host has answered send with pending; the rest are answered.",
+ "rejectPrompts": "^nope",
+ "rejectDelayMs": 10000,
+ "default": [{"assistant": {"text": "done"}}]
+}

@@ -64,8 +64,16 @@ if want update; then
   expect 'overlay_open new-chat' "the question opens (new-chat's floating block, after the reload)" 15
   expect '[ "$(dbg "$A" "d[\"update\"][\"outdated\"]")" = true ] && [ "$(dbg "$B" "d[\"update\"][\"outdated\"]")" = true ]' "A and B know their host is older" 10
   shot update-1-question 0.5
+  # The person works in a terminal; the install reloads the mods again, so the question is asked again
+  # (about 3 s after the reload) while the terminal has the keys. Then they type and press Enter.
+  do_ pane.focus --terminal "$SHELL_T"; sleep 0.5
+  reload_mods; sleep 5
+  [ "$(overlay_count new-chat)" = 1 ] && ok "asked again by a reload: still one question" || fail "the question stacked after a reload ($(overlay_count new-chat))"
+  keys "text:echo typed-in-terminal" enter
   sleep 3
-  [ "$(reg "$A" pid)" = "$A_PID" ] && ok "unanswered: A's host still runs (no restart without the person)" || fail "A restarted before the answer"
+  shot update-1b-typed-in-terminal 0.3
+  screen "$SHELL_T" | grep -q '^typed-in-terminal' && ok "the keys went to the terminal, not the question" || fail "the terminal didn't get the typed line"
+  overlay_open new-chat && [ "$(reg "$A" pid)" = "$A_PID" ] && ok "unanswered: the question is open and A's host still runs" || fail "the question was answered before the person did (open: $(overlay_count new-chat), A pid $(reg "$A" pid))"
   do_ new-chat.update:restart
   expect '! overlay_open new-chat' "Restart closes the question" 5
 

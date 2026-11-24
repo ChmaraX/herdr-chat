@@ -28,7 +28,19 @@ const TURN_START_MS = scenario.turnStartMs ?? 600;
 const STATES = process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS === "1" && scenario.sessionStates !== false;
 const resumeId = flag("--resume");
 const sessionId = resumeId && !argv.includes("--fork-session") ? resumeId : flag("--session-id") ?? randomUUID();
-let model = flag("--model") ?? "default";
+// Without --model, the CLI starts on its configured model: settings' env.ANTHROPIC_MODEL, the process env, then
+// settings' model. Settings: the user's, then the project's (.claude/settings.json in the cwd) over them.
+const readSettings = (file) => {
+  try {
+    return JSON.parse(readFileSync(file, "utf8")) ?? {};
+  } catch {
+    return {};
+  }
+};
+const userSettings = readSettings(join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json"));
+const projectSettings = readSettings(join(process.cwd(), ".claude", "settings.json"));
+const settings = { ...userSettings, ...projectSettings, env: { ...userSettings.env, ...projectSettings.env } };
+let model = flag("--model") || settings.env?.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || settings.model || "default";
 let permissionMode = flag("--permission-mode") ?? "default";
 let effort = flag("--effort") ?? null;
 

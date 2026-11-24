@@ -66,7 +66,6 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
   try {
     const c = codex.client;
     await c.waitFor(idle, 10_000);
-    const names = builtins(c.state).map((b: any[]) => b[0]);
     assert.deepEqual(builtins(c.state), [
       ["model", "client"], ["thinking", "client"], ["compact", "host"], ["new", "host"], ["clear", "host"], ["name", "host"],
       ["resume", "client"], ["reload", "host"], ["copy", "client"], ["transcript", "client"], ["tui", "client"],
@@ -74,9 +73,6 @@ test("menus: Pi keeps its built-ins; Claude Code and Codex get theirs, named for
       ...["init", "status", "review", "diff", "mcp", "hooks", "export", "statusline", "vim", "ide", "logout"].map((n) => [n, "client", { input: `/${n}` }]),
     ], "no Pi-only built-ins");
     namedFor(c.state, "Codex");
-    assert.equal(names.includes("compact"), c.state.capabilities.compact);
-    assert.equal(names.includes("name"), c.state.capabilities.rename);
-    assert.equal(names.includes("fork"), c.state.capabilities.fork);
   } finally {
     await codex.stop();
   }

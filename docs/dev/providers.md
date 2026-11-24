@@ -85,6 +85,17 @@ What else differs, from each agent's own mechanism, not from the chat:
 
 ## Process (one host process per chat)
 
+- **One host per chat.** A host claims its chat before it writes the
+  registry or starts the agent, and refuses to serve one another live host
+  has (protocol.md "One host per chat"). So two starts at once (a restart's
+  two paths, two windows, a stale terminal list) give one host and one agent
+  on the session, whichever agent it is: the claim is the host's, not the
+  adapter's.
+- **The registry names the host.** The mod takes the chat's host terminal
+  from the registry's `terminal` (connection.js `registeredHost`), never from
+  the first terminal labelled with the chat: hiding, labels, the seen mark,
+  restarts and the update question all act on that one. Its orphan sweep ends
+  a chat's other host terminals (a second host from before the claim).
 - **Launcher:** ⌘I opens `new-chat`, which offers each agent install found.
 - The provider is a chat prop: `{chat, cwd, provider}`. The host gets it as `serve --provider pi|claude|codex`.
 - The registry records it, so reopening uses the same provider.

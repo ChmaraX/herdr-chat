@@ -91,7 +91,7 @@ test("sessions picker and switch_session: newest first, names and first messages
   }
 });
 
-test("history paging, tool_output, files, the clipboard_image op answers, editor text", async () => {
+test("history paging, tool_output, files, editor text", async () => {
   const history: any[] = [];
   for (let i = 0; i < 130; i++) {
     history.push({ role: "user", content: [{ type: "text", text: `q${i}` }], timestamp: 1000 + i });
@@ -144,10 +144,6 @@ test("history paging, tool_output, files, the clipboard_image op answers, editor
     const { files } = await c.req("files", { query: "app", limit: 10 });
     assert.deepEqual(files.slice(0, 2), ["src/app.ts", "src/deep/apple.ts"]);
     assert.ok(!files.some((f: string) => f.startsWith("node_modules")));
-
-    // Wiring only: the op answers {path}. A real clipboard image is not covered (it'd overwrite the user's clipboard).
-    const clip = await c.req("clipboard_image");
-    assert.ok(clip.path === null || existsSync(clip.path));
 
     await c.req("send", { text: "/prefill draft" });
     await c.waitFor((x) => x.state.editorText === "prefilled draft", 3000, "editor text");

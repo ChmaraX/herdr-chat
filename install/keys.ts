@@ -9,19 +9,23 @@
 //   the new-chat copy in the layout's floating list takes: install/layout.ts);
 //   continue: the focused agent TUI continues as a chat (new-chat.continue, the
 //   right-click menu's Continue as chat).
-// - Left out: the default (open: cmd-i, the others unbound); null: unbound.
+// - Left out: the default (open: cmd-i on macOS, ctrl-alt-shift-p on Linux;
+//   the others unbound); null: unbound.
 // - A chord the person chose replaces what had it; the old action is kept in
 //   the record (data/herdr-chat/install.json), so uninstall puts it back. The
 //   default cmd-i, when taken, falls back to cmd-j a, and says so.
 // - Every install first undoes the bindings the last one made (an older
 //   install's `cmd-j shift-p → mod.open:new-chat` too), then binds again: a
 //   chord the person moved elsewhere goes back to what it was.
-// - keys.json is replaced whole, only if nobody changed it meanwhile.
+// - keys.json is replaced whole, only if nobody changed it meanwhile; a symlink
+//   (into dotfiles) stays one (install/file.ts).
 //
 //   node install/keys.ts install <app home> [--no-direct] [--platform darwin|linux]
 //   node install/keys.ts uninstall <app home>
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { keyLabel } from "../herdr-app/mods/chat/chord.js";
+import { replaceFile } from "./file.ts";
 
 type Json = any;
 export const NAMES = ["open", "pi", "claude", "codex", "continue"] as const;
@@ -36,18 +40,6 @@ export function defaults(platform: string): { open: string; fallback: string | n
   return platform === "darwin" ? { open: "cmd-i", fallback: "cmd-j a" } : { open: "ctrl-alt-shift-p", fallback: null };
 }
 
-/** "cmd-j a" → "⌘J A" (macOS), "Ctrl+Alt+Shift+P" elsewhere. */
-export function pretty(chord: string, platform: string): string {
-  const mac = platform === "darwin";
-  const SYM: Record<string, string> = mac ? { cmd: "⌘", ctrl: "⌃", alt: "⌥", shift: "⇧" } : { cmd: "Ctrl+", ctrl: "Ctrl+", alt: "Alt+", shift: "Shift+" };
-  const KEY: Record<string, string> = { enter: "↩", escape: "Esc", space: "Space", tab: "⇥", backspace: "⌫", up: "↑", down: "↓", left: "←", right: "→" };
-  return chord.split(" ").map((step) => {
-    const parts = step.endsWith("--") ? [...step.slice(0, -2).split("-"), "-"] : step.split("-");
-    const key = parts.pop()!;
-    const k = KEY[key] ?? (key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1));
-    return parts.map((m) => SYM[m] ?? `${m}+`).join("") + k;
-  }).join(" ");
-}
 
 /** The person's choices: chords per name (`null`: unbound, `undefined`: the default), and what's wrong in the file. */
 export function readPrefs(raw: Json): { prefs: Partial<Record<Name, string[] | null>>; errors: string[] } {
@@ -93,7 +85,7 @@ export function apply(doc: Json, rec: Json, o: { prefs: Partial<Record<Name, str
   const own: Own = {};
   const lines: string[] = [];
   const bound: Partial<Record<Name, string>> = {};
-  const p = (c: string) => pretty(c, o.platform);
+  const p = (c: string) => keyLabel(c, o.platform === "darwin");
   const term = doc.terminal ?? {};
   const bind = (n: Name, chord: string) => {
     const was = g[chord];
@@ -124,25 +116,18 @@ export function apply(doc: Json, rec: Json, o: { prefs: Partial<Record<Name, str
 
 /** The one line install ends with: "New chat: ⌘I · Pi chat: ⌘J P". */
 export function summary(bound: Partial<Record<Name, string>>, platform: string): string {
-  const parts = NAMES.filter((n) => bound[n]).map((n) => `${TITLE[n]}: ${pretty(bound[n]!, platform)}`);
+  const parts = NAMES.filter((n) => bound[n]).map((n) => `${TITLE[n]}: ${keyLabel(bound[n]!, platform === "darwin")}`);
   return parts.length ? parts.join(" · ") : "New chat: no key (Herdr's mod.open:new-chat opens it)";
 }
 
 /** Read keys.json, change it, replace it whole unless it changed meanwhile. Returns whether it wrote. */
 function editKeys(path: string, edit: (doc: Json) => void): boolean {
-  for (let i = 0; i < 5; i++) {
-    const before = existsSync(path) ? readFileSync(path, "utf8") : null;
+  return replaceFile(path, (before) => {
     const doc = before === null ? {} : JSON.parse(before);
     const was = JSON.stringify(doc);
     edit(doc);
-    if (JSON.stringify(doc) === was) return false;
-    const tmp = join(path, "..", ".keys.json.herdr-chat.tmp");
-    writeFileSync(tmp, JSON.stringify(doc, null, 2) + "\n");
-    if ((existsSync(path) ? readFileSync(path, "utf8") : null) !== before) { rmSync(tmp, { force: true }); continue; }
-    renameSync(tmp, path);
-    return true;
-  }
-  throw new Error(`${path} keeps changing; run the install again`);
+    return JSON.stringify(doc) === was ? null : JSON.stringify(doc, null, 2) + "\n";
+  });
 }
 
 const readJson = (f: string): Json => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };

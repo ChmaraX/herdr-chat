@@ -21,7 +21,7 @@ FAKE_PI_SCENARIO=tests/fake-pi/scenarios/tools.json \
 - `FAKE_PI_REPLAY=<fixture.jsonl>`: replay a recorded real session instead (see "Replay mode").
 - `FAKE_PI_SPEED=<n>`: divides every wait by `n`, including the `timeout` a dialog advertises. Scenarios are written at real speed; tests use 1–5.
 - `HERDR_CHAT_HANDOFF=<file>` (outside the host, without `HERDR_CHAT_HOST=1`): like the herdr-chat-lock extension in a hand-off TUI, it writes `{sessionFile, pid, at}` there whenever it opens a session (start, `new_session`, `switch_session`).
-- `FAKE_PI_LOG=<file>`: appends every command fake-pi receives, one JSON per line, after a first `{"type":"_start", argv, env: {HERDR_CHAT_HOST, HC_TERMINAL_ID}, cwd}` line. Use it to assert what the host sent, such as `clear_queue` before `abort`.
+- `FAKE_PI_LOG=<file>`: appends every command fake-pi receives, one JSON per line, after a first `{"type":"_start", pid, ppid, argv, env: {HERDR_CHAT_HOST, HC_TERMINAL_ID}, cwd}` line (`ppid`: the host that started it). Use it to assert what the host sent, such as `clear_queue` before `abort`.
 
 Like Pi, fake-pi persists messages to its session file (a session header,
 then `message` entries, plus `session_info`, `model_change` and
@@ -69,6 +69,7 @@ Behaviour that mirrors Pi 1.5:
   "default": [Step, ...],                   // when no prompt matches
   "extensionCommands": {"name": [Step, ...]},  // "/name args" → disposition handled; "{args}" is replaced by args
   "rejectPrompts": "regex",                 // a matching prompt fails (success: false), as Pi's do
+  "rejectDelayMs": 0,                       // wait ms (scaled) before replying with the rejection error
   "expandPrompts": {"regex": "replacement"}, // the prompt as Pi expands it (a skill, a template): the echo and the turn get this text
   "abort": [Step, ...],                     // extra steps emitted after an aborted run's steps stop
   "compactMs": 150,
@@ -107,6 +108,7 @@ Behaviour that mirrors Pi 1.5:
 | `scenarios/tools.json` | Every kind of tool in one prompt: thinking, a streamed bash with ANSI output and exit code, read with offset/limit, edit with Pi's `details.patch`, write, grep, find, ls, an MCP tool (`mcp__figma__get_file`), a failing bash. Startup sends ANSI statuses, a widget, a notify and a title |
 | `scenarios/long-markdown.json` | A ~6 KB streamed markdown answer (headings, lists, a code block, a table, U+2028/U+2029 inside a quote) after a thinking block |
 | `scenarios/dialogs.json` | A select (Allow/Block, 10 s timeout) guarding a bash call, a confirm (5 s timeout), an input. `/rpc-input` is an extension command that opens an input dialog outside a run |
+| `scenarios/long-dialog.json` | A select whose title is a 64-line command, as Pi extensions put it in `ctx.ui.select(title, …)` (Allow once / for the session / Block) |
 | `scenarios/abort.json` | A bash that ticks every 100 ms until aborted. Prompts containing `quick` answer at once (use them to queue follow-ups and steers) |
 | `scenarios/steer.json` | A 1.5 s bash; a steer sent meanwhile arrives as a user message before the next model call |
 | `scenarios/autonomous.json` | 300 ms after start, an extension posts a `subagent-notify` custom message and Pi runs on its own, with an auto-retry and a threshold compaction |

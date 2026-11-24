@@ -30,14 +30,15 @@ the test that has to catch it; "not covered" rows are known gaps
 
 | Failure | Test |
 |---|---|
-| The prompt shows only when the agent echoes it (Claude at `message_start`, Codex after its prompt hooks: 0.6–3.5 s) | `prompt-echo.test.ts`: the user item within 150 ms, before any answer (fake-claude scripted, the `extra.jsonl` and Codex `text.jsonl` replays); E2E `claude` "the prompt shows before the answer starts" |
+| The prompt shows only when the agent echoes it (Claude at `message_start`, Codex after its prompt hooks: 0.6–3.5 s) | `prompt-echo.test.ts`: the user item within 150 ms, before any answer (the Claude `extra.jsonl` and Codex `text.jsonl` replays); E2E `claude` "the prompt shows before the answer starts" |
 | The echo adds a second item instead of confirming the shown one | `prompt-echo.test.ts`: one user item, the same id, after the echo |
-| An expanded skill's echo is dropped or added beside the prompt | `prompt-echo.test.ts` "pi: a skill's echo": one item with Pi's text |
+| An expanded skill's echo is dropped or added beside the prompt | `skills.test.ts` "pi: /skill:name shows a pill at once, Pi's expanded echo keeps it": one item with its pill |
 | Several skills: the agent runs only the first (Pi and `claude -p` each expand one), the rest reach it as the first one's arguments | `skills.test.ts` "pi: three skills…" (the model gets one run of Pi's blocks), "claude: several skills…" (each a `/name` for the Skill tool, nothing slash-led in front), "codex: several skills…" (a `skill` input each) |
 | A later skill without a file (Pi gives none, or it's gone) is dropped and the message goes without it | `skills.test.ts` "pi: a later skill Pi gives no file for…": the send fails, Pi gets nothing, the item goes |
 | The pills shown and the skills sent differ (a skill named twice, a list the adapter splits by on its own) | `skills.test.ts`: `/skill:tdd /skill:tdd once` (Pi) and `/tdd /tdd once` (Claude) reach the agent once, shown once |
 | Several pills come back out of order, or a resumed session shows fewer | `skills.test.ts`: the three pills in order, live and resumed (Pi, Claude); `fork_points` and the session list give them as typed |
 | A rejected prompt stays on the timeline | `prompt-echo.test.ts` "pi: … a prompt Pi rejects" |
+| A prompt rejected after `send` returned `pending` is lost (or an external send / drained follow-up corrupts `editorText`) | `prompt-echo.test.ts` "pi: a rejection after send returned pending…": composer draft returns via `editorText`, external sends don't, drained follow-ups return once; E2E `reject`: the composer gets it back (text and image chip at once, after typed text when late) |
 | Esc before the turn starts loses the prompt or doubles it | `prompt-echo.test.ts` "claude: Esc before the turn starts" |
 | A fake echoes in an order the real agent doesn't (hiding the above) | `fake-fidelity.test.ts`: each fake against a real recording |
 
@@ -63,7 +64,7 @@ the test that has to catch it; "not covered" rows are known gaps
 
 | Failure | Test |
 |---|---|
-| `abort` without `clear_queue` first: Pi runs the queued text after the abort | `steer-abort.test.ts` "abort mid-tool with a queue": commands are `clear_queue` then `abort`; no new run starts; `restored` has the queued text |
+| `abort` without `clear_queue` first: Pi runs the queued text after the abort | `steer-abort.test.ts` "abort mid-tool with a queue": commands are `clear_queue` then `abort`; no new run starts; `restored` has Pi's steers, then the host's held follow-up, which never reached Pi |
 | A tool left `running` after an abort | `steer-abort.test.ts` "abort mid-tool with a queue": the tool ends `error` |
 | Abort while a dialog is open hangs Pi | `steer-abort.test.ts` "Esc while a dialog is open" |
 | A steer shows up twice (queue strip and timeline) or never | `steer-abort.test.ts` "steer during a tool": queue strip while queued, then one `queued` user item |
@@ -74,7 +75,11 @@ the test that has to catch it; "not covered" rows are known gaps
 |---|---|
 | A pasted or dropped image the chat can't show before it's sent (the app shows only files under its home) | `attach_image` answers a path under `<stateDir>/attachments/<chat>`, a copy of the file; E2E `thumb`: the chip draws it, a click enlarges it |
 | An enlarged chip opening at a guessed size (the mod can't read raster files) | `attach_image` answers the copy's pixel size; E2E `misc`: the chips of a 600×200 and a 400×900 drop carry their sizes |
-| `clipboard_image` saving a paste outside the chat's attachments | not covered: a test machine's clipboard holds no image |
+| `clipboard_image` saving a paste outside the chat's attachments | macOS: not covered (a test machine's clipboard holds no image). Linux: `clipboard-linux.test.ts` "on Wayland": a stand-in `wl-paste`'s PNG lands in `<stateDir>/attachments/<chat>` with its size |
+| Linux: text, a fake PNG or a failing `wl-paste` taken for an image, or a file left behind | `clipboard-linux.test.ts` "on Wayland": each answers `{path: null}`, and no file is written |
+| Linux: `xclip` never asked when Wayland's tool is missing (XWayland), or asked instead of `wl-paste` on Wayland | `clipboard-linux.test.ts`: with only xclip installed and both displays set, xclip's PNG; with both installed and only `WAYLAND_DISPLAY`, wl-paste's |
+| Linux: no `wl-paste`/`xclip`, or a host with no display variables (herdr-core started outside the session), shown as "no image" | `clipboard-linux.test.ts` "on X11": `clipboard_image` fails with "Image paste needs wl-paste (wl-clipboard) or xclip (xclip)" / "…a Wayland or X11 session…"; the mod shows that message |
+| Linux: a large image not shrunk when ImageMagick is there, or a failing or garbage-writing `magick`/`convert` sending a broken image | `clipboard-linux.test.ts` "shrink": stand-ins on PATH; `magick` first, `convert` when it fails, the original when both fail or write a non-PNG or empty file. "with the real ImageMagick" runs where `magick` is installed |
 | A dropped file that isn't an image (or can't be read) staged anyway, or refused without a word | `attach_image` rejects a `.txt`, a `.png` that isn't one, a missing file, with `send`'s messages; E2E `thumb`: the drop shows the reason at once and makes no chip |
 | A dropped file whose name is too long for the copy's prefix | `attach_image` shortens the name and keeps its extension |
 | A drop, then Enter before the copy is made: the message goes without the image, which lands in the next one | E2E `thumb`: with the host paused, drop then send: the message carries the image, the composer stays empty |
@@ -82,6 +87,8 @@ the test that has to catch it; "not covered" rows are known gaps
 | ✕ deleting a file a held follow-up or a queued steer still sends | both keep their images through `detach_image`; after `queue_edit` takes the follow-up back, ✕ removes it |
 | A host that ends while the chat stays open deleting the composer's images (a take-over's `shutdown`, a restart that falls back to a kill) | `take_over` from another chat, then SIGTERM: the files stay, and the next host has them; E2E `thumb`: `hc kill` on the host, Restart, the chip's image is sent |
 | Attachments left behind when the chat closes | E2E `thumb`: closing the pane of a chat with a live host removes its folder at once; a chat whose host was killed, then its pane closed: another chat's host removes the folder (`sweep_attachments`, from that chat's orphan sweep), and keeps its own |
+
+All of the Linux rows run on any OS (`HERDR_CHAT_PLATFORM=linux`, stand-ins on PATH). What only a Linux machine shows: the real `wl-paste`/`xclip` reading a real session's clipboard, and the chat's Linux keys and paste keys in a Linux Herdr app (no e2e there; `tests/e2e/` drives macOS).
 
 ## Crashes and lifecycle
 
@@ -98,6 +105,12 @@ the test that has to catch it; "not covered" rows are known gaps
 | The chat resumes the old session after a fork or /resume in the TUI | `handoff.test.ts` "forks and exits" |
 | Resuming while the TUI still writes the session | `handoff.test.ts` "terminal is killed": waits for the TUI's pid |
 | Two chats write one session | `conflict.test.ts`: phase `conflict`, `take_over`; Claude's registry; `codex-lifecycle.test.ts` active writer |
+| Two hosts serve one chat (two starts at once: both register, both start an agent on the session) | `one-host.test.ts` "N hosts started at once": one serves, the registry names it, the rest exit 3 with the error, one agent process; E2E `one-host`: six restarts under mod reloads, one host each, none refused |
+| Two takers of a dead host's claim both win; a reused pid keeps a dead claim (`claim.test.ts` tests the module itself: whole hosts start ~100 ms apart, too far apart to race for one claim) | `claim.test.ts`: 8 contenders at one instant, 12 rounds through fresh, released, SIGKILLed and pid-reused claims; `one-host.test.ts` "SIGKILL", "pid reuse" |
+| The chat's live host can't be reached: something else wrote or removed its registry entry (a 0.5.0 duplicate's exit), and the mod starts hosts the claim refuses | `one-host.test.ts` "keeps the registry naming it": the entry overwritten, then deleted, is written back and a client works; E2E `one-host`: the claim holder is the host left after the sweep, none refused |
+| A dead host's session lock, its pid now another process's, keeps the chat in `conflict` | `one-host.test.ts` "a session lock left by a host of this chat that died": a 0.6 lock (another start time) and a pre-0.6 lock (the pid isn't a host of the chat) |
+| A restart can't start (the old host's claim not released) | `one-host.test.ts` "a restart": shutdown then a new host, SIGTERM then a new host; `after-pid.test.ts` |
+| A second host from before the claim shares the chat's session | `one-host.test.ts` "a host from before the claim": the new host is in `conflict`, starts no agent; E2E `one-host`: the sweep ends the host the registry doesn't name |
 
 ## Reconnect
 
@@ -241,3 +254,20 @@ A chat whose host started before an install runs older code (protocol.md v3.5).
 | A line bigger than one read (a 1.5 MiB brief inlined in the first message, 3 MB of tool output) loses the first message or miscounts | that session: `@/tmp/big.md summarise it`, 3 messages (tool output isn't one) |
 | A rename, a deleted session or a new one doesn't show | after `refresh`: the new name, the file gone, the new one first; without `refresh`, what was read before (protocol) |
 | `pi @brief.md` rows show the brief | `@/tmp/review/brief.task.md go` |
+
+## Continue as chat: the TUI's process (`tui-process.test.ts`, `tui-session.test.ts`; E2E `tui-under-command`, `tui-in-place`)
+
+| Failure | Covered by |
+|---|---|
+| The agent runs under the terminal's own command (`fish -ic 'claude; exec fish -i'`), not as its foreground: not found | `tui-process.test.ts` "viewer" (sh → sh → pi); E2E `tui-under-command` step 2 |
+| The agent is Herdr's foreground (`pi` typed in zsh, a shim run as `sh …/pi`), but the walk picks another or none | `tui-process.test.ts` "foreground" (argv[1] of any program, as before); `tui-session.test.ts`; E2E `tui-in-place` |
+| Two agents in the terminal's group (`pi & pi`): one is picked and gets SIGTERM | `tui-process.test.ts` "two" (refused, both named); E2E `tui-under-command` step 1 (the toast, neither signalled) |
+| An agent in a background or stopped job (`set -m`) taken for the TUI on screen | `tui-process.test.ts` "job" |
+| A program naming the agent in its arguments (`less pi.js`) taken for it | `tui-process.test.ts` "viewer" (argv[1] counts only for node and bun) |
+| The program's path has a space (`My Tools/pi`) | `tui-process.test.ts` "path with a space"; E2E `tui-under-command` step 2. A *script* path with a space isn't matched (`ps` has one line, cut at the space): not covered |
+| The foreground pid Herdr reported is gone | `tui-process.test.ts` "gone" |
+| `ps` fails, times out or prints more than 16 MB: a half-read table | `processTable` throws ("can't read the process table"), never a partial table: not covered by a test |
+| A deep or wide tree hides a second agent behind a cap | none: the walk covers the whole tree in memory (no cap) |
+| The shell's command goes on after the agent (`pi; sleep 5`) and its pane closes under it | `tui-process.test.ts` "busy: next command"; E2E `tui-under-command` step 3 (the toast, the pane stays) |
+| A process left in the group from before (`(sleep &); pi`) is missed | `tui-process.test.ts` "busy: already there" |
+| A helper keeps the group busy: the interactive shell's own (its rc's `… &`, a prompt daemon) or the agent's leftover (an MCP server), so the pane never closes | `tui-process.test.ts` "idle"; E2E `tui-under-command` step 4 (rc `sleep 600 &`, the pane closes). A helper an rc starts in the shell's own group (`setopt no_monitor`) keeps the pane, with its toast: not covered |
