@@ -111,6 +111,8 @@ test("claude: questions (AskUserQuestion), plan approval (ExitPlanMode), and an 
     assert.equal(p.title, "Claude Code's plan is ready");
     assert.match(p.message, /1\. Create hello\.txt/);
     assert.deepEqual(p.choices.map((x: any) => x.id), ["approve", "approve_edits", "keep"]);
+    const ask = p.choices.find((x: any) => x.kind === "deny").reasonPrompt;
+    assert.ok(ask && !/why not/i.test(ask), `the reason field asks what Keep planning needs, not why not (${ask})`);
     await c.req("dialog_answer", { dialog: p.id, choice: "approve_edits" });
     await c.waitFor((x) => idle(x) && x.items.some((i) => /^Plan handled/.test(i.text ?? "")), 5000);
     assert.ok(c.items.some((i) => i.text === "Plan handled in acceptEdits mode."));

@@ -422,7 +422,7 @@ export class ClaudeAdapter implements ProviderAdapter {
           choices: [
             { id: "approve", label: "Approve", kind: "allow", description: "Leave plan mode and start; ask before edits" },
             { id: "approve_edits", label: "Approve, accept edits", kind: "other", description: "Leave plan mode and edit without asking" },
-            { id: "keep", label: "Keep planning", kind: "deny", description: "Tell Claude what to change" },
+            { id: "keep", label: "Keep planning", kind: "deny", description: "Tell Claude what to change", reasonPrompt: "What should change?" },
           ],
         },
       });

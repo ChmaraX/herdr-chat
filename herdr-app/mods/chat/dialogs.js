@@ -32,9 +32,10 @@ export class DialogCard {
     this.form = null;
     this.id = dialog?.id ?? null;
     this.sel = 0;
-    if (dialog?.method === "permission" && dialog.choices?.some((x) => x.kind === "deny")) {
-      this.field = InputState.new({ placeholder: "Why not? (optional, sent with Deny)" });
-    }
+    // A permission's reason goes with its first deny (Esc and Enter in the field
+    // pick it): the field asks that choice's question and names it.
+    const deny = dialog?.method === "permission" ? dialog.choices?.find((x) => x.kind === "deny") : null;
+    if (deny) this.field = InputState.new({ placeholder: `${deny.reasonPrompt || "Why not?"} (optional, sent with ${deny.label})` });
     if (dialog?.method === "questions") {
       this.form = new QuestionsForm(dialog.questions ?? [], { onChange: this.onChange, focusComposer: this.focusComposer });
     }

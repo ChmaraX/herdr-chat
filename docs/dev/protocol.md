@@ -418,7 +418,8 @@ built-ins with the agent's commands:
 // method "permission": the agent asks before running a tool.
 { id; method: "permission"; title: string; message?: string;
   tool?: { name: string; title: string; detail?: ToolDetail; args?: string };   // what will run, rendered like a tool card header
-  choices: { id: string; label: string; kind: "allow" | "allow_always" | "deny" | "other"; description?: string }[];
+  choices: { id: string; label: string; kind: "allow" | "allow_always" | "deny" | "other"; description?: string;
+             reasonPrompt?: string }[];   // a deny: the question its reason field asks (the client's default: "Why not?")
   timeoutAt?: number }
 // method "questions": the agent asks the user (Claude AskUserQuestion, Codex requestUserInput).
 { id; method: "questions"; title: string;

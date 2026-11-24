@@ -65,7 +65,11 @@ export type Capabilities = {
 
 // ---------------------------------------------------------------- asks
 
-export type PermissionChoice = { id: string; label: string; kind: "allow" | "allow_always" | "deny" | "other"; description?: string };
+export type PermissionChoice = {
+  id: string; label: string; kind: "allow" | "allow_always" | "deny" | "other"; description?: string;
+  /** A deny's reason field: the question the typed text answers (the client's default: "Why not?"). */
+  reasonPrompt?: string;
+};
 export type Question = {
   id: string;
   header?: string;
