@@ -107,6 +107,7 @@ Behaviour that mirrors Pi 1.5:
 | `scenarios/tools.json` | Every kind of tool in one prompt: thinking, a streamed bash with ANSI output and exit code, read with offset/limit, edit with Pi's `details.patch`, write, grep, find, ls, an MCP tool (`mcp__figma__get_file`), a failing bash. Startup sends ANSI statuses, a widget, a notify and a title |
 | `scenarios/long-markdown.json` | A ~6 KB streamed markdown answer (headings, lists, a code block, a table, U+2028/U+2029 inside a quote) after a thinking block |
 | `scenarios/dialogs.json` | A select (Allow/Block, 10 s timeout) guarding a bash call, a confirm (5 s timeout), an input. `/rpc-input` is an extension command that opens an input dialog outside a run |
+| `scenarios/long-dialog.json` | A select whose title is a 64-line command, as Pi extensions put it in `ctx.ui.select(title, …)` (Allow once / for the session / Block) |
 | `scenarios/abort.json` | A bash that ticks every 100 ms until aborted. Prompts containing `quick` answer at once (use them to queue follow-ups and steers) |
 | `scenarios/steer.json` | A 1.5 s bash; a steer sent meanwhile arrives as a user message before the next model call |
 | `scenarios/autonomous.json` | 300 ms after start, an extension posts a `subagent-notify` custom message and Pi runs on its own, with an auto-retry and a threshold compaction |

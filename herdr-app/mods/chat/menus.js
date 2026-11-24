@@ -38,7 +38,6 @@ export function wheel(m, dy, n, rows = ROWS) {
   m.acc -= steps * ROW_H;
   const before = m.top ?? 0;
   m.top = Math.max(0, Math.min(before - steps, Math.max(0, n - rows)));
-  m.wheeled = (m.wheeled ?? 0) + 1;
   return m.top !== before;
 }
 

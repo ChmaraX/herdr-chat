@@ -859,9 +859,7 @@ export default class HerdrChat extends View {
     }
     this.composer.clear();
     this.timeline.toBottom();
-    this.fire("send", { text, ...(images.length ? { images } : {}), mode }, cx, (d) => {
-      this.lastSend = { text, disposition: d?.disposition ?? null, at: Date.now() };
-    });
+    this.fire("send", { text, ...(images.length ? { images } : {}), mode }, cx);
   }
 
   abort(cx) {
@@ -1888,7 +1886,6 @@ export default class HerdrChat extends View {
         this.docPanes = modPanes(await readDoc(), MOD);
       } catch {}
       const other = this.docPanes?.find((x) => x.props?.chat === c.chat && panes().some((p) => p.pane === x.pane));
-      this.lastGo = other ? { pane: other.pane } : { terminal: c.terminal ?? null };
       if (other) {
         run("tab.select", { id: other.tab });
         run("pane.focus", { pane: other.pane });
@@ -1956,7 +1953,6 @@ export default class HerdrChat extends View {
         run("tab.new", { name: name.length > 32 ? name.slice(0, 31) + "…" : name, ...(space ? { space } : {}), mod: MOD,
           props: { chat: this.chat, subagent: this.sub, ...(provider ? { provider } : {}), ...(this.cwd ? { cwd: this.cwd } : {}) } });
       }
-      this.openedTab = { at: Date.now(), space, existing: open?.tab ?? null };
       this.log(`open as tab: ${open ? `tab ${open.tab} already has it` : `new tab in ${space ?? "the focused space"}`}`);
       this.closePeek();
       this.debug.mark();
@@ -1999,7 +1995,7 @@ export default class HerdrChat extends View {
     };
     return {
       chat: this.chat, cwd: this.cwd, props: props(), renders: this.renders ?? 0,
-      sub: this.sub, peekMode: this.peekMode, subStatus: this.sub ? this.subStatus() : null, subState: this.subTerm()?.state ?? null, openedTab: this.openedTab ?? null,
+      sub: this.sub, peekMode: this.peekMode, subStatus: this.sub ? this.subStatus() : null, subState: this.subTerm()?.state ?? null,
       connection: { status: this.conn.status, error: this.conn.error, connects: this.conn.connects, autoStart: this.conn.autoStart, link: this.conn.link?.kind ?? null },
       seq: this.store.seq, snapshots: this.store.snapshots,
       provider: s.provider ?? this.conn.provider ?? this.provider ?? null, providerName: this.providerName(),
@@ -2021,12 +2017,12 @@ export default class HerdrChat extends View {
       expanded: [...this.expanded], full: [...this.full.keys()],
       sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, scale: uiScale(), rowsAt: this.timeline.rowsAt(), shown: this.timeline.shown,
       composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), chipSizes: this.composer.chips.map((c) => c.size), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
-      menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, wheeled: m.wheeled ?? 0, count: m.items.length,
+      menu: m ? { kind: m.kind, query: m.query, start: m.start ?? null, sel: m.sel, top: m.top ?? 0, count: m.items.length,
         items: m.items.slice(0, 12).map((x) => (typeof x === "string" ? x : x.name)) } : null,
       picker: this.picker ? pickerDump(this.picker) : null,
       closedBy: this.closedBy ?? null, footerTier: this.footerTier ?? null, footerStatuses: this.footerStatuses ?? null, bottomH: this.bottomH ?? null, queueLabels: queueLabels(s).map((x) => x[0]), byeAt: this.byeAt ?? null,
       handoff: this.handoff, transcript: this.transcript, hostHandoff: s.handoff ?? null, conflict: s.conflict ?? null,
-      confirmClose: Boolean(this.confirmClose), lastGo: this.lastGo ?? null,
+      confirmClose: Boolean(this.confirmClose),
       placeFrom: this.placeFrom, placeError: this.placeError ?? null, healed: this.healed ?? 0,
       hostHidden: this.hide?.hidden ?? null, hostNodePane: this.hide?.pane ?? null, hostNodeTab: this.hide?.tab ?? null, hideWrites: this.hide?.writes.length ?? 0, hideWaits: this.hide?.waits ?? 0, hidePhased: this.phased ?? 0, hideUnphased: this.unphased ?? 0,
       hideError: this.hide?.error ?? null, widths: this.widths ?? [],
@@ -2038,7 +2034,7 @@ export default class HerdrChat extends View {
       place: this.place, zoomed: me?.zoomed ?? null, zoomedPane: panes().find((p) => p.tab === me?.tab && p.zoomed)?.pane ?? null, paneTitle: me?.title ?? null, name: this.displayName(),
       tabName: spaces().flatMap((sp) => sp.tabs).find((x) => x.id === me?.tab)?.name ?? null, host: host ? { address: host.address, status: host.status } : null,
       hostPane: this.hostPane()?.pane ?? null, focusedPane: focused()?.pane ?? null,
-      flash: this.flashText?.text ?? null, lastSend: this.lastSend ?? null, lastAnswer: this.lastAnswer ?? null, copied: this.copied ?? null,
+      flash: this.flashText?.text ?? null, lastAnswer: this.lastAnswer ?? null, copied: this.copied ?? null,
       ops: this.ops.slice(-20).map((o) => ({ op: o.op, ok: o.ok, error: o.error, data: o.op === "send" || o.op === "abort" || o.op === "handoff" ? o.data : undefined })),
       log: this.logLines.slice(-30),
       // v2 view state
@@ -2054,7 +2050,6 @@ export default class HerdrChat extends View {
       heightsSeen: this.timeline.heightsSeen?.dump() ?? null, thumbsSeen: this.thumbsSeen?.dump() ?? null,
       blocks: this.store.items.filter((it) => it.kind === "assistant" && it.blocks?.length).map((it) => ({ id: it.id, types: it.blocks.map((b) => b.type + (b.open ? "*" : "")) })),
       renderError: this.renderError ?? null,
-      perf: this.perf ? { renders: this.perf.n, avgMs: +(this.perf.total / this.perf.n).toFixed(2), maxMs: this.perf.max } : null,
       settings: { font_family: settings()?.font_family ?? null, font: settings()?.font ?? null, dark: settings()?.dark ?? null },
     };
   }
@@ -2181,7 +2176,6 @@ export default class HerdrChat extends View {
     // focus change re-renders, so give it back now, not on the next tick.
     const fp = focused()?.pane;
     if (fp && fp === this.hide?.pane && !this.handoff) cx.spawn(async (cx) => { await cx.sleep(1); if (this.redirectFocus(cx)) { this.redirectsFromRender = (this.redirectsFromRender ?? 0) + 1; this.debug.mark(); cx.notify(); } });
-    const t0 = Date.now();
     let el;
     try {
       el = this.renderChat(cx);
@@ -2192,9 +2186,6 @@ export default class HerdrChat extends View {
       return div().p(16).text_color(theme().ansi1).child(`render failed: ${this.renderError}`);
     }
     this.renderError = null;
-    const ms = Date.now() - t0;
-    const p = (this.perf ??= { n: 0, total: 0, max: 0 });
-    p.n++; p.total += ms; p.max = Math.max(p.max, ms);
     return el;
   }
 
@@ -2306,7 +2297,7 @@ function pickerDump(pk) {
   const items = pk.items();
   const top = items.slice(0, 12);
   return {
-    kind: pk.kind, sel: pk.sel, top: pk.top ?? 0, wheeled: pk.wheeled ?? 0, count: items.length, hint: pk.hint,
+    kind: pk.kind, sel: pk.sel, top: pk.top ?? 0, count: items.length, hint: pk.hint,
     items: top.map((x) => x.value), labels: top.map((x) => x.label), metas: top.map((x) => x.meta ?? null),
     scope: pk.scopes?.index ?? null, scopeLabels: pk.scopes?.labels ?? null, loading: pk.loading, stale: pk.stale, progress: pk.progress,
   };

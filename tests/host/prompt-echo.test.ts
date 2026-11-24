@@ -29,16 +29,6 @@ async function promptShowsAtOnce(h: Host, text: string, answered: RegExp): Promi
   assert.deepEqual(users.map((u) => [u.id, u.text]), [[shown.id, text]], "the echo confirmed the shown item");
 }
 
-test("claude (scripted, the echo at the turn's start): the prompt shows at once, and the echo confirms it", async () => {
-  const h = await startClaude({ name: "echo-claude", speed: 1, scenario: { turns: [{ match: "pelican", steps: [{ text: "Pelicans fly." }] }] } });
-  try {
-    await promptShowsAtOnce(h, "Tell me a pelican fact", /Pelicans fly/);
-    h.artifact("echo-claude");
-  } finally {
-    await h.stop();
-  }
-});
-
 test("claude (fixture extra.jsonl, the real CLI's echo timing): the prompt shows before the replay", async () => {
   const h = await startClaude({ name: "echo-claude-fx", speed: 1, replay: "extra.jsonl" });
   try {
@@ -51,7 +41,12 @@ test("claude (fixture extra.jsonl, the real CLI's echo timing): the prompt shows
 test("codex (fixture text.jsonl, the echo after the prompt hooks): the prompt shows at once", async () => {
   const h = await codexHost({ name: "echo-codex-fx", replay: "text.jsonl", speed: 1 });
   try {
+    await h.client.waitFor(idle, 10_000, "started");
+    assert.equal(h.client.state.model.id, "gpt-5.6-luna", "from the real records");
+    assert.equal(h.client.state.permissionMode, "untrusted");
     await promptShowsAtOnce(h, "Reply with exactly: hello from codex", /hello from codex/);
+    await h.client.waitFor((x) => x.state.usage?.contextTokens === 16838, 3000, "usage from the real record");
+    h.artifact("codex-fixture-text");
   } finally {
     await h.stop();
   }

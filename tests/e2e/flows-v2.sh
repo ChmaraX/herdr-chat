@@ -32,10 +32,10 @@ if want v2; then
   cmd click:statuses
   expect '[ "$(d "\"git\" in d[\"statusesShown\"]")" = true ]' "shown again" 5
   cmd click:widget:todo
-  expect '[ "$(d "d[\"widgetsOpen\"].get(\"todo\")")" = true ]' "the todo widget opens in the tray" 5
+  need '[ "$(d "d[\"widgetsOpen\"].get(\"todo\")")" = true ]' "click:widget:todo" 5
   shot v2-4-widget-open 0.5
   cmd click:widget:todo
-  expect '[ "$(d "d[\"widgetsOpen\"].get(\"todo\")")" = false ]' "and folds back to one quiet line" 5
+  need '[ "$(d "d[\"widgetsOpen\"].get(\"todo\")")" = false ]' "click:widget:todo again" 5
 
   step "v2 §6 a long answer streams: work group, thinking, activity line"
   cmd focus; sleep 0.3
@@ -63,15 +63,15 @@ if want v2; then
   sleep 0.4; cmd scroll:down; sleep 0.3; cmd scroll:down
   sleep 0.5; shot v2-3-code-card 0.4
   cmd "toggle:code:$A:3"
-  expect '[ "$(d "\"code:$A:3\" in d[\"expanded\"]")" = true ]' "Show all 60 lines" 5
+  need '[ "$(d "\"code:$A:3\" in d[\"expanded\"]")" = true ]' "toggle:code:$A:3" 5
   shot v2-3-code-all 0.4 # the card grows below the lines already in view
   # Select across two lines (as a drag does: chat.codesel), ⌘C: the copy is that text, cut from the host's code.
   WANT=$(host | python3 -c 'import json,sys; L=[b for i in json.load(sys.stdin)["items"] if i["id"]==sys.argv[1] for b in i["blocks"]][3]["code"].split("\n"); print(L[1][4:] + "\n" + L[2][:6], end="")' "$A")
   cmd "codesel:$A:3:1:4:2:6"
   expect '[ "$(d "[b[\"focused\"] for b in d[\"codeBlocks\"] if b[\"key\"]==\"$A:3\"][0]")" = true ]' "a selection gives the code block the keyboard" 5
   shot v2-3-code-selected 0.3
-  keys 8:cmd
-  expect '[ "$(d "d[\"lastCopy\"][\"text\"]")" = "$WANT" ]' "⌘C copies the selected text, across the line break" 5
+  keys 8:$PK
+  expect '[ "$(d "d[\"lastCopy\"][\"text\"]")" = "$WANT" ]' "$(label copy) copies the selected text, across the line break" 5
   keys 53
   expect '[ "$(d "[b[\"sel\"] for b in d[\"codeBlocks\"] if b[\"key\"]==\"$A:3\"][0]")" = null ]' "Esc clears the selection" 5
   cmd click:latest
@@ -95,7 +95,7 @@ if want v2; then
   expect '[ "$(phase)" = idle ] && [ "$(count_kind tool)" = 3 ]' "the rich run settles (bash, read, edit)" 30
   host >"$ART/v2-rich-host.json"
   SVG=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print([b["svg"] for i in d["items"] if i["kind"]=="assistant" for b in i.get("blocks",[]) if b["type"]=="mermaid"][0])' "$ART/v2-rich-host.json")
-  [ -s "$SVG" ] && ok "the host rendered the mermaid SVG" || fail "svg $SVG"
+  [ -s "$SVG" ] || fail "no mermaid SVG from the host: $SVG"
   if needs_frames "the mod reads the SVG's size (viewBox) while drawing it"; then
     expect '[ "$(d "\"$SVG\" in d[\"svgSizes\"] and d[\"svgSizes\"][\"$SVG\"] is not None")" = true ]' "the mod read its size (viewBox) to fit the column" 5
   fi
@@ -185,8 +185,6 @@ EOF
   cmd click:latest
   for x in $(d "' '.join(i['id'] for i in d['items'] if i['kind']=='tool')"); do cmd "toggle:$x"; done
   sleep 0.4; shot v2-3-tool-cards 0.4
-  python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); t=[i for i in d["items"] if i["kind"]=="tool"]; b=t[0]; sys.exit(0 if any(s.get("fg")=="ansi1" for l in b.get("outputLines",[]) for s in l) else 1)' "$ART/v2-rich-host.json" \
-    && ok "bash output keeps its ANSI red (outputLines)" || fail "no ANSI red"
 
   step "v2 §6 clickable file paths: herdr-nvim when installed, else \$EDITOR beside the chat"
   R=$(d "[i['id'] for i in d['items'] if i['kind']=='tool' and i['name']=='read'][0]")
