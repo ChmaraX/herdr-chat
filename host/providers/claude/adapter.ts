@@ -197,14 +197,22 @@ export class ClaudeAdapter implements ProviderAdapter {
     const live = this.mapper.initModel;
     // An exact alias first; `opus[1m]` falls back to `opus` only when the list has no `opus[1m]`.
     let m = this.models.find((x) => x.value === want) ?? this.models.find((x) => x.value === withoutContext(want));
-    if (live && m?.resolvedModel !== withoutContext(live) && m?.value !== live) {
+    if (live && m?.value !== "opusplan" && m?.resolvedModel !== withoutContext(live) && m?.value !== live) {
       m = this.models.find((x) => x.value === live) ?? this.models.find((x) => x.resolvedModel === live && x.value !== "default");
     }
     const id = m ? String(m.value) : live ?? want;
     return {
-      provider: "anthropic", id, name: m ? String(m.displayName ?? m.value).replace(/\s*\(recommended\)\s*$/i, "") : id,
+      provider: "anthropic", id, name: m ? this.modelName(m) : id,
       reasoning: m ? m.supportsEffort === true : true, contextWindow: this.mapper.contextWindow, input: ["text", "image"],
     };
+  }
+
+  /** `opusplan` switches model with the permission mode, so name the one in use and keep the alias as a tag. */
+  private modelName(m: Rec): string {
+    const name = String(m.displayName ?? m.value).replace(/\s*\(recommended\)\s*$/i, "");
+    if (m.value !== "opusplan") return name;
+    const target = this.models.find((x) => x.value === (this.mapper.permissionMode === "plan" ? "opus" : "sonnet"));
+    return target ? `${String(target.displayName ?? target.value)} · opusplan` : name;
   }
 
   private emitModel(): void {
@@ -325,6 +333,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       }
     }
     this.emit(ev);
+    if (ev.type === "permission_mode" && this.currentModel().id === "opusplan") this.emitModel();
   }
 
   private onSystem(rec: Rec): void {
@@ -644,6 +653,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     this.permissionMode = typeof r.mode === "string" ? r.mode : mode;
     this.mapper.permissionMode = this.permissionMode;
     this.emit({ type: "permission_mode", mode: this.permissionMode });
+    if (this.currentModel().id === "opusplan") this.emitModel();
   }
 
   compact(instructions?: string): Promise<void> {

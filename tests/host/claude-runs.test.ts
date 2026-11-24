@@ -267,3 +267,25 @@ test("claude: a turn nobody sent (a background task wakes the agent) shows as an
     await h.stop();
   }
 });
+
+test("claude: opusplan names the model in use and follows the permission mode", async () => {
+  const models = [
+    { value: "opusplan", resolvedModel: "claude-sonnet-5-5", displayName: "Opus Plan Mode", supportsEffort: true },
+    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", supportsEffort: true },
+    { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5", supportsEffort: true },
+  ];
+  const h = await startClaude({ name: "claude-opusplan", speed: 4, scenario: { models, default: [{ text: "ok" }] } });
+  try {
+    const c = h.client;
+    await c.waitFor((x) => idle(x) && x.state.model, 10_000);
+    await c.req("set_model", { provider: "anthropic", modelId: "opusplan" });
+    await c.waitFor((x) => x.state.model?.id === "opusplan", 2000);
+    assert.equal(c.state.model.name, "Sonnet 5.5 · opusplan");
+    await c.req("set_permission_mode", { mode: "plan" });
+    await c.waitFor((x) => x.state.model?.name === "Opus 5.5 · opusplan", 2000, "opus while planning");
+    await c.req("set_permission_mode", { mode: "default" });
+    await c.waitFor((x) => x.state.model?.name === "Sonnet 5.5 · opusplan", 2000, "sonnet once out of plan");
+  } finally {
+    await h.stop();
+  }
+});
