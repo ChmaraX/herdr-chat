@@ -1,1 +1,1 @@
-{ "place": "none", "title": "New tab", "focusable": true, "overlay": { "kind": "dialog", "width": 300, "height": 236 } }
+{ "place": "none", "title": "New tab", "focusable": true, "overlay": { "kind": "dialog", "width": 300 } }

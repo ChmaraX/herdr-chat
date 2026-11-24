@@ -25,10 +25,11 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, spaces, terminals, theme } from "herdr";
+import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme } from "herdr";
 import * as fs from "fs/promises";
 import { randomBytes } from "crypto";
 import { UpdateQuestion, checkHosts, checkRelease, checkRunning } from "./update.js";
+import { resolveSelection, visibleChoices } from "./choices.js";
 
 const CHOICES = [
   { id: "terminal", label: "Terminal (zsh)", icon: "terminal", tint: true, letter: "z", altLetter: "t", isTerminal: true },
@@ -37,6 +38,7 @@ const CHOICES = [
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
 ];
 const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
+const INSTALLED_CACHE = "new-chat.installed";
 
 /** A chat with `provider` (or a plain terminal tab) in the focused terminal's folder (else the space's). */
 async function openChat(provider) {
@@ -302,13 +304,15 @@ export default class NewChat extends View {
     }
     this.sel = 0;
     this.done = false;
-    this.installed = null; // provider id → installed (knownAgents), null until known
+    this.last = null;
+    const cached = shared(INSTALLED_CACHE);
+    this.installed = cached && typeof cached === "object" && !Array.isArray(cached) ? cached : null; // provider id → installed (knownAgents), null until known
     this.handle = cx.focus_handle();
     cx.spawn(async (cx) => {
       try {
         const last = JSON.parse((await readTextFile(PREFS())) ?? "{}").last;
-        const i = CHOICES.findIndex((c) => c.id === last);
-        if (i >= 0) this.sel = i;
+        this.last = last ?? null;
+        this.sel = resolveSelection(this.visible(), this.last);
       } catch {}
       this.handle.focus();
       cx.notify();
@@ -316,7 +320,11 @@ export default class NewChat extends View {
     cx.spawn(async (cx) => {
       try {
         const known = await knownAgents();
-        this.installed = Object.fromEntries(CHOICES.map((c) => [c.id, c.isTerminal ? true : known.find((a) => a.key === c.id || HERDR_AGENTS[a.key] === c.id)?.installed !== false]));
+        const currentId = this.visible()[this.sel]?.id ?? null;
+        const next = Object.fromEntries(CHOICES.map((c) => [c.id, c.isTerminal ? true : known.find((a) => a.key === c.id || HERDR_AGENTS[a.key] === c.id)?.installed !== false]));
+        this.installed = next;
+        setShared(INSTALLED_CACHE, next);
+        this.sel = resolveSelection(this.visible(), currentId, this.last);
       } catch {}
       cx.notify();
     });
@@ -325,22 +333,22 @@ export default class NewChat extends View {
       for (;;) {
         const c = await nextCommand();
         if (c === "focus") this.handle.focus();
-        else if (c.startsWith("pick:")) this.open(CHOICES.findIndex((x) => x.id === c.slice(5)), cx);
+        else if (c.startsWith("pick:")) this.open(this.visible().findIndex((x) => x.id === c.slice(5)), cx);
         else if (c === "enter") this.open(this.sel, cx);
         cx.notify();
       }
     });
   }
 
-  // An agent knownAgents() says isn't installed (unknown yet: every one is offered).
-  available(c) {
-    return c.isTerminal || this.installed?.[c.id] !== false;
+  visible() {
+    return visibleChoices(CHOICES, this.installed);
   }
 
   open(i, cx) {
-    if (this.done || i < 0 || i >= CHOICES.length) return;
+    const list = this.visible();
+    if (this.done || i < 0 || i >= list.length) return;
     this.done = true;
-    const provider = CHOICES[i].id;
+    const provider = list[i].id;
     const overlay = props()?.overlay;
     cx.spawn(async () => {
       try {
@@ -355,14 +363,15 @@ export default class NewChat extends View {
 
   key(e, cx) {
     const k = e.keystroke;
-    const letter = CHOICES.findIndex((c) => (c.letter === k || c.altLetter === k) && this.available(c));
+    const list = this.visible();
+    const letter = list.findIndex((c) => c.letter === k || c.altLetter === k);
     if (letter >= 0) this.open(letter, cx);
     else if (/^[1-9]$/.test(k)) {
       const idx = Number(k) - 1;
-      if (CHOICES[idx] && this.available(CHOICES[idx])) this.open(idx, cx);
+      if (list[idx]) this.open(idx, cx);
     }
-    else if (k === "up") this.sel = (this.sel + CHOICES.length - 1) % CHOICES.length;
-    else if (k === "down" || k === "tab") this.sel = (this.sel + 1) % CHOICES.length;
+    else if (k === "up" && list.length) this.sel = (this.sel + list.length - 1) % list.length;
+    else if ((k === "down" || k === "tab") && list.length) this.sel = (this.sel + 1) % list.length;
     else if (k === "enter") this.open(this.sel, cx);
     else if (k === "escape") { const o = props()?.overlay; if (o) closeOverlay(o); }
     cx.notify();
@@ -377,18 +386,19 @@ export default class NewChat extends View {
       return (c.tint ? svg(path).text_color(t.foreground) : image(path)).size(18).flex_none();
     };
     const badge = (text) => div().px(5).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.dim).child(text);
-    const avail = CHOICES.map((c, i) => ({ c, n: i + 1 })).filter(({ c }) => this.available(c));
-    const nums = avail.map(({ n }) => String(n)).join("/");
-    const letters = avail.map(({ c }) => c.letter.toUpperCase()).join(" ");
-    return v_flex().id("launcher").size_full().p(8).gap(2).bg(t.popover).text_color(t.foreground)
+    const list = this.visible();
+    const sel = Math.min(this.sel, Math.max(0, list.length - 1));
+    const nums = list.map((_c, i) => String(i + 1)).join("/");
+    const letters = list.map((c) => c.letter.toUpperCase()).join(" ");
+    return v_flex().id("launcher").w_full().min_h(0).p(8).gap(2).bg(t.popover).text_color(t.foreground)
       .track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
       .child(div().px(8).pt(4).pb(6).text_size(11.5).text_color(t.dim).child("New tab"))
-      .children(CHOICES.map((c, i) => h_flex().id(`choice-${c.id}`).h(36).px(10).gap(10).items_center().rounded(8).cursor_pointer()
-        .when(i === this.sel, (e) => e.bg(t.selected))
+      .children(list.map((c, i) => h_flex().id(`choice-${c.id}`).h(36).px(10).gap(10).items_center().rounded(8).cursor_pointer()
+        .when(i === sel, (e) => e.bg(t.selected))
         .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.open(i, cx))
         .child(mark(c))
-        .child(div().flex_1().text_size(13).text_color(this.available(c) ? t.foreground : t.dim).child(this.available(c) ? c.label : `${c.label} (not installed)`))
-        .when(this.available(c), (e) => e.child(h_flex().gap(4).items_center().child(badge(String(i + 1))).child(badge(c.altLetter ? `${c.letter.toUpperCase()}/${c.altLetter.toUpperCase()}` : c.letter.toUpperCase()))))))
+        .child(div().flex_1().text_size(13).text_color(t.foreground).child(c.label))
+        .child(h_flex().gap(4).items_center().child(badge(String(i + 1))).child(badge(c.altLetter ? `${c.letter.toUpperCase()}/${c.altLetter.toUpperCase()}` : c.letter.toUpperCase())))))
       .child(div().px(8).pt(6).text_size(10.5).text_color(t.dim).child(`${nums}, ${letters} or ↑↓ Enter · Esc`));
   }
 }
