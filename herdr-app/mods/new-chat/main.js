@@ -33,7 +33,7 @@ import { resolveSelection, visibleChoices } from "./choices.js";
 
 const CHOICES = [
   { id: "terminal", label: "Terminal (zsh)", icon: "terminal", tint: true, letter: "z", altLetter: "t", isTerminal: true },
-  { id: "agy", label: "Antigravity", icon: "agy", letter: "a" },
+  { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
 ];
@@ -79,7 +79,7 @@ const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
 const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
 
 // Herdr's names for the agents (its status reports Claude Code as claude-code) → ours.
-const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex", agy: "agy", antigravity: "agy" };
+const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex" };
 
 /** The agent a terminal runs, as Herdr reports it (an id of CHOICES), else null. */
 export function agentOf(t) {
