@@ -12,6 +12,7 @@ tests/box/box up pr-33 ../worktrees/33    # a box for a worktree (copied in; rea
 tests/box/box doctor pr-33                # fit to test on? JSON, exit 1 on problems
 tests/box/box run pr-33 basic misc        # tests/e2e/run.sh flows, in the box
 tests/box/box run pr-33 --run before --script tests/repro/run.sh   # any script: a replay
+tests/box/box run pr-33 --run before --script-file ~/repro.sh      # one outside the worktree
 tests/box/box test pr-33                  # npm test, in the box
 tests/box/box down pr-33
 ```

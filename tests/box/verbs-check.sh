@@ -107,6 +107,7 @@ refused() { local name=$1; shift; if "$@" >/dev/null 2>&1; then no "$name: not r
 refused "a run name with .." "$B" run "$item" --run 'a/../../x' basic
 refused "an absolute run name" "$B" run "$item" --run /tmp/x basic
 refused "--script outside the repo" "$B" run "$item" --run x --script ../x.sh
+refused "a --script-file that isn't there" "$B" run "$item" --run x --script-file /nonexistent/x.sh
 P=${BOX_PROOF_DIR:-$HOME/.cache/herdr-chat-box}/$item
 mkdir -p "$P/lk"; ln -sfn "$OUT" "$P/lk/run"
 refused "a run dir that is a link" "$B" run "$item" --run lk/run basic

@@ -39,9 +39,11 @@ The box
   box down <item> | --all           remove the box (proof stays)
 
 Tests and replays (each starts its own fresh app; one at a time a box, and not while the live app is up)
-  box run <item> [--run NAME] [--replace] [--allow-dirty] [--script PATH] [args...]
+  box run <item> [--run NAME] [--replace] [--allow-dirty] [--script PATH | --script-file FILE] [args...]
                                     tests/e2e/run.sh flows (args; none: all), or --script PATH
-                                    (in the repo, e.g. a replay) with the run dir first
+                                    (in the repo, e.g. a replay) with the run dir first, or
+                                    --script-file FILE (a file on this machine, copied in; kept
+                                    in the run dir as script.sh), so the worktree stays clean
   box test <item> [args...]         npm test in the box
 
 Film it (in the live app, below)
@@ -208,7 +210,7 @@ stop_on_interrupt() { # stop_on_interrupt <item> <lock>
 
 cmd_run() {
   local item=${1:-}; check_item "$item"; shift
-  local run=e2e replace= dirty= script=tests/e2e/run.sh
+  local run=e2e replace= dirty= script=tests/e2e/run.sh file=
   local args=()
   while [ $# -gt 0 ]; do
     case $1 in
@@ -216,6 +218,7 @@ cmd_run() {
       --replace) replace=1 ;;
       --allow-dirty) dirty=1 ;;
       --script) [ $# -ge 2 ] || die "--script needs a path"; script=$2; shift ;;
+      --script-file) [ $# -ge 2 ] || die "--script-file needs a file"; file=$2; shift ;;
       *) args+=("$1") ;;
     esac
     shift
@@ -223,11 +226,16 @@ cmd_run() {
   # Every argument before anything changes.
   check_run "$run"
   [[ "$script" != /* && "/$script/" != */../* ]] || die "--script is a path in the repo (e.g. tests/repro/run.sh)"
+  [ -z "$file" ] || [ -f "$file" ] || die "no file $file"
   need_box "$item"
   bexec "$item" sh -c '/opt/box/exclusive.sh --free display && /opt/box/exclusive.sh --free src' || exit 75
   local wt rev dir rc=0
   wt=$(worktree_of "$item"); rev=$(rev_of "$wt")
   dir=$(new_run_dir "$item" "$run" "$rev" "$replace" "$dirty" "$wt")
+  if [ -n "$file" ]; then # a host file: kept with the proof, run from outside the snapshot
+    cp "$file" "$dir/script.sh"; chmod 0755 "$dir/script.sh"
+    docker cp -q "$dir/script.sh" "$(cname "$item"):/tmp/run-script.sh"; script=/tmp/run-script.sh
+  fi
   local b; b=$(mktemp -d)
   git -C "$wt" bundle create "$b/worktree.bundle" HEAD --tags >/dev/null 2>&1 || : >"$b/worktree.bundle"
   docker cp -q "$b/worktree.bundle" "$(cname "$item"):/tmp/worktree.bundle"; rm -rf "$b"
