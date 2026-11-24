@@ -17,7 +17,7 @@ it through `tests/fake-claude/host.ts` (`startClaude`).
 - Accepted flags:
   - `--session-id <id>`: a new session with this id.
   - `--resume <id>`: an existing transcript. A missing one exits 1 with "No conversation found", as the CLI does.
-  - `--model` (without it, the model the CLI is configured for: `$CLAUDE_CONFIG_DIR/settings.json` `env.ANTHROPIC_MODEL`, then `$ANTHROPIC_MODEL`, then the settings' `model`), `--permission-mode`, `--effort`, `--replay-user-messages` (echoes prompts and control answers), `--version`.
+  - `--model` (without it, the model the CLI is configured for: `env.ANTHROPIC_MODEL` in the settings, then `$ANTHROPIC_MODEL`, then the settings' `model`; the settings are `$CLAUDE_CONFIG_DIR/settings.json` with the cwd's `.claude/settings.json` over them), `--permission-mode`, `--effort`, `--replay-user-messages` (echoes prompts and control answers), `--version`.
 - `CLAUDE_CONFIG_DIR`: where transcripts go, in the real format.
   - The main transcript is `projects/<cwd with non-alphanumerics → '-'>/<id>.jsonl`.
   - Subagent transcripts go in `<id>/subagents/agent-<id>.jsonl`.

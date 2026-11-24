@@ -2,7 +2,7 @@
 // model/effort/permission-mode switching, a crash, a stall, a wedged CLI.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { idle, sleep } from "./harness.ts";
@@ -98,6 +98,19 @@ test("claude: with no --model the chip shows the configured model from the start
     writeFileSync(settings, JSON.stringify({ model: "sonnet" }));
     await c.req("send", { text: "/reload" });
     await c.waitFor((x) => idle(x) && x.state.model?.id === "opus", 10_000, "opus after reload");
+    // A project setting the chip can't see: its guess holds until init says what the CLI really runs.
+    const project = join(h.cwd, ".claude", "settings.json");
+    mkdirSync(join(h.cwd, ".claude"), { recursive: true });
+    writeFileSync(project, JSON.stringify({ env: { ANTHROPIC_MODEL: "claude-sonnet-4-5-20250929" } }));
+    await c.req("send", { text: "/reload" });
+    await c.req("send", { text: "pinned?" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "model=claude-sonnet-4-5-20250929"), 10_000);
+    assert.deepEqual([c.state.model.id, c.state.model.name], ["claude-sonnet-4-5-20250929", "claude-sonnet-4-5-20250929"], "an unlisted live model wins over the guess");
+    writeFileSync(project, JSON.stringify({ env: { ANTHROPIC_MODEL: "haiku" } }));
+    await c.req("send", { text: "/reload" });
+    await c.req("send", { text: "listed?" });
+    await c.waitFor((x) => idle(x) && x.items.filter((i) => i.text === "model=haiku").length === 2 && x.state.model?.id === "haiku", 10_000, "a listed live model switches the entry");
+    rmSync(project);
     // A pick wins over the config, and keeps winning after a reload.
     await c.req("set_model", { provider: "anthropic", modelId: "sonnet" });
     await c.waitFor((x) => x.state.model?.id === "sonnet", 2000);
