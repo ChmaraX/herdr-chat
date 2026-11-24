@@ -206,7 +206,9 @@ for f in sorted(glob.glob(sys.argv[1] + "/c-*.json")):
 sys.exit(1 if bad else 0)
 EOF
 }
-overlay_open() { "$APP" status | python3 -c 'import json,sys; o=json.load(sys.stdin)["overlays"]; sys.exit(0 if any(sys.argv[1] == (x if isinstance(x, str) else x.get("mod") or x.get("name")) for x in o) else 1)' "$1"; }
+# How many overlays of mod $1 are open; overlay_open: any.
+overlay_count() { "$APP" status | python3 -c 'import json,sys; o=json.load(sys.stdin)["overlays"]; print(sum(1 for x in o if sys.argv[1] == (x if isinstance(x, str) else x.get("mod") or x.get("name"))))' "$1"; }
+overlay_open() { [ "$(overlay_count "$1")" -gt 0 ] 2>/dev/null; }
 # The core's herdr-app document (spaces > tabs > pane trees).
 app_doc() {
   printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"hello","params":{"generation":1}}' \

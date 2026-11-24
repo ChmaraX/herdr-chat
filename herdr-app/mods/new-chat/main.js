@@ -20,14 +20,15 @@
 // - `new-chat.update-check`: the update questions now, the release lookup too (update.js;
 //   they also run a few seconds after this block starts, an install reloads it, and
 //   once an hour, with the lookup at most once a day).
-//   The question's dialog takes `new-chat.update:<button>` (restart, later, update, notes, output).
+//   The question (a window that leaves the app usable, one at a time) takes
+//   `new-chat.update:<button>` (restart, later, update, notes, output); `new-chat.focus` gives it the keys.
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, spaces, terminals, theme } from "herdr";
 import * as fs from "fs/promises";
 import { randomBytes } from "crypto";
-import { UpdateDialog, checkHosts, checkRelease, checkRunning } from "./update.js";
+import { UpdateQuestion, checkHosts, checkRelease, checkRunning } from "./update.js";
 
 const CHOICES = [
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
@@ -255,8 +256,8 @@ class Commands {
     };
     cx.timer.after(3000, () => void updates());
     cx.timer.every(3600 * 1000, () => void updates());
-    // An update the dialog started: its end (checkRunning does nothing while none runs). On
-    // success question 2, once the dialog (it polls every second) has closed.
+    // An update the question started: its end (checkRunning does nothing while none runs). On
+    // success question 2, once the question (it polls every second) has closed.
     cx.timer.every(3000, () => void checkRunning().then((ok) => ok && cx.timer.after(1500, () => void checkHosts())).catch(() => {}));
     cx.spawn(async (cx) => {
       for (;;) {
@@ -279,8 +280,8 @@ export default class NewChat extends View {
     if (props()?.role === "commands") { this.commands = new Commands(cx); return; }
     if (props()?.role === "update") {
       this.handle = cx.focus_handle();
-      this.update = new UpdateDialog(props(), cx);
-      cx.timer.after(120, () => this.handle.focus());
+      this.update = new UpdateQuestion(props(), cx);
+      // No focus of its own (update.js): a click on it, or `new-chat.focus`, gives it the keys.
       // Its buttons by command (`new-chat.update:restart|later|update|notes|output`), as a click.
       cx.spawn(async (cx) => {
         for (;;) {

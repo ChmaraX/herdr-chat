@@ -5,7 +5,7 @@
 //    release, looked up once a day. Update runs the install's own update
 //    command in a herdr-core terminal (it outlives this mod, which the install
 //    reloads). The update is done when that terminal ends: the floating block
-//    watches it and says how it went; on success the dialog closes, then
+//    watches it and says how it went; on success the question closes, then
 //    question 2.
 // 2. "Restart N chats on X?": after an install, chats whose host started
 //    before it and runs other code (its registry's build and start, against
@@ -13,8 +13,14 @@
 //    key; each chat (mods/chat/update.js) restarts its host on the same
 //    session as soon as it is quiet. Later leaves a bar in each of them.
 //
-// The floating block (main.js Commands) checks; the dialog is an overlay of
-// this mod with props {role: "update", …}.
+// The floating block (main.js Commands) checks; the question is an overlay of
+// this mod with props {role: "update", …}: a window, not a dialog. A dialog
+// dims the whole app and a modal one ignores clicks beside it, so a question
+// nobody had seen (an install while the person was away, asked by each reload
+// of the install: four copies once) left + and every menu dead until answered.
+// A window leaves the app usable, and its key keeps one question: asking
+// again replaces it in place. It doesn't take the keyboard: typing elsewhere
+// and Enter would answer it.
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
@@ -24,8 +30,8 @@ const REPO = "ChmaraX/herdr-chat";
 const RESTART_ALL = "herdr-chat.update.restart"; // a build every chat restarts on (mods/chat/update.js has the same key)
 const LATER = "herdr-chat.update.later"; // a build the person said Later to: no question, the chats' bars stay
 const CHECKED = "herdr-chat.update.checked"; // ms of the last release lookup (or Later)
-const RUNNING = "herdr-chat.update.running"; // {terminal, version}: an update started from the dialog, until its terminal ends
-const RESULT = "herdr-chat.update.result"; // {version, exit, terminal}: how the last one ended (the dialog shows it)
+const RUNNING = "herdr-chat.update.running"; // {terminal, version}: an update started from the question, until its terminal ends
+const RESULT = "herdr-chat.update.result"; // {version, exit, terminal}: how the last one ended (the question shows it)
 const DAY = 24 * 3600 * 1000;
 const VERSION = /^\d+\.\d+\.\d+$/; // the only release tags offered (it goes on a command line)
 
@@ -67,7 +73,9 @@ async function olderChats(cfg) {
   return out;
 }
 
-const dialog = (p) => openOverlay({ mod: "new-chat", kind: "dialog", modal: true, width: 460, props: { role: "update", ...p } });
+/** The overlay key: one question at a time, whichever step. */
+const QUESTION_KEY = "herdr-chat.update";
+const ask = (p) => openOverlay({ mod: "new-chat", kind: "window", key: QUESTION_KEY, width: 460, height: 188, props: { role: "update", ...p } });
 
 /** Question 2, after an install (or at start): asked once per build; not while an update runs (its end asks). */
 export async function checkHosts() {
@@ -75,15 +83,15 @@ export async function checkHosts() {
   if (!cfg.build || shared(RUNNING) || shared(RESTART_ALL) === cfg.build || shared(LATER) === cfg.build) return null;
   const chats = await olderChats(cfg);
   if (!chats.length) return null;
-  dialog({ step: "restart", version: cfg.version ?? null, build: cfg.build, count: chats.length });
+  ask({ step: "restart", version: cfg.version ?? null, build: cfg.build, count: chats.length });
   return chats;
 }
 
 /**
- * The update the dialog started, once its terminal has ended (the floating block
- * calls this every few seconds while one runs): the outcome for the dialog and a
- * notification (the dialog may be hidden). True when it worked: the caller asks
- * question 2 once the dialog has closed.
+ * The update the question started, once its terminal has ended (the floating block
+ * calls this every few seconds while one runs): the outcome for the question and a
+ * notification (the question may be hidden, or replaced by the next one). True when
+ * it worked: the caller asks question 2 once the question has closed.
  */
 export async function checkRunning() {
   const r = shared(RUNNING);
@@ -121,7 +129,7 @@ export async function checkRelease({ now = false } = {}) {
   }
   const latest = String(rel.tag_name ?? "").replace(/^v/, "");
   if (!VERSION.test(latest) || !newer(latest, cfg.version)) return null;
-  dialog({ step: "release", version: latest, current: cfg.version ?? null, url: rel.html_url ?? `https://github.com/${REPO}/releases/tag/v${latest}` });
+  ask({ step: "release", version: latest, current: cfg.version ?? null, url: rel.html_url ?? `https://github.com/${REPO}/releases/tag/v${latest}` });
   return latest;
 }
 
@@ -137,8 +145,8 @@ function updateArgv(cfg, version) {
   return ["/usr/bin/env", `PATH=${path}`, `HERDR_APP_HOME=${appHome()}`, "sh", "-c", `${cfg.update} --version "$1"`, "sh", version];
 }
 
-/** The dialog (an overlay of this mod). */
-export class UpdateDialog {
+/** The question (an overlay of this mod). */
+export class UpdateQuestion {
   constructor(p, cx) {
     this.p = p;
     this.state = "ask"; // ask | running | failed
@@ -170,6 +178,8 @@ export class UpdateDialog {
     if (r.code !== 0) {
       this.state = "failed";
       this.result = { exit: null, terminal: null, error: (r.stderr || r.stdout).trim() };
+      // The next question replaces this window (one key): the notification keeps the error.
+      notify({ title: "herdr-chat", body: `The update to ${this.p.version} didn't start: ${this.result.error || "hc run failed"}`, level: "error", timeout: 0 });
       return cx.notify();
     }
     setShared(RESULT, null);
@@ -225,10 +235,12 @@ export class UpdateDialog {
       body = [p.current ? `You have ${p.current}.` : "A new version is out."];
       buttons = [btn("update-notes", "What's new", false, "notes"), btn("update-later", "Later", false, "later"), btn("update-go", "Update", true, "update")];
     }
+    // The window has a fixed height: a long body (hc's stderr when an update fails) scrolls, the buttons stay.
     return v_flex().id("update").size_full().p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .track_focus(handle).on_key_down((e, cx) => { this.key(e, cx); cx.notify(); })
       .child(div().text_size(15).font_semibold().child(title))
-      .children(body.map((b) => div().text_size(12.5).text_color(t.muted).child(b)))
+      .child(v_flex().id("update-body").flex_1().min_h(0).overflow_y_scroll().gap(10)
+        .children(body.map((b) => div().text_size(12.5).text_color(t.muted).child(b))))
       .child(h_flex().pt(6).gap(8).justify_end().children(buttons));
   }
 }
