@@ -457,19 +457,22 @@ test("symlinks: a keys.json and a layout kept in dotfiles stay links (chained, r
   writeFileSync(join(home, "installed.json"), JSON.stringify({ "layout:main": {} }));
   writeFileSync(join(home, "shared.json"), JSON.stringify({ layout: "mine" }));
 
-  // keys.json: an absolute link to a relative link inside the dotfiles repo (as a stow folder).
+  // keys.json: an absolute link, through a folder that is a link (as a stow folder), to a relative
+  // link with `..`, which the kernel resolves from the real folder (herdr/links), not the linked one.
   const realKeys = join(dot, "herdr", "keys.json");
   writeFileSync(realKeys, JSON.stringify(herdrKeys(), null, 2) + "\n");
-  symlinkSync(join("herdr", "keys.json"), join(dot, "keys.json"));
-  symlinkSync(join(dot, "keys.json"), join(home, "keys.json"));
+  mkdirSync(join(dot, "herdr", "links"));
+  symlinkSync(join("..", "keys.json"), join(dot, "herdr", "links", "keys.json"));
+  symlinkSync(join("herdr", "links"), join(dot, "stow"));
+  symlinkSync(join(dot, "stow", "keys.json"), join(home, "keys.json"));
   // The layout: a relative link into a sibling folder.
   const realLayout = join(dot, "herdr", "layouts", "mine.json");
   const layoutText = JSON.stringify(personal(), null, 2) + "\n";
   writeFileSync(realLayout, layoutText);
   symlinkSync(relative(join(home, "layouts"), realLayout), join(home, "layouts", "mine.json"));
 
-  const links = () => [join(home, "keys.json"), join(dot, "keys.json"), join(home, "layouts", "mine.json")].map((f) => lstatSync(f).isSymbolicLink());
-  const leftovers = () => [home, join(home, "layouts"), dot, join(dot, "herdr"), join(dot, "herdr", "layouts")]
+  const links = () => [join(home, "keys.json"), join(dot, "herdr", "links", "keys.json"), join(home, "layouts", "mine.json")].map((f) => lstatSync(f).isSymbolicLink());
+  const leftovers = () => [home, join(home, "layouts"), dot, join(dot, "herdr"), join(dot, "herdr", "links"), join(dot, "herdr", "layouts")]
     .flatMap((f) => readdirSync(f).filter((n) => n.endsWith(".herdr-chat.tmp")));
   const keysWant = herdrKeys();
   delete (keysWant.global as any)["cmd-j shift-p"];
