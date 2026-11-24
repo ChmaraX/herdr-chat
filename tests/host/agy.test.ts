@@ -224,3 +224,43 @@ test("AgyAdapter applies default model and agentMode from settings.json on new s
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("AgyAdapter flushes mid-stream text steer at the usage_update -> next chunk boundary", async () => {
+  const prevSettings = process.env.AGY_SETTINGS_PATH;
+  process.env.AGY_SETTINGS_PATH = join(tmpdir(), `herdr-chat-nonexistent-stream-${Date.now()}.json`);
+  const { host, events, waitFor } = makeHost();
+  const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
+  try {
+    await adapter.start(null, host);
+    events.length = 0;
+    const d1 = await adapter.prompt({ id: "p1", text: "STREAM_SLOW", images: [], mode: "auto", busy: false });
+    assert.equal(d1.disposition, "started");
+    await waitFor((e) => e.type === "assistant_delta");
+
+    const d2 = await adapter.prompt({ id: "s1", text: "add pineapple", images: [], mode: "auto", busy: true });
+    assert.equal(d2.disposition, "queued");
+    assert.ok(events.some((e) => e.type === "queue_changed" && e.steering[0] === "add pineapple"));
+
+    await waitFor((e) => e.type === "run_settled");
+    const settledCount = events.filter((e) => e.type === "run_settled").length;
+    assert.equal(settledCount, 1, "only one run_settled for steered turn");
+
+    const seq = events
+      .filter((e) => e.type === "assistant_end" || e.type === "user_message" || e.type === "run_settled")
+      .map((e) => (e.type === "user_message" ? `user:${e.clientId}` : e.type === "assistant_end" ? `assistant:${e.content.map((b) => (b && b.type === "text" ? b.text : "")).join("")}` : "settled"));
+    assert.deepEqual(seq, [
+      "user:p1",
+      "assistant:Part 1. Part 1 done.",
+      "user:s1",
+      "assistant:Steered reply: add pineapple",
+      "settled",
+    ]);
+    const lastQueue = [...events].reverse().find((e) => e.type === "queue_changed");
+    assert.equal(lastQueue?.type, "queue_changed");
+    if (lastQueue?.type === "queue_changed") assert.deepEqual(lastQueue.steering, []);
+  } finally {
+    await adapter.dispose();
+    if (prevSettings === undefined) delete process.env.AGY_SETTINGS_PATH;
+    else process.env.AGY_SETTINGS_PATH = prevSettings;
+  }
+});

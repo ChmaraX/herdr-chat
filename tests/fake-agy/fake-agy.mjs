@@ -9,7 +9,11 @@ let currentModel = "gemini-4-neon";
 let currentThought = "high";
 let currentMode = "default";
 let activePromptId = null;
+let activeSessionId = null;
+let activeToolCallId = null;
+let activeTimer = null;
 let pendingPermission = null;
+let steeredTexts = [];
 let lastPromptParams = null;
 
 function configOptions() {
@@ -94,24 +98,41 @@ rl.on("line", (line) => {
 
   // Client response to our session/request_permission
   if (msg.id && !msg.method && pendingPermission && msg.id === pendingPermission.rpcId) {
-    const { promptId, sessionId } = pendingPermission;
+    const { sessionId, slow } = pendingPermission;
     pendingPermission = null;
     const outcome = msg.result?.outcome;
     const allowed = outcome?.outcome === "selected" && outcome?.optionId?.startsWith("allow");
-    update(sessionId, {
-      sessionUpdate: "tool_call_update",
-      toolCallId: "call_perm_1",
-      name: "run_command",
-      status: allowed ? "completed" : "cancelled",
-      rawOutput: allowed ? { output: "ok\n", exit_code: 0 } : { output: "denied", exit_code: 1 },
-      content: [{ type: "content", content: { type: "text", text: allowed ? "ok\n" : "denied" } }],
-    });
-    update(sessionId, {
-      sessionUpdate: "agent_message_chunk",
-      content: { type: "text", text: allowed ? "Allowed and ran." : "Permission denied." },
-    });
-    activePromptId = null;
-    send({ jsonrpc: "2.0", id: promptId, result: { stopReason: "end_turn", usage: { inputTokens: 100, outputTokens: 12 } } });
+    const finishPerm = () => {
+      activeToolCallId = null;
+      if (activePromptId === null) return;
+      update(sessionId, {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call_perm_1",
+        name: "run_command",
+        status: allowed ? "completed" : "cancelled",
+        rawOutput: allowed ? { output: "ok\n", exit_code: 0 } : { output: "denied", exit_code: 1 },
+        content: [{ type: "content", content: { type: "text", text: allowed ? "ok\n" : "denied" } }],
+      });
+      const replyText = allowed
+        ? (steeredTexts.length ? `Allowed. Steers: ${steeredTexts.join(", ")}` : "Allowed and ran.")
+        : "Permission denied.";
+      steeredTexts = [];
+      update(sessionId, {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: replyText },
+      });
+      const pid = activePromptId;
+      activePromptId = null;
+      send({ jsonrpc: "2.0", id: pid, result: { stopReason: "end_turn", usage: { inputTokens: 100, outputTokens: 12 } } });
+    };
+    if (slow) {
+      activeTimer = setTimeout(() => {
+        activeTimer = null;
+        finishPerm();
+      }, 250);
+    } else {
+      finishPerm();
+    }
     return;
   }
 
@@ -207,10 +228,25 @@ rl.on("line", (line) => {
     }
 
     case "session/cancel": {
+      if (activeTimer) {
+        clearTimeout(activeTimer);
+        activeTimer = null;
+      }
+      if (activeToolCallId && activeSessionId) {
+        update(activeSessionId, {
+          sessionUpdate: "tool_call_update",
+          toolCallId: activeToolCallId,
+          name: "run_command",
+          status: "failed",
+          rawOutput: { error: "cancelled" },
+        });
+        activeToolCallId = null;
+      }
+      steeredTexts = [];
+      pendingPermission = null;
       if (activePromptId !== null) {
         const pid = activePromptId;
         activePromptId = null;
-        pendingPermission = null;
         send({ jsonrpc: "2.0", id: pid, result: { stopReason: "cancelled" } });
       }
       break;
@@ -219,10 +255,89 @@ rl.on("line", (line) => {
     case "session/prompt": {
       const sid = msg.params?.sessionId;
       const text = (msg.params?.prompt ?? []).find((b) => b.type === "text")?.text ?? "";
+      if (activePromptId !== null) {
+        if (pendingPermission) {
+          send({
+            jsonrpc: "2.0",
+            id: msg.id,
+            error: {
+              code: -32000,
+              message: "the running prompt is waiting for a permission or question answer; answer it or send session/cancel, then send this prompt again",
+            },
+          });
+          break;
+        }
+        steeredTexts.push(text);
+        const prevId = activePromptId;
+        activePromptId = msg.id;
+        send({ jsonrpc: "2.0", id: prevId, result: { stopReason: "end_turn" } });
+        break;
+      }
+      activeSessionId = sid;
+      activeToolCallId = null;
+      steeredTexts = [];
       lastPromptParams = msg.params;
       activePromptId = msg.id;
 
+      if (text.includes("SLOW") && !text.includes("ASK_PERM")) {
+        if (text.includes("STREAM_SLOW")) {
+          update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Part 1." } });
+          activeTimer = setTimeout(() => {
+            activeTimer = null;
+            if (activePromptId === null) return;
+            update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: " Part 1 done." } });
+            update(sid, { sessionUpdate: "usage_update", used: 2000, size: 1048576 });
+            if (steeredTexts.length) {
+              update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Steered reply: ${steeredTexts.join(", ")}` } });
+              update(sid, { sessionUpdate: "usage_update", used: 2400, size: 1048576 });
+            }
+            steeredTexts = [];
+            const pid = activePromptId;
+            activePromptId = null;
+            send({ jsonrpc: "2.0", id: pid, result: { stopReason: "end_turn", usage: { inputTokens: 200, outputTokens: 30 } } });
+          }, 350);
+          break;
+        }
+        const callId = `call_slow_${msg.id}`;
+        activeToolCallId = callId;
+        update(sid, {
+          sessionUpdate: "tool_call",
+          toolCallId: callId,
+          name: "run_command",
+          args: { CommandLine: "sleep 1" },
+          status: "in_progress",
+        });
+        activeTimer = setTimeout(() => {
+          activeTimer = null;
+          if (activePromptId === null) return;
+          activeToolCallId = null;
+          update(sid, {
+            sessionUpdate: "tool_call_update",
+            toolCallId: callId,
+            name: "run_command",
+            status: "completed",
+            rawOutput: { output: "done\n", exit_code: 0 },
+            content: [{ type: "content", content: { type: "text", text: "done\n" } }],
+          });
+          const reply = steeredTexts.length ? `ok: ${text} | steers: ${steeredTexts.join(", ")}` : `ok: ${text}`;
+          steeredTexts = [];
+          update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
+          const pid = activePromptId;
+          activePromptId = null;
+          send({ jsonrpc: "2.0", id: pid, result: { stopReason: "end_turn", usage: { inputTokens: 100, outputTokens: 20 } } });
+        }, 400);
+        break;
+      }
+
+      if (text.startsWith("ECHO:")) {
+        update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `ok: ${text.slice(5).trim()}` } });
+        activePromptId = null;
+        send({ jsonrpc: "2.0", id: msg.id, result: { stopReason: "end_turn", usage: { inputTokens: 50, outputTokens: 10 } } });
+        break;
+      }
+
       if (text.includes("ASK_PERM")) {
+        activeToolCallId = "call_perm_1";
         update(sid, {
           sessionUpdate: "tool_call",
           toolCallId: "call_perm_1",
@@ -230,7 +345,7 @@ rl.on("line", (line) => {
           args: { CommandLine: "rm -rf /tmp/test" },
           status: "in_progress",
         });
-        pendingPermission = { rpcId: 9001, promptId: msg.id, sessionId: sid };
+        pendingPermission = { rpcId: 9001, sessionId: sid, slow: text.includes("ASK_PERM_SLOW") };
         send({
           jsonrpc: "2.0",
           id: 9001,

@@ -19,6 +19,7 @@ import type {
   AskAnswer,
   Capabilities,
   Disposition,
+  ImageBlock,
   ModelInfo,
   NormalizedEvent,
   PermissionChoice,
@@ -28,6 +29,7 @@ import type {
   SessionInfo,
   SessionScope,
   SessionSource,
+  SkillLead,
   StartInfo,
   UsageInfo,
 } from "../types.ts";
@@ -45,6 +47,14 @@ export const AGY_PERMISSION_MODES: PermissionMode[] = [
 ];
 
 type PendingAsk = { rpcId: RequestId; optionIds: Set<string> };
+type QueuedSteer = {
+  id: string;
+  text: string;
+  lead?: SkillLead;
+  images: ImageBlock[];
+  dispatched: boolean;
+  sawUsage: boolean;
+};
 
 export function agySessionPath(sessionId: string): string {
   return join(homedir(), ".gemini", "antigravity-cli", "conversations", `${sessionId}.db`);
@@ -99,7 +109,7 @@ export class AgyAdapter implements ProviderAdapter {
   readonly name = "Antigravity";
   readonly tools = AGY_TOOLS;
   readonly capabilities: Capabilities = {
-    steer: false,
+    steer: true,
     followUp: true,
     thinkingLevels: ["low", "medium", "high", "xhigh"],
     permissions: true,
@@ -131,6 +141,9 @@ export class AgyAdapter implements ProviderAdapter {
   private contextWindow: number | null = null;
 
   private activePrompt = false;
+  private activePromptGen = 0;
+  private inFlightPrompts = new Set<number>();
+  private steering: QueuedSteer[] = [];
   private aborting = false;
   private replayBuffer: NormalizedEvent[] | null = null;
   private loadedHistory: NormalizedEvent[] = [];
@@ -253,14 +266,82 @@ export class AgyAdapter implements ProviderAdapter {
     }
   }
 
+  private resetRunState(emitClearedQueue = false): void {
+    this.activePrompt = false;
+    this.activePromptGen++;
+    this.inFlightPrompts.clear();
+    this.aborting = false;
+    this.asks.clear();
+    if (this.steering.length) {
+      this.steering = [];
+      if (emitClearedQueue) this.emitQueue();
+    }
+  }
+
+  private emitQueue(): void {
+    this.emit({
+      type: "queue_changed",
+      steering: this.steering.map((s) => s.text),
+      followUp: [],
+      steeringIds: this.steering.map((s) => s.id),
+      followUpIds: [],
+    });
+  }
+
+  private promptBlocks(p: { text: string; images: ImageBlock[] }): Rec[] {
+    const blocks: Rec[] = [];
+    if (p.text) blocks.push({ type: "text", text: p.text });
+    for (const img of p.images) {
+      blocks.push({ type: "image", data: img.data, mimeType: img.mimeType });
+    }
+    return blocks;
+  }
+
+  private flushSteers(pred: (s: QueuedSteer) => boolean, opts: { closeTurn: boolean }): void {
+    const flushed: QueuedSteer[] = [];
+    const kept: QueuedSteer[] = [];
+    for (const s of this.steering) {
+      if (pred(s)) flushed.push(s);
+      else kept.push(s);
+    }
+    if (!flushed.length) return;
+    this.steering = kept;
+    if (opts.closeTurn) {
+      this.emitAll(this.mapper.finishTurn({ stopReason: "stop", model: this.modelRef() }));
+      this.emit({ type: "turn_end" });
+    }
+    for (const s of flushed) {
+      this.emit({
+        type: "user_message",
+        text: s.lead ? s.lead.rest : s.text,
+        images: s.images.length,
+        ...(s.images.length ? { imageBlocks: s.images } : {}),
+        ...(s.lead?.skills.length ? { skills: s.lead.skills } : {}),
+        clientId: s.id,
+      });
+    }
+    this.emitQueue();
+  }
+
+  private dispatchDeferredSteers(): void {
+    const proc = this.proc;
+    const sessionId = this.sessionId;
+    if (!proc || proc.exited || !sessionId || !this.activePrompt || this.aborting || this.asks.size > 0) return;
+    const pending = this.steering.filter((s) => !s.dispatched);
+    if (!pending.length) return;
+    for (const s of pending) s.dispatched = true;
+    this.emitQueue();
+    for (const s of pending) {
+      this.sendPromptRpc(proc, sessionId, this.promptBlocks(s), s.id);
+    }
+  }
+
   // ---------------------------------------------------------------- lifecycle
 
   async start(session: string | null, host: AdapterHost): Promise<StartInfo> {
     this.host = host;
     this.mapper.reset();
-    this.asks.clear();
-    this.activePrompt = false;
-    this.aborting = false;
+    this.resetRunState(false);
     this.loadedHistory = [];
     this.replayBuffer = null;
 
@@ -301,8 +382,7 @@ export class AgyAdapter implements ProviderAdapter {
     p.onExit = (info) => {
       if (this.proc !== p) return;
       this.proc = null;
-      this.activePrompt = false;
-      this.asks.clear();
+      this.resetRunState(false);
       host.emit({
         type: "exited",
         code: info.code,
@@ -332,6 +412,7 @@ export class AgyAdapter implements ProviderAdapter {
 
   private async openNewSession(p: AgyProcess): Promise<void> {
     this.mapper.reset();
+    this.resetRunState(true);
     this.loadedHistory = [];
     this.contextUsed = 0;
     const res = await p.request<Rec>("session/new", { cwd: this.opts.cwd, mcpServers: [] }, 30_000);
@@ -375,6 +456,7 @@ export class AgyAdapter implements ProviderAdapter {
     const prevSessionId = this.sessionId;
     this.sessionId = sessionId;
     this.mapper.reset();
+    this.resetRunState(true);
     this.replayBuffer = [];
     this.loadedHistory = [];
     try {
@@ -398,8 +480,7 @@ export class AgyAdapter implements ProviderAdapter {
   async dispose(): Promise<void> {
     const p = this.proc;
     this.proc = null;
-    this.activePrompt = false;
-    this.asks.clear();
+    this.resetRunState(false);
     if (!p) return;
     await p.stop();
   }
@@ -407,8 +488,7 @@ export class AgyAdapter implements ProviderAdapter {
   kill(): void {
     const p = this.proc;
     this.proc = null;
-    this.activePrompt = false;
-    this.asks.clear();
+    this.resetRunState(false);
     p?.killNow();
   }
 
@@ -442,6 +522,9 @@ export class AgyAdapter implements ProviderAdapter {
       const size = num(u.size);
       if (used !== undefined) this.contextUsed = used;
       if (size !== undefined && size > 0) this.contextWindow = size;
+      if (this.replayBuffer === null && !this.aborting && this.mapper.openToolCount === 0) {
+        for (const s of this.steering) if (s.dispatched) s.sawUsage = true;
+      }
       return;
     }
     if (kind === "config_option_update") {
@@ -453,6 +536,14 @@ export class AgyAdapter implements ProviderAdapter {
     }
 
     const replay = this.replayBuffer !== null;
+    const prevOpenTools = this.mapper.openToolCount;
+    if (!replay) {
+      if (kind === "tool_call") {
+        for (const s of this.steering) if (s.dispatched) s.sawUsage = false;
+      } else if (!this.aborting && (kind === "agent_thought_chunk" || kind === "agent_message_chunk") && prevOpenTools === 0) {
+        this.flushSteers((s) => s.dispatched && s.sawUsage, { closeTurn: true });
+      }
+    }
     const evs = this.mapper.onUpdate(u, { replay, model: this.modelRef() });
     if (replay) {
       for (const ev of evs) {
@@ -461,6 +552,9 @@ export class AgyAdapter implements ProviderAdapter {
       }
     } else {
       this.emitAll(evs);
+      if (!this.aborting && prevOpenTools > 0 && this.mapper.openToolCount === 0) {
+        this.flushSteers((s) => s.dispatched, { closeTurn: true });
+      }
     }
   }
 
@@ -504,30 +598,124 @@ export class AgyAdapter implements ProviderAdapter {
     this.asks.delete(askId);
     if ("cancelled" in answer && answer.cancelled) {
       this.proc?.respond(open.rpcId, { outcome: { outcome: "cancelled" } });
-      return;
-    }
-    if ("choice" in answer && open.optionIds.has(answer.choice)) {
+    } else if ("choice" in answer && open.optionIds.has(answer.choice)) {
       this.proc?.respond(open.rpcId, { outcome: { outcome: "selected", optionId: answer.choice } });
-      return;
+    } else {
+      this.proc?.respond(open.rpcId, { outcome: { outcome: "cancelled" } });
     }
-    this.proc?.respond(open.rpcId, { outcome: { outcome: "cancelled" } });
+    this.dispatchDeferredSteers();
   }
 
   // ---------------------------------------------------------------- turns
 
+  private sendPromptRpc(proc: AgyProcess, sessionId: string, blocks: Rec[], steerId?: string): void {
+    const gen = ++this.activePromptGen;
+    this.inFlightPrompts.add(gen);
+
+    void proc.request<Rec>("session/prompt", { sessionId, prompt: blocks }, 0).then(
+      (res) => {
+        if (this.proc !== proc) return;
+        this.inFlightPrompts.delete(gen);
+        if (gen !== this.activePromptGen) {
+          if (!this.aborting && res?.usage && this.mapper.openToolCount === 0) {
+            for (const s of this.steering) if (s.dispatched) s.sawUsage = true;
+          }
+          return;
+        }
+        const wasAborting = this.aborting;
+        this.aborting = false;
+        const stopReason = wasAborting ? "aborted" : mapStopReason(res?.stopReason);
+        const usage = mapUsage(res?.usage);
+        if (stopReason === "aborted") {
+          if (this.steering.length) {
+            this.steering = [];
+            this.emitQueue();
+          }
+        } else {
+          this.dispatchDeferredSteers();
+          if (this.activePromptGen !== gen) return;
+        }
+        this.emitAll(this.mapper.finishTurn({ stopReason, model: this.modelRef(), usage }));
+        this.emit({ type: "turn_end" });
+        if (stopReason !== "aborted") {
+          this.flushSteers((s) => s.dispatched, { closeTurn: false });
+        }
+        this.activePrompt = false;
+        this.emit({ type: "run_settled", aborted: stopReason === "aborted" });
+      },
+      (err) => {
+        if (this.proc !== proc) return;
+        this.inFlightPrompts.delete(gen);
+        const exited = err instanceof AgyRpcError && err.agentExited;
+        if (steerId && !exited && this.inFlightPrompts.size > 0) {
+          if (gen === this.activePromptGen) {
+            this.activePromptGen = Math.max(...this.inFlightPrompts);
+          }
+          const idx = this.steering.findIndex((s) => s.id === steerId);
+          if (idx >= 0) {
+            this.steering.splice(idx, 1);
+            this.emitQueue();
+          }
+          this.emit({
+            type: "notice",
+            level: "error",
+            source: "queue",
+            text: `Antigravity rejected the steer: ${errText(err)}`,
+          });
+          return;
+        }
+        if (gen !== this.activePromptGen) return;
+        this.activePrompt = false;
+        const aborted = this.aborting;
+        this.aborting = false;
+        if (this.steering.length) {
+          this.steering = [];
+          this.emitQueue();
+        }
+        if (!exited) {
+          this.emitAll(this.mapper.finishTurn({
+            stopReason: aborted ? "aborted" : "error",
+            ...(aborted ? {} : { error: errText(err) }),
+            model: this.modelRef(),
+          }));
+          this.emit({ type: "turn_end" });
+          this.emit({ type: "run_settled", aborted });
+        }
+      },
+    );
+  }
+
   async prompt(p: Prompt): Promise<{ disposition: Disposition }> {
     const proc = this.require();
     const sessionId = this.requireSession();
-    if (this.activePrompt || p.busy) {
-      throw new AgentError("Antigravity is already running a turn. Queue a follow-up (Alt+Enter) or press Esc to stop.");
-    }
-
-    const blocks: Rec[] = [];
-    if (p.text) blocks.push({ type: "text", text: p.text });
-    for (const img of p.images) {
-      blocks.push({ type: "image", data: img.data, mimeType: img.mimeType });
-    }
+    const blocks = this.promptBlocks(p);
     if (!blocks.length) throw new AgentError("Nothing to send");
+
+    if (this.activePrompt || p.busy) {
+      if (!this.activePrompt) {
+        this.activePrompt = true;
+        this.aborting = false;
+        this.mapper.reset();
+        this.emit({ type: "run_started" });
+      }
+      const item: QueuedSteer = {
+        id: p.id,
+        text: p.text,
+        ...(p.lead ? { lead: p.lead } : {}),
+        images: p.images,
+        dispatched: false,
+        sawUsage: false,
+      };
+      this.steering.push(item);
+      if (this.asks.size === 0) {
+        item.dispatched = true;
+        this.emitQueue();
+        this.sendPromptRpc(proc, sessionId, blocks, p.id);
+      } else {
+        this.emitQueue();
+      }
+      return { disposition: "queued" };
+    }
 
     this.activePrompt = true;
     this.aborting = false;
@@ -543,41 +731,27 @@ export class AgyAdapter implements ProviderAdapter {
       clientId: p.id,
     });
     this.emit({ type: "run_started" });
-
-    void proc.request<Rec>("session/prompt", { sessionId, prompt: blocks }, 0).then(
-      (res) => {
-        if (this.proc !== proc) return;
-        this.activePrompt = false;
-        const stopReason = this.aborting ? "aborted" : mapStopReason(res?.stopReason);
-        const usage = mapUsage(res?.usage);
-        this.emitAll(this.mapper.finishTurn({ stopReason, model: this.modelRef(), usage }));
-        this.emit({ type: "turn_end" });
-        this.emit({ type: "run_settled", aborted: stopReason === "aborted" });
-        this.aborting = false;
-      },
-      (err) => {
-        if (this.proc !== proc) return;
-        this.activePrompt = false;
-        const aborted = this.aborting;
-        const exited = err instanceof AgyRpcError && err.agentExited;
-        if (!exited) {
-          this.emitAll(this.mapper.finishTurn({
-            stopReason: aborted ? "aborted" : "error",
-            ...(aborted ? {} : { error: errText(err) }),
-            model: this.modelRef(),
-          }));
-          this.emit({ type: "turn_end" });
-          this.emit({ type: "run_settled", aborted });
-        }
-        this.aborting = false;
-      },
-    );
-
+    this.sendPromptRpc(proc, sessionId, blocks);
     return { disposition: "started" };
   }
 
+  canRemoveQueued(id: string): boolean {
+    return this.steering.some((s) => s.id === id && !s.dispatched);
+  }
+
+  async removeQueued(id: string): Promise<boolean> {
+    const i = this.steering.findIndex((s) => s.id === id && !s.dispatched);
+    if (i < 0) return false;
+    this.steering.splice(i, 1);
+    this.emitQueue();
+    return true;
+  }
+
   async clearQueue(): Promise<string[]> {
-    return [];
+    const texts = this.steering.map((s) => s.text);
+    this.steering = [];
+    if (texts.length) this.emitQueue();
+    return texts;
   }
 
   abort(): void {

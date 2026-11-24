@@ -101,6 +101,13 @@ export class AgyMapper {
   private pendingUser: { text: string; images: ImageBlock[] } | null = null;
   private turnStartAt: number | null = null;
 
+  /** Number of tool calls currently in progress (not yet ended). */
+  get openToolCount(): number {
+    let n = 0;
+    for (const t of this.toolsSeen.values()) if (!t.ended) n++;
+    return n;
+  }
+
   reset(): void {
     this.inAssistant = false;
     this.nextIndex = 0;

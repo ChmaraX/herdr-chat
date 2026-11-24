@@ -5,8 +5,10 @@
 // Claude Code: cancel_async_message; Codex: not at all).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { deflateSync, crc32 } from "node:zlib";
 import { startHost, idle, sleep } from "./harness.ts";
 import type { Host } from "./harness.ts";
@@ -257,6 +259,143 @@ test("reconnect (pi): a client that connects mid-run sees the held follow-ups in
     assert.deepEqual(restored, ["fu held"]);
     h.client = d;
     h.artifact("queue-reconnect");
+  } finally {
+    await h.stop();
+  }
+});
+
+const FAKE_AGY = resolve(fileURLToPath(new URL("../fake-agy/fake-agy.mjs", import.meta.url)));
+chmodSync(FAKE_AGY, 0o755);
+
+async function agyHost(name: string): Promise<Host> {
+  const h = await startHost({
+    name,
+    provider: "agy",
+    agent: FAKE_AGY,
+    env: { AGY_SETTINGS_PATH: join(tmpdir(), `herdr-chat-nonexistent-${name}-${Date.now()}.json`) },
+  });
+  await h.client.waitFor(idle, 10_000);
+  return h;
+}
+
+test("steer (agy): Enter (mode: auto) while working queues in state.queue.steering and flushes after the tool", async () => {
+  const h = await agyHost("q-agy-steer");
+  try {
+    const c = h.client;
+    assert.equal(c.state.capabilities.steer, true);
+    await c.req("send", { text: "SLOW first" });
+    await c.waitFor(running, 5000, "tool running");
+    assert.equal((await c.req("send", { text: "second" })).disposition, "queued");
+    assert.equal((await c.req("send", { text: "third", mode: "auto" })).disposition, "queued");
+    await c.waitFor((x) => x.state.queue.steering.length === 2, 2000, "two steers");
+    assert.deepEqual(c.state.queue.steering, ["second", "third"]);
+    assert.deepEqual(c.state.queue.followUp, []);
+    assert.deepEqual(c.state.queue.steeringRemovable, [false, false]);
+    assert.ok(!c.items.some((i: any) => i.kind === "notice" && i.level === "error"), "no error notices while steering");
+    await c.waitFor(answered(/steers: second, third/), 10_000, "steers answered");
+    assert.deepEqual(users(c), ["composer:SLOW first", "queued:second", "queued:third"]);
+    assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
+    assert.ok(!c.items.some((i: any) => i.kind === "notice" && i.level === "error"), "no error notices after steer");
+    assert.ok(!c.items.some((i: any) => i.kind === "notice" && /on its own/.test(i.text)), "steered runs are not autonomous");
+    await h.waitStatus(/^done/);
+    assert.deepEqual(runs(h), ["idle", "working", "done"]);
+    h.artifact("queue-agy-steer");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("follow-up & queue ops (agy): Alt+Enter holds follow-ups; remove, edit, and move to steer work; dispatched steer cannot be taken back", async () => {
+  const h = await agyHost("q-agy-ops");
+  try {
+    const c = h.client;
+    await c.req("send", { text: "SLOW work" });
+    await c.waitFor(running, 5000, "tool running");
+    assert.equal((await c.req("send", { text: "ECHO: keep", mode: "followUp" })).disposition, "queued");
+    assert.equal((await c.req("send", { text: "ECHO: drop", mode: "followUp" })).disposition, "queued");
+    assert.equal((await c.req("send", { text: "ECHO: edit", mode: "followUp" })).disposition, "queued");
+    await c.waitFor((x) => x.state.queue.followUp.length === 3, 2000, "three held");
+    assert.deepEqual(c.state.queue.followUpRemovable, [true, true, true]);
+    const [keep, drop, edit] = c.state.queue.followUpIds;
+    await c.req("queue_remove", { message: drop });
+    await c.waitFor((x) => x.state.queue.followUp.length === 2, 2000, "removed");
+    const back = await c.req("queue_edit", { message: edit });
+    assert.deepEqual(back, { text: "ECHO: edit", images: [] });
+    await c.waitFor((x) => x.state.queue.followUp.length === 1, 2000, "edited out");
+    await c.req("queue_move", { message: keep, to: "steer" });
+    await c.waitFor((x) => x.state.queue.followUp.length === 0 && x.state.queue.steering.length === 1, 2000, "moved to steer");
+    assert.deepEqual(c.state.queue.steering, ["ECHO: keep"]);
+    assert.deepEqual(c.state.queue.steeringRemovable, [false]);
+    await assert.rejects(c.req("queue_remove", { message: c.state.queue.steeringIds[0] }), /can't take back/);
+    await c.waitFor(answered(/steers: ECHO: keep/), 10_000, "keep answered");
+    await sleep(250);
+    assert.deepEqual(users(c), ["composer:SLOW work", "queued:ECHO: keep"]);
+    h.artifact("queue-agy-ops");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("abort (agy): queued steers and follow-ups come back in restored in order and are never sent", async () => {
+  const h = await agyHost("q-agy-abort");
+  try {
+    const c = h.client;
+    await c.req("send", { text: "HANG" });
+    await c.waitFor((x) => x.state.phase === "working" && x.items.some((i: any) => i.kind === "thinking"), 5000, "thinking streaming");
+    await c.req("send", { text: "steer before abort", mode: "auto" });
+    await c.req("send", { text: "followup after abort", mode: "followUp" });
+    await c.waitFor((x) => x.state.queue.steering.length === 1 && x.state.queue.followUp.length === 1, 2000, "both lanes");
+    const { restored } = await c.req("abort");
+    assert.deepEqual(restored, ["steer before abort", "followup after abort"]);
+    await c.waitFor(idle, 5000, "idle after abort");
+    await sleep(300);
+    assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
+    assert.deepEqual(users(c), ["composer:HANG"]);
+    h.artifact("queue-agy-abort");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("hc send (agy): external message while busy steers with sender instead of erroring", async () => {
+  const h = await agyHost("q-agy-hc-send");
+  try {
+    const c = h.client;
+    await c.req("send", { text: "SLOW work" });
+    await c.waitFor(running, 5000, "tool running");
+    h.writeStdin('\u001b[200~<hc from="t9 tests">ECHO: report ready</hc>\u001b[201~\r');
+    await c.waitFor((x) => x.state.queue.steering.length === 1, 2000, "external steered");
+    assert.equal(c.state.queue.steeringFrom?.[0], "t9 tests");
+    await c.waitFor(answered(/steers: ECHO: report ready/), 10_000, "report answered");
+    const reportUser = c.items.find((i: any) => i.kind === "user" && i.from === "t9 tests");
+    assert.ok(reportUser, "user item carries sender");
+    assert.ok(!c.items.some((i: any) => i.kind === "notice" && i.level === "error"), "no error notices");
+    h.artifact("queue-agy-hc-send");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("deferred steer during permission (agy): removable while ask is open, then dispatched on answer", async () => {
+  const h = await agyHost("q-agy-perm-steer");
+  try {
+    const c = h.client;
+    await c.req("send", { text: "ASK_PERM_SLOW" });
+    await c.waitFor((x) => x.state.dialog?.method === "permission", 5000, "permission dialog");
+    assert.equal((await c.req("send", { text: "steer perm 1", mode: "auto" })).disposition, "queued");
+    assert.equal((await c.req("send", { text: "steer perm 2", mode: "auto" })).disposition, "queued");
+    await c.waitFor((x) => x.state.queue.steering.length === 2, 2000, "two deferred steers");
+    assert.deepEqual(c.state.queue.steeringRemovable, [true, true]);
+    const [, secondId] = c.state.queue.steeringIds;
+    await c.req("queue_remove", { message: secondId });
+    await c.waitFor((x) => x.state.queue.steering.length === 1, 2000, "second removed while ask open");
+    await c.req("dialog_answer", { dialog: c.state.dialog.id, choice: "allow_once" });
+    await c.waitFor((x) => x.state.queue.steeringRemovable?.[0] === false || x.state.phase === "idle", 2000, "deferred steer dispatched");
+    await c.waitFor(answered(/Steers: steer perm 1/), 10_000, "deferred steer answered");
+    assert.deepEqual(users(c), ["composer:ASK_PERM_SLOW", "queued:steer perm 1"]);
+    assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
+    assert.ok(!c.items.some((i: any) => i.kind === "notice" && i.level === "error"), "no error notices");
+    h.artifact("queue-agy-perm-steer");
   } finally {
     await h.stop();
   }
