@@ -21,8 +21,9 @@
 //                                  [--take-agents-slot] [--take-menu] [--record <file>]
 //   node install/layout.ts uninstall <app home> [--record <file>]
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { replaceFile } from "./file.ts";
 
 type Json = any;
 export const AGENTS_MOD = "chat-agents";
@@ -157,20 +158,13 @@ function shownLayout(home: string, app: string | null): string {
   try { return JSON.parse(readFileSync(join(home, "shared.json"), "utf8")).layout ?? "main"; } catch { return "main"; }
 }
 
-/** Read, change and replace `path` whole, unless it changed meanwhile (then again). Preserves symlinks. */
+/** Read, change and replace `path` whole, unless it changed meanwhile (then again). */
 function editJson(path: string, edit: (v: Json) => boolean): boolean {
-  const target = existsSync(path) ? realpathSync(path) : path;
-  for (let i = 0; i < 5; i++) {
-    const before = readFileSync(target, "utf8");
+  return replaceFile(path, (before) => {
+    if (before === null) throw new Error(`no ${path}`);
     const v = JSON.parse(before);
-    if (!edit(v)) return false;
-    const tmp = join(target, "..", `.${target.split("/").pop()}.herdr-chat.tmp`);
-    writeFileSync(tmp, JSON.stringify(v, null, 2) + "\n");
-    if (readFileSync(target, "utf8") !== before) { rmSync(tmp, { force: true }); continue; }
-    renameSync(tmp, target);
-    return true;
-  }
-  throw new Error(`${path} keeps changing; run the install again`);
+    return edit(v) ? JSON.stringify(v, null, 2) + "\n" : null;
+  });
 }
 
 type InstallRecord = { layouts: { [name: string]: { menuWas?: string | null; floatingAdded?: boolean } } };

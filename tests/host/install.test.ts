@@ -7,8 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT } from "./harness.ts";
 import { agentsBase, writeBases } from "../../install/mods.ts";
@@ -447,40 +447,50 @@ test("version: a Herdr that won't say its version is a warning, not a refusal", 
   assert.match(r.out, /can't tell herdr-core's version/);
 });
 
-test("symlinks: install/keys.ts and install/layout.ts preserve symlinked dotfiles", () => {
+test("symlinks: a keys.json and a layout kept in dotfiles stay links (chained, relative, dangling); the edits and their undo land in the dotfiles copies; no temporary file is left", () => {
   const d = mkdtempSync(join(tmpdir(), "herdr-chat-symlink-"));
   const dot = join(d, "dotfiles");
-  const home = join(d, "app");
-  mkdirSync(join(dot, "layouts"), { recursive: true });
-  mkdirSync(join(home, "layouts"), { recursive: true });
-  mkdirSync(join(home, "data", "herdr-chat"), { recursive: true });
+  const home = keysHome();
+  rmSync(join(home, "keys.json"));
+  mkdirSync(join(home, "layouts"));
+  mkdirSync(join(dot, "herdr", "layouts"), { recursive: true });
   writeFileSync(join(home, "installed.json"), JSON.stringify({ "layout:main": {} }));
   writeFileSync(join(home, "shared.json"), JSON.stringify({ layout: "mine" }));
 
-  const realKeys = join(dot, "keys.json");
-  const linkKeys = join(home, "keys.json");
+  // keys.json: an absolute link to a relative link inside the dotfiles repo (as a stow folder).
+  const realKeys = join(dot, "herdr", "keys.json");
   writeFileSync(realKeys, JSON.stringify(herdrKeys(), null, 2) + "\n");
-  symlinkSync(realKeys, linkKeys);
+  symlinkSync(join("herdr", "keys.json"), join(dot, "keys.json"));
+  symlinkSync(join(dot, "keys.json"), join(home, "keys.json"));
+  // The layout: a relative link into a sibling folder.
+  const realLayout = join(dot, "herdr", "layouts", "mine.json");
+  const layoutText = JSON.stringify(personal(), null, 2) + "\n";
+  writeFileSync(realLayout, layoutText);
+  symlinkSync(relative(join(home, "layouts"), realLayout), join(home, "layouts", "mine.json"));
 
-  const realLayout = join(dot, "layouts", "mine.json");
-  const linkLayout = join(home, "layouts", "mine.json");
-  writeFileSync(realLayout, JSON.stringify(personal(), null, 2) + "\n");
-  symlinkSync(realLayout, linkLayout);
+  const links = () => [join(home, "keys.json"), join(dot, "keys.json"), join(home, "layouts", "mine.json")].map((f) => lstatSync(f).isSymbolicLink());
+  const leftovers = () => [home, join(home, "layouts"), dot, join(dot, "herdr"), join(dot, "herdr", "layouts")]
+    .flatMap((f) => readdirSync(f).filter((n) => n.endsWith(".herdr-chat.tmp")));
+  const keysWant = herdrKeys();
+  delete (keysWant.global as any)["cmd-j shift-p"];
 
-  const runKeys = (...args: string[]) => execFileSync(process.execPath, [join(ROOT, "install", "keys.ts"), ...args], { encoding: "utf8" });
-  const runLayout = (...args: string[]) => execFileSync(process.execPath, [LAYOUT, ...args], { encoding: "utf8" });
-
-  runKeys("install", home, "--no-direct", "--platform", "linux");
-  assert.equal(lstatSync(linkKeys).isSymbolicLink(), true, "keys.json stays a symlink after install");
+  keysOn("linux", "install", home, "--no-direct");
+  run("install", home);
+  assert.deepEqual(links(), [true, true, true], "the links stay links after install");
   assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], "mod.open:new-chat");
-  runKeys("uninstall", home);
-  assert.equal(lstatSync(linkKeys).isSymbolicLink(), true, "keys.json stays a symlink after uninstall");
-  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], undefined);
-
-  runLayout("install", home);
-  assert.equal(lstatSync(linkLayout).isSymbolicLink(), true, "layout stays a symlink after install");
   assert.equal(JSON.parse(readFileSync(realLayout, "utf8")).terminal_menu, "chat-menu");
-  runLayout("uninstall", home);
-  assert.equal(lstatSync(linkLayout).isSymbolicLink(), true, "layout stays a symlink after uninstall");
-  assert.equal(JSON.parse(readFileSync(realLayout, "utf8")).terminal_menu, undefined);
+
+  keys("uninstall", home);
+  run("uninstall", home);
+  assert.deepEqual(links(), [true, true, true], "the links stay links after uninstall");
+  assert.equal(readFileSync(realKeys, "utf8"), JSON.stringify(keysWant, null, 2) + "\n");
+  assert.equal(readFileSync(realLayout, "utf8"), layoutText, "the dotfiles layout is as it was, byte for byte");
+  assert.deepEqual(leftovers(), [], "no temporary file left after install and uninstall");
+
+  // A dotfiles keys.json not made yet (a dangling link): the install makes it where the link points.
+  rmSync(realKeys);
+  keysOn("linux", "install", home, "--no-direct");
+  assert.deepEqual(links(), [true, true, true], "a dangling link stays a link");
+  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], "mod.open:new-chat");
+  assert.deepEqual(leftovers(), []);
 });
