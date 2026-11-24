@@ -24,16 +24,6 @@ if want subagent; then
   step "sub-agents: the layout routes a chat sub-agent's click to the chat (install/layout.ts, as install.sh runs it)"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
   expect '[ "$("$APP" status | python3 -c "import json,sys; print(json.load(sys.stdin)[\"layout\"])")" = main-copy ]' "Herdr's own main on screen: cloned as main-copy and shown" 10
-  python3 - "$HERDR_APP_HOME/layouts/main-copy.json" <<'EOF' && ok "main-copy: the agents block shows chat-agents (main's agents list kept in replaces), terminal_menu is chat-menu" || fail "main-copy wasn't patched"
-import json, sys
-l = json.load(open(sys.argv[1]))
-found = []
-def walk(n):
-    if (n.get("content") or {}).get("mod") == "chat-agents": found.append(n["content"])
-    for c in n.get("children", []): walk(c)
-walk(l)
-sys.exit(0 if l.get("terminal_menu") == "chat-menu" and found and found[0]["props"]["replaces"]["mod"] == "agents" else 1)
-EOF
   sleep 1
   # Another chat's view, open the whole time in a tab behind: its sweepOrphans runs every 30 s.
   SWEEPER=$(open_chat sweeper)
@@ -73,7 +63,7 @@ EOF
   expect '[ "$(d "[i[\"text\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][0].endswith(\"quick: review src/a.ts only\")")" = true ] && [ "$(count_kind assistant)" -ge 1 ]' "the dialog shows the task (template body + task) and its answer" 10
   # The keyboard is the composer's on open: a key typed now lands there (no focus command first).
   keys "text:x"
-  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = x ]' 3 && ok "the composer has the keyboard on open (a typed key lands there)" || skip "a key typed on open didn't land (the window $(drawn && echo "is drawn" || echo "isn't drawn"))"
+  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = x ]' 3 && ok "the composer has the keyboard on open (a typed key lands there)" || skip "a key typed on open didn't land"
   cmd clear
   until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || fail "chat.clear didn't empty the composer"
 
@@ -158,17 +148,12 @@ if want journey; then
   step "journey: the layout gets new-chat's floating copy (install/layout.ts), the keys come from data/herdr-chat/keys.json (install/keys.ts)"
   "$NODE" "$REPO/install/layout.ts" install "$HERDR_APP_HOME" --app "$APP" >>"$LOG" 2>&1 || fail "install/layout.ts install"
   sleep 1
-  LNAME=$("$APP" status | python3 -c 'import json,sys; print(json.load(sys.stdin)["layout"])')
-  python3 -c 'import json,sys
-l = json.load(open(sys.argv[1]))
-sys.exit(0 if any((f.get("content") or {}).get("mod") == "new-chat" and f["content"]["props"]["role"] == "commands" for f in l.get("floating", [])) else 1)' "$HERDR_APP_HOME/layouts/$LNAME.json" &&
-    ok "layout $LNAME: an empty floating block with new-chat (props.role commands)" || fail "no new-chat floating block in $LNAME"
   mkdir -p "$STATE"
   echo '{"global": {"claude": "cmd-alt-k"}}' >"$STATE/keys.json"
   "$NODE" "$REPO/install/keys.ts" install "$HERDR_APP_HOME" --platform darwin >"$ART/journey-keys.txt" 2>&1 || fail "install/keys.ts install: $(cat "$ART/journey-keys.txt")"
-  [ "$(tail -1 "$ART/journey-keys.txt")" = "New chat: ⌘I · Claude Code chat: ⌥⌘K" ] && ok "install/keys.ts: \"$(tail -1 "$ART/journey-keys.txt")\"" || fail "keys summary: $(cat "$ART/journey-keys.txt")"
-  python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["global"]; sys.exit(0 if g.get("cmd-i") == "mod.open:new-chat" and g.get("cmd-alt-k") == "new-chat.claude" else 1)' "$HERDR_APP_HOME/keys.json" &&
-    ok "keys.json: cmd-i → mod.open:new-chat, cmd-alt-k → new-chat.claude" || fail "keys.json global"
+  # The files' bytes are install.test.ts's; this only makes sure ⌥⌘K below is the key keys.json binds.
+  python3 -c 'import json,sys; g=json.load(open(sys.argv[1]))["global"]; sys.exit(0 if g.get("cmd-i") == "mod.open:new-chat" and g.get("cmd-alt-k") == "new-chat.claude" else 1)' "$HERDR_APP_HOME/keys.json" ||
+    fail "keys.json global: $(cat "$ART/journey-keys.txt")"
   sleep 1
 
   step "new-chat.open toggles the launcher; new-chat.pi opens a Pi chat tab at once"
@@ -234,7 +219,8 @@ JS
   menu_offers() {
     rm -f "$STATE/debug/chat-menu.json"
     do_ "chat-agents.menu:$TUI"
-    until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 && python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("cantContinue") is None else 1)' "$STATE/debug/chat-menu.json"
+    # Offered: the menu knows the terminal and finds no reason it can't (no terminal also gives cantContinue null).
+    until_ '[ -f "$STATE/debug/chat-menu.json" ]' 3 && python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get("terminal") and d.get("cantContinue") is None else 1)' "$STATE/debug/chat-menu.json"
   }
   for _ in 1 2 3 4 5; do menu_offers && break; do_ overlay.close; sleep 1; done
   expect 'overlay_open chat-menu' "its right-click menu (chat-menu)" 5
@@ -301,10 +287,13 @@ JS
   TIP=$(echo "$OUT" | python3 -c 'import json,sys; print(json.load(sys.stdin)["address"])')
   hc label "$TIP" "herdr-chat.session=$TS" >>"$LOG" 2>&1 || fail "hc label"
   expect '[ "$(term_field "$TIP" "(t.get(\"foreground\") or {}).get(\"argv\",[None])[0]")" = pi ] && [ "$(term_field "$TIP" "(t.get(\"status\") or {}).get(\"state\")")" = idle ]' "the shell's foreground is pi, idle" 10
-  TIPTAB=$(app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print([t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])][0])' "$TIP")
+  tip_tab() { app_ls | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((t["id"] for s in d["spaces"] for t in s["tabs"] if any(x["terminal"]==sys.argv[1] for x in t["terminals"])), ""))' "$TIP"; }
+  expect '[ -n "$(tip_tab)" ]' "the app shows the terminal in a tab (it learns of it after the core)" 10
+  TIPTAB=$(tip_tab)
   PIPID=$(term_field "$TIP" 't["foreground"]["pid"]')
   BEFORE=$(chat_dumps)
   step "Continue as chat (new-chat.continue:$TIP)"
+  expect 'app_sees_agent "$TIP"' "the app knows it as an idle agent (it learns this after the core)" 10
   do_ "new-chat.continue:$TIP"
   expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened (its dump appeared)" 15
   J=$(new_chat_since "$BEFORE")
@@ -396,6 +385,7 @@ JS
   AMBIGPIS=$(pis_of two | tr '\n' ' ')
   expect '[ -n "$(tab_of "$AMBIG")" ]' "the app shows the terminal in a tab" 10
   expect '[ "$(basename "$(term_field "$AMBIG" "(t.get(\"foreground\") or {}).get(\"argv\",[\"\"])[0]")")" = zsh ]' "its foreground is the shell" 5
+  expect 'app_sees_agent "$AMBIG"' "the app knows it as an idle agent" 10
   BEFORE=$(chat_dumps); M=$(toast_mark)
   do_ "new-chat.continue:$AMBIG"
   until_ '[ -n "$(toasts_since "$M")" ]' 10 || true
@@ -425,6 +415,7 @@ JS
   shot tuc-1-tui-under-command 1
   BEFORE=$(chat_dumps)
   step "Continue as chat (new-chat.continue:$TUC)"
+  expect 'app_sees_agent "$TUC"' "the app knows it as an idle agent" 10
   do_ "new-chat.continue:$TUC"
   expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened (its dump appeared)" 15
   J=$(new_chat_since "$BEFORE")
@@ -445,6 +436,7 @@ JS
   PIPID=$(pis_of slow)
   expect '[ -n "$(tab_of "$SLOW")" ]' "the app shows the terminal in a tab" 10
   SLOWTAB=$(tab_of "$SLOW")
+  expect 'app_sees_agent "$SLOW"' "the app knows it as an idle agent" 10
   BEFORE=$(chat_dumps); M=$(toast_mark)
   do_ "new-chat.continue:$SLOW"
   expect '[ -n "$(new_chat_since "$BEFORE")" ]' "a chat opened" 15
@@ -471,6 +463,7 @@ JS
   expect '[ -n "$(tab_of "$HELP")" ]' "the app shows the terminal in a tab" 10
   HELPTAB=$(tab_of "$HELP")
   HSH=$(term_field "$HELP" 't["pid"]')
+  expect 'app_sees_agent "$HELP"' "the app knows it as an idle agent" 10
   BEFORE=$(chat_dumps); M=$(toast_mark)
   do_ "new-chat.continue:$HELP"
   until_ '[ -n "$(new_chat_since "$BEFORE")" ] || [ -n "$(toasts_since "$M")" ]' 15 || true

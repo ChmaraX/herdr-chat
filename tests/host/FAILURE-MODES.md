@@ -30,9 +30,9 @@ the test that has to catch it; "not covered" rows are known gaps
 
 | Failure | Test |
 |---|---|
-| The prompt shows only when the agent echoes it (Claude at `message_start`, Codex after its prompt hooks: 0.6–3.5 s) | `prompt-echo.test.ts`: the user item within 150 ms, before any answer (fake-claude scripted, the `extra.jsonl` and Codex `text.jsonl` replays); E2E `claude` "the prompt shows before the answer starts" |
+| The prompt shows only when the agent echoes it (Claude at `message_start`, Codex after its prompt hooks: 0.6–3.5 s) | `prompt-echo.test.ts`: the user item within 150 ms, before any answer (the Claude `extra.jsonl` and Codex `text.jsonl` replays); E2E `claude` "the prompt shows before the answer starts" |
 | The echo adds a second item instead of confirming the shown one | `prompt-echo.test.ts`: one user item, the same id, after the echo |
-| An expanded skill's echo is dropped or added beside the prompt | `prompt-echo.test.ts` "pi: a skill's echo": one item with Pi's text |
+| An expanded skill's echo is dropped or added beside the prompt | `skills.test.ts` "pi: /skill:name shows a pill at once, Pi's expanded echo keeps it": one item with its pill |
 | Several skills: the agent runs only the first (Pi and `claude -p` each expand one), the rest reach it as the first one's arguments | `skills.test.ts` "pi: three skills…" (the model gets one run of Pi's blocks), "claude: several skills…" (each a `/name` for the Skill tool, nothing slash-led in front), "codex: several skills…" (a `skill` input each) |
 | A later skill without a file (Pi gives none, or it's gone) is dropped and the message goes without it | `skills.test.ts` "pi: a later skill Pi gives no file for…": the send fails, Pi gets nothing, the item goes |
 | The pills shown and the skills sent differ (a skill named twice, a list the adapter splits by on its own) | `skills.test.ts`: `/skill:tdd /skill:tdd once` (Pi) and `/tdd /tdd once` (Claude) reach the agent once, shown once |
@@ -63,7 +63,7 @@ the test that has to catch it; "not covered" rows are known gaps
 
 | Failure | Test |
 |---|---|
-| `abort` without `clear_queue` first: Pi runs the queued text after the abort | `steer-abort.test.ts` "abort mid-tool with a queue": commands are `clear_queue` then `abort`; no new run starts; `restored` has the queued text |
+| `abort` without `clear_queue` first: Pi runs the queued text after the abort | `steer-abort.test.ts` "abort mid-tool with a queue": commands are `clear_queue` then `abort`; no new run starts; `restored` has Pi's steers, then the host's held follow-up, which never reached Pi |
 | A tool left `running` after an abort | `steer-abort.test.ts` "abort mid-tool with a queue": the tool ends `error` |
 | Abort while a dialog is open hangs Pi | `steer-abort.test.ts` "Esc while a dialog is open" |
 | A steer shows up twice (queue strip and timeline) or never | `steer-abort.test.ts` "steer during a tool": queue strip while queued, then one `queued` user item |

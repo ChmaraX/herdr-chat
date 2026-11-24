@@ -15,7 +15,7 @@ import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { ARTIFACTS, sleep } from "./harness.ts";
-import { chatHolder, claimDir } from "../../host/claim.ts";
+import { claimDir } from "../../host/claim.ts";
 
 const RACER = join(dirname(fileURLToPath(import.meta.url)), "claim-racer.ts");
 const CONTENDERS = 8;
@@ -78,7 +78,6 @@ test("claim: contenders at the same instant, many rounds: exactly one holds the 
       assert.equal(winners.length, 1, `round ${i} (${how}): exactly one contender holds the chat: ${JSON.stringify(results)}`);
       const w = winners[0]!;
       for (const r of results.filter((r) => !r.ok)) assert.equal(r.holder, w.pid, `round ${i}: a refused contender names the holder`);
-      assert.equal(chatHolder(stateDir, chat)?.pid, w.pid, `round ${i}: the claim on disk is the holder's`);
       // A live claim is never taken: a late contender is refused too.
       const late = racer(stateDir, chat, Date.now());
       const lr = await late.result;

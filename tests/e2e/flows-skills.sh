@@ -11,11 +11,11 @@
 pills() { d 'len(d["composer"]["pills"])'; }
 message() { d 'd["composer"]["message"]'; }
 last_user() { d "[i['$1'] for i in d['items'] if i['kind']=='user'][-1]"; }
-# Empty the composer as a person does (⌘A, Backspace): the state's set_value
-# (chat.clear) waits for a drawn frame, and keys typed before it land first.
+# Empty the composer as a person does (select all: ⌘A, Ctrl+A on Linux; Backspace): the
+# state's set_value (chat.clear) waits for a drawn frame, and keys typed before it land first.
 empty() {
-  keys 0:cmd backspace
-  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || { keys 0:cmd backspace; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3; } || fail "the composer didn't empty"
+  keys 0:$PK backspace
+  until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || { keys 0:$PK backspace; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3; } || fail "the composer didn't empty"
 }
 
 if want skills; then

@@ -8,10 +8,13 @@
 # touched:
 # - every `hc` call runs with the HC_* and HERDR_* variables unset, against
 #   this run's own core session (HC_SESSION);
-# - the private window is moved on screen once (macOS only draws visible
-#   windows; System Events, needs Accessibility) and never raised;
-#   screenshots are `herdr-app shot` (the app's last frame, no raise);
-# - keys go to the private app's process only (keys.py, CGEventPostToPid);
+# - macOS: the private app starts in the background (`open -g -n`) and is
+#   hidden at once (`app.hide`); it is never brought to the front. Since
+#   herdr-app 0.1.16 `herdr-app shot` draws the current frame even for a
+#   hidden window, and keys posted to its process land there;
+# - Linux: the same flows run in the test box (tests/box), on its own virtual
+#   display, with real X input (x11input.py, XTest);
+# - keys go to the private app only (keys.py, CGEventPostToPid, on macOS);
 # - no Cmd+Q: the app is ended with a signal at the end.
 #
 # The mods are copied from this checkout's herdr-app/mods/ into the private home
@@ -43,28 +46,17 @@ NODE="${NODE:-$(command -v node)}"
 mkdir -p "$HERDR_APP_HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
 echo '{"frame.welcomed": true, "layout": "main"}' >"$HERDR_APP_HOME/shared.json"
 echo '{"zoom": 1, "theme": "graphite", "appearance": "dark"}' >"$HERDR_APP_HOME/settings.json"
-# Where the window opens (left edge of the main display, where your own
-# windows usually leave a strip uncovered; macOS doesn't draw covered windows).
-# Accessibility moves it there again below, when it can.
-# The window's size in pt (shift.py reads it to read frames).
+# The window's size in pt (shift.py reads it to read frames). It is never
+# shown on macOS (hidden at launch), so where it would open doesn't matter.
 export E2E_WIN_W=1280 E2E_WIN_H=820
-python3 - "$HOME/.config/herdr-app/window.json" "$HERDR_APP_HOME/window.json" "$E2E_WIN_W" "$E2E_WIN_H" <<'EOF'
-import json, sys
-try:
-    display = json.load(open(sys.argv[1])).get("display")  # read only: which display to open on
-except Exception:
-    display = None
-w = {"state": "windowed", "bounds": [40.0, 60.0, float(sys.argv[3]), float(sys.argv[4])]}
-if display: w["display"] = display
-json.dump(w, open(sys.argv[2], "w"))
-EOF
+printf '{"state": "windowed", "bounds": [40.0, 60.0, %s, %s]}\n' "$E2E_WIN_W" "$E2E_WIN_H" >"$HERDR_APP_HOME/window.json"
 declare -p HERDR_APP_HOME HC_SESSION XDG_STATE_HOME XDG_CONFIG_HOME XDG_DATA_HOME | sed 's/^declare -x/export/' >"$BASE/env.sh"
 STATE="$HERDR_APP_HOME/data/herdr-chat" # the mod's --state-dir: chats/, debug/
 
 find_app() {
   if [ -n "${HERDR_APP_BIN:-}" ]; then echo "$HERDR_APP_BIN"; return; fi
   local c
-  for c in "$(command -v herdr-app 2>/dev/null || true)" /Applications/*.app/Contents/MacOS/Herdr; do
+  for c in "$(command -v herdr-app 2>/dev/null || true)" /Applications/*.app/Contents/MacOS/Herdr /opt/herdr/herdr-app/herdr-app; do
     if [ -x "$c" ] && "$c" --version 2>/dev/null | grep -q '^herdr-app '; then echo "$c"; return; fi
   done
 }
@@ -72,27 +64,39 @@ APP="$(find_app)"
 APP_REAL="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$APP")"
 [ -n "$APP" ] || { echo "no herdr-app" >&2; exit 1; }
 export HERDR_APP_BIN="$APP"
-version=$(plutil -extract CFBundleShortVersionString raw "${APP_REAL%/MacOS/*}/Info.plist" 2>/dev/null || true)
+version=$("$APP" --version 2>/dev/null | awk '{print $2}')
 echo "{\"last_run\": \"$version\", \"presented\": []}" >"$HERDR_APP_HOME/update-notes.json" # no "Updated" toast
 
-# A python3 with pyobjc's Quartz (key presses, window order): one that has it,
-# else a venv made once in tests/.venv (gitignored).
-PY=
-for c in "$REPO/tests/.venv/bin/python3" python3 /usr/bin/python3 /opt/homebrew/bin/python3; do
-  if "$c" -c 'import Quartz' 2>/dev/null; then PY=$(command -v "$c"); break; fi
-done
-if [ -z "$PY" ]; then
-  echo "making tests/.venv with pyobjc-framework-Quartz (once)" >&2
-  python3 -m venv "$REPO/tests/.venv" && "$REPO/tests/.venv/bin/pip" install -q pyobjc-framework-Quartz >&2 &&
-    PY="$REPO/tests/.venv/bin/python3"
+# The platform (platform.sh: OS, PK, keys, click, wheel).
+. "$E2E/platform.sh"
+# A python3 with pyobjc's Quartz (key presses on macOS): one that has it, else
+# a venv made once in tests/.venv (gitignored). Linux needs none: XTest through python3-xlib.
+PY=python3
+if [ "$OS" = Darwin ]; then
+  PY=
+  for c in "$REPO/tests/.venv/bin/python3" python3 /usr/bin/python3 /opt/homebrew/bin/python3; do
+    if "$c" -c 'import Quartz' 2>/dev/null; then PY=$(command -v "$c"); break; fi
+  done
+  if [ -z "$PY" ]; then
+    echo "making tests/.venv with pyobjc-framework-Quartz (once)" >&2
+    python3 -m venv "$REPO/tests/.venv" && "$REPO/tests/.venv/bin/pip" install -q pyobjc-framework-Quartz >&2 &&
+      PY="$REPO/tests/.venv/bin/python3"
+  fi
+  [ -n "$PY" ] || { echo "no python3 with pyobjc (Quartz) for key presses" >&2; exit 1; }
+elif [ -z "${DISPLAY:-}" ]; then
+  echo "Linux: run the e2e in the test box (tests/box/box run), which has a private display" >&2; exit 1
 fi
-[ -n "$PY" ] || { echo "no python3 with pyobjc (Quartz) for key presses" >&2; exit 1; }
 
+# A process's environment, one variable a line (macOS: ps eww; Linux: /proc, which ps doesn't show).
+env_of() {
+  if [ -r "/proc/$1/environ" ]; then tr '\0' '\n' <"/proc/$1/environ"
+  else ps eww -o command= -p "$1" 2>/dev/null | tr ' ' '\n'; fi
+}
 APP_PID=""
 EXTRA_PIDS=""   # helper processes a script starts (mock hosts, servers): killed at exit
 cleanup() {
   set +e
-  hidden
+  stop_pump
   [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null && wait "$APP_PID" 2>/dev/null
   for p in $EXTRA_PIDS; do kill "$p" 2>/dev/null; done
   # Every terminal of this run's own core (never another core's).
@@ -103,7 +107,7 @@ cleanup() {
   # A stopped core's holder keeps running, and any hc call restarts a core:
   # end this run's own cores and holders (matched by this run's state dir).
   for p in $(pgrep -f '(hc|herdr-core) (serve|hold)'); do
-    ps eww -o command= -p "$p" 2>/dev/null | grep -q "XDG_STATE_HOME=$BASE/state " && kill "$p"
+    env_of "$p" | grep -qx "XDG_STATE_HOME=$BASE/state" && kill "$p"
   done
   # Hosts and fake Pis this run started (their command lines name this run's state dir).
   for p in $(pgrep -f "$STATE"); do kill "$p" 2>/dev/null; done
@@ -154,13 +158,36 @@ until_() {
 # Now, in seconds with a fraction (for timings).
 now_s() { perl -MTime::HiRes=time -e 'printf "%.3f\n", time'; }
 expect() { until_ "$1" "${3:-10}" && ok "$2" || fail "$2"; }
+# Setup, not a check: wait for state the next step needs, and fail as expect does. For state a
+# command writes and the dump reads straight back (a toggle), which proves nothing on its own.
+need() { until_ "$1" "${3:-10}" || fail "$2"; }
 screen() { hc read "$1" --lines 0 2>/dev/null; }
-# Whether macOS draws the private window now (not fully covered by your
-# windows; drawn.py only reads the window list). Covered, it gets no frames:
-# screenshots are stale and a mod can't take the keyboard.
-drawn() { "$PY" "$E2E/drawn.py" "$APP_PID"; }
-# Keys to the private app's process only (keys.py: keycodes, names, text:).
-keys() { "$PY" "$E2E/keys.py" "$APP_PID" "$@"; }
+# Draw a frame now. On macOS the hidden window draws only when asked: `herdr-app
+# shot` draws the current frame (into a throwaway file here). The Linux box's
+# window draws on its own; a shot there is harmless.
+draw() { "$APP" shot "$BASE/draw.png" >/dev/null 2>&1 || true; }
+# macOS: a frame pump while the app runs, so the hidden window draws about as
+# often as a visible one would (state set while drawing, sizes measured on
+# layout, stays current). Started with the app, ended at cleanup.
+PUMP_PID=
+start_pump() {
+  [ "$OS" = Darwin ] || return 0
+  stop_pump
+  # (|| true: under run.sh's set -e one failed shot, the app busy or restarting, would end the pump.)
+  ( while kill -0 "$APP_PID" 2>/dev/null; do "$APP" shot "$BASE/pump.png" >/dev/null 2>&1 || true; sleep 0.1; done ) &
+  PUMP_PID=$!
+}
+# (`wait` on the killed pump returns its signal: under run.sh's set -e that would end the run.)
+stop_pump() { [ -z "$PUMP_PID" ] || { kill "$PUMP_PID" 2>/dev/null; wait "$PUMP_PID" 2>/dev/null || true; PUMP_PID=; }; }
+# A chord's label as the chat shows it here, written out per platform (not computed by the chat's
+# own chord.js: then a broken label would pass). $1: one of the chords the flows check.
+label() {
+  case "$OS:$1" in
+    Darwin:model) echo "⇧⌘M" ;; Darwin:model-y) echo "⇧⌘Y" ;; Darwin:mode) echo "⇧⌘A" ;; Darwin:focus) echo "⌘L" ;; Darwin:copy) echo "⌘C" ;;
+    *:model) echo "Ctrl+Shift+M" ;; *:model-y) echo "Ctrl+Shift+Y" ;; *:mode) echo "Ctrl+Shift+A" ;; *:focus) echo "Ctrl+L" ;; *:copy) echo "Ctrl+C" ;;
+    *) echo "label: no label for $1" >&2; return 1 ;;
+  esac
+}
 # The app process's CPU time so far, in seconds (for cost over a window of time).
 cpu_secs() { ps -o cputime= -p "$APP_PID" | awk -F'[:.]' '{ if (NF==4) print $1*3600+$2*60+$3+$4/100; else print $1*60+$2+$3/100 }'; }
 terms() { hc ls --json | python3 -c 'import json,sys; [print(t["address"], t.get("agent") or "-", t.get("parent") or "-", t.get("name") or "-") for t in json.load(sys.stdin)["terminals"]]'; }
@@ -238,61 +265,24 @@ for s in doc.get("spaces", []):
 # Terminal $2 has one pane, in tab $1, hidden.
 hidden_in() { [ "$(node_of "$2" | awk -v t="$1" '$1 == t && $3 == "hidden"' | wc -l | tr -d ' ')" = 1 ] && [ "$(node_of "$2" | wc -l | tr -d ' ')" = 1 ]; }
 app_ls() { "$APP" ls; }
+# Whether the app (not only the core) knows terminal $1 as an idle or done agent: Herdr's app
+# learns a terminal's status a moment after the core, and new-chat.continue reads the app's
+# view. Wait on this before running a command that looks at an agent's status.
+app_sees_agent() {
+  app_ls | python3 -c 'import json,sys
+t = [x for s in json.load(sys.stdin)["spaces"] for tb in s["tabs"] for x in tb["terminals"] if x["terminal"] == sys.argv[1]]
+sys.exit(0 if t and t[0].get("app") and t[0].get("status") in ("idle", "done") else 1)' "$1"
+}
 active_tab() { "$APP" ls | python3 -c "import json,sys; d=json.load(sys.stdin); print([t['id'] for s in d['spaces'] for t in s['tabs'] if t['active'] and s['active']][0])"; }
-# $1 file name: the app's last frame (no raise); give it a moment to draw.
-# macOS doesn't draw a window that's fully covered: then the frame is the
-# last one drawn, and the log says so (the checks never depend on drawing).
+# $1 file name: the app's current frame (`herdr-app shot` draws it, even for
+# a hidden window, since herdr-app 0.1.16); $2: a moment to settle first.
 LAST_SHOT=
-# A window behind another app's draws nothing (GPUI renders only while the
-# private window is frontmost), so visual passes run between `visible` and
-# `hidden`: the person's frontmost app is recorded, the private app is
-# brought to the front, and the recorded app is activated again right after.
-# Keys always go to the private pid only. Each activation is logged and kept
-# short (VISIBLE_MAX seconds, checked by visible_budget). E2E_NO_VISUAL=1:
-# never activate (screenshots are then stale).
-VISIBLE_SINCE= FRONT_APP= FRONT_NAME=
-VISIBLE_MAX=${VISIBLE_MAX:-170}
-# The Mac's screen is locked (then no window draws at all).
-screen_locked() { "$PY" -c 'import Quartz,sys; d=Quartz.CGSessionCopyCurrentDictionary(); sys.exit(0 if d.get("CGSSessionScreenIsLocked") else 1)'; }
-visible() {
-  [ -z "${E2E_NO_VISUAL:-}" ] || return 0
-  [ -z "$VISIBLE_SINCE" ] || return 0
-  if screen_locked; then echo "activation skipped: the screen is locked (nothing draws; screenshots stale)" | tee -a "$LOG"; return 0; fi
-  # By pid: the person's Herdr and this one share a bundle id.
-  FRONT_APP=$("$PY" "$E2E/front.py" get 2>/dev/null || true)
-  [ "$FRONT_APP" != "$APP_PID" ] || FRONT_APP=$PERSON_FRONT
-  FRONT_NAME=$(ps -o comm= -p "${FRONT_APP:-0}" 2>/dev/null || true)
-  echo "activation start: private app (pid $APP_PID) to front; was pid ${FRONT_APP:-unknown} ${FRONT_NAME:-} ($(date +%T))" >>"$LOG"
-  "$PY" "$E2E/front.py" "$APP_PID" >>"$LOG" 2>&1 || echo "activation: the private app didn't come to the front" >>"$LOG"
-  VISIBLE_SINCE=$SECONDS
-  sleep 0.8
-}
-hidden() {
-  [ -n "$VISIBLE_SINCE" ] || return 0
-  if [ -n "$FRONT_APP" ] && [ "$FRONT_APP" != "$APP_PID" ]; then
-    "$PY" "$E2E/front.py" "$FRONT_APP" >>"$LOG" 2>&1 || echo "activation: pid $FRONT_APP didn't come back to the front" >>"$LOG"
-  fi
-  echo "activation end: back to pid ${FRONT_APP:-unknown} ${FRONT_NAME:-} after $((SECONDS - VISIBLE_SINCE)) s ($(date +%T))" >>"$LOG"
-  VISIBLE_SINCE=
-}
-visible_budget() { [ -z "$VISIBLE_SINCE" ] || [ $((SECONDS - VISIBLE_SINCE)) -lt "$VISIBLE_MAX" ] || hidden; }
 shot() {
   sleep "${2:-0.8}"
-  [ -z "${E2E_VISUAL:-}" ] || { visible_budget; visible; }
-  "$APP" shot "$ART/$1.png" >/dev/null 2>>"$LOG" || return 0
+  "$APP" shot "$ART/$1.png" >/dev/null 2>>"$LOG" || { echo "shot $1.png failed" | tee -a "$LOG"; return 0; }
   local sum
   sum=$(shasum "$ART/$1.png" | cut -c1-40)
-  if screen_locked; then
-    echo "shot $1.png (stale: the screen is locked)" | tee -a "$LOG"
-  elif [ -z "$VISIBLE_SINCE" ]; then
-    echo "shot $1.png (likely stale: not in a visual pass)" | tee -a "$LOG"
-  elif ! drawn; then
-    echo "shot $1.png (maybe stale: another window covers the private one)" | tee -a "$LOG"
-  elif [ "$sum" = "$LAST_SHOT" ]; then
-    echo "shot $1.png (same frame as the one before)" | tee -a "$LOG"
-  else
-    echo "shot $1.png" >>"$LOG"
-  fi
+  if [ "$sum" = "$LAST_SHOT" ]; then echo "shot $1.png (same frame as the one before)" >>"$LOG"; else echo "shot $1.png" >>"$LOG"; fi
   LAST_SHOT=$sum
 }
 
@@ -338,36 +328,52 @@ inspect_chat() { "$REPO/bin/herdr-chat-host" inspect --chat "$1" --state-dir "$S
 # Quit the private app (a signal, like closing the window for good) and start
 # it again: terminals and hosts live on in the core.
 restart_app() {
-  local was_visible=$VISIBLE_SINCE
-  hidden
+  stop_pump
+  # Gone before the new one starts: on macOS the app isn't this shell's child (open -g), so wait
+  # can't tell, and start_app would find the dying process by its app home.
   kill "$APP_PID" 2>/dev/null; wait "$APP_PID" 2>/dev/null || true
-  "$APP" >>"$BASE/app.log" 2>&1 &
-  APP_PID=$!
+  until_ '! kill -0 "$APP_PID"' 10 || fail "the private app (pid $APP_PID) didn't quit for a restart"
+  start_app
   until_ '"$APP" status' 30 || fail "the private app came back"
-  sleep 1
-  if [ "$("$PY" "$E2E/front.py" get 2>/dev/null)" = "$APP_PID" ] && [ -n "$PERSON_FRONT" ]; then "$PY" "$E2E/front.py" "$PERSON_FRONT" >>"$LOG" 2>&1 || true; fi
-  [ -z "$was_visible" ] || visible
+  [ "$OS" != Darwin ] || "$APP" do app.hide >>"$LOG" 2>&1 || true
+  start_pump
+}
+
+# Start the private app: on macOS in the background (`open -g -n`, its
+# environment passed variable by variable: LaunchServices would give it
+# launchd's), never in front; on Linux on the box's display. Sets APP_PID.
+start_app() {
+  APP_PID=
+  if [ "$OS" = Darwin ] && [ "${APP_REAL%/Contents/MacOS/*}" != "$APP_REAL" ]; then
+    local envs=() kv p
+    while IFS= read -r -d '' kv; do
+      case "${kv%%=*}" in _|PWD|OLDPWD|SHLVL|TERM_SESSION_ID|__CF*|XPC_*) continue ;; esac
+      envs+=(--env "$kv")
+    done < <(env -0)
+    open -g -n -a "${APP_REAL%/Contents/MacOS/*}" --stdout "$BASE/app.log" --stderr "$BASE/app.log" "${envs[@]}"
+    for _ in $(seq 1 100); do
+      for p in $(pgrep -f "$APP_REAL"); do
+        env_of "$p" | grep -qxF "HERDR_APP_HOME=$HERDR_APP_HOME" && APP_PID=$p
+      done
+      [ -n "$APP_PID" ] && break
+      sleep 0.1
+    done
+    [ -n "$APP_PID" ] || { echo "the private app didn't start" >&2; exit 1; }
+  else
+    WAYLAND_DISPLAY= "$APP" >>"$BASE/app.log" 2>&1 &
+    APP_PID=$!
+  fi
 }
 
 # --- start -------------------------------------------------------------------------
 step "private app + core (HERDR_APP_HOME=$HERDR_APP_HOME, HC_SESSION=$HC_SESSION)"
 { echo "herdr-app: $("$APP" --version 2>&1 | head -1) ($APP)"; echo "hc: $(hc --version 2>&1 | head -1) ($(command -v hc))"
-  echo "node: $("$NODE" --version) ($NODE)"; echo "herdr-chat: $(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
-  echo "macOS: $(sw_vers -productVersion 2>/dev/null)"; } | tee -a "$LOG"
+  echo "node: $("$NODE" --version) ($NODE)"; echo "herdr-chat: $(cat "$REPO/.box-rev" 2>/dev/null || git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
+  if [ "$OS" = Darwin ]; then echo "macOS: $(sw_vers -productVersion 2>/dev/null)"; else echo "Linux: $(. /etc/os-release; echo "$PRETTY_NAME") (test box, display $DISPLAY)"; fi; } | tee -a "$LOG"
 [ -n "${E2E_NO_INSTALL:-}" ] || install_mods
 hc server start >>"$LOG" 2>&1
-PERSON_FRONT=$("$PY" "$E2E/front.py" get 2>/dev/null || true) # whatever you were using
-"$APP" >"$BASE/app.log" 2>&1 &
-APP_PID=$!
+: >"$BASE/app.log"
+start_app
 expect '"$APP" status' "the private app answers" 30
-# Launched, it may take the front: give it back until a visual pass.
-sleep 1
-if [ "$("$PY" "$E2E/front.py" get 2>/dev/null)" = "$APP_PID" ] && [ -n "$PERSON_FRONT" ] && [ "$PERSON_FRONT" != "$APP_PID" ]; then
-  "$PY" "$E2E/front.py" "$PERSON_FRONT" >>"$LOG" 2>&1 || true
-  echo "the private app took the front at launch: gave it back to pid $PERSON_FRONT" >>"$LOG"
-fi
-place_window() {
-  osascript -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to set position of window 1 to {40, 60}" \
-    -e "tell application \"System Events\" to tell (first process whose unix id is $APP_PID) to set size of window 1 to {$E2E_WIN_W, $E2E_WIN_H}"
-}
-until_ place_window 5 || true # window.json already put it there
+[ "$OS" != Darwin ] || "$APP" do app.hide >>"$LOG" 2>&1 || note "app.hide failed"
+start_pump

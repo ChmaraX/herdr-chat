@@ -3,7 +3,7 @@
 One wheel event of DY pt (kCGScrollEventUnitPixel; positive = up, toward
 history) at the first point X0, X0 + 10, … X1 on row Y of PID's window that no
 other window covers (window pt, as in `herdr-app shot`). Prints the X used.
-GPUI takes no scroll event posted to its pid (CGEventPostToPid, click.py), and
+GPUI takes no scroll event posted to its pid (CGEventPostToPid), and
 one posted at the session's event tap reaches the window under the pointer
 only, so the pointer is moved there for the event and put back right after
 (about 0.1 s). That is the one thing here that touches the person's pointer:

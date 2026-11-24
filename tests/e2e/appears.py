@@ -13,13 +13,12 @@ only as the composer's chips, small thumbnails that go when it's sent.
   draws with its row; image() may draw a new file a frame later.
 Exit 1 when a frame from changed to shown doesn't have the row whole: a hole
 where the row should be, or the row fading in. Exit 2 when the frames are too
-far apart around the change to see that. Needs pyobjc (Quartz)."""
+far apart around the change to see that. Reads the PNGs with png.py (no pyobjc)."""
 import json
 import os
 import sys
 
-import Quartz
-from Foundation import NSURL
+import png
 
 STEP = 2  # sample every 2nd point: the colour blocks and the text are bigger
 TOL = 22
@@ -31,12 +30,7 @@ CHIPS = 0.1
 
 
 def pixels(path):
-    src = Quartz.CGImageSourceCreateWithURL(NSURL.fileURLWithPath_(path), None)
-    img = Quartz.CGImageSourceCreateImageAtIndex(src, 0, None)
-    if Quartz.CGImageGetBitsPerPixel(img) != 32 or Quartz.CGImageGetAlphaInfo(img) not in (1, 3, 5):
-        sys.exit(f"{path}: not an RGBA shot")
-    w, h, row = Quartz.CGImageGetWidth(img), Quartz.CGImageGetHeight(img), Quartz.CGImageGetBytesPerRow(img)
-    return bytes(Quartz.CGDataProviderCopyData(Quartz.CGImageGetDataProvider(img))), w, h, row
+    return png.rgba(path)
 
 
 def scan(path, colours):
@@ -51,7 +45,22 @@ def scan(path, colours):
             rgb[x, y] = p
             if any(abs(p[0] - c[0]) <= TOL and abs(p[1] - c[1]) <= TOL and abs(p[2] - c[2]) <= TOL for c in colours):
                 hits.append((x, y))
-    return hits, rgb
+    return solid(hits), rgb
+
+
+# A colour hit counts only inside a flat block: at least BLOCK_MIN of the 5×5 sample points around
+# it (a 10×10 pt square at STEP 2) are hits too. The images are flat blocks tens of points across,
+# so their every point passes, and so does a chip's (64×48). An anti-aliased letter's edge can
+# fall within TOL of a colour (Linux renders text a little differently), but only as a thin line,
+# which never fills a square: left in, it would stretch the images' box over the text above them.
+BLOCK_MIN = 15
+
+
+def solid(hits):
+    """Only the points of a flat block of colour (BLOCK_MIN)."""
+    on = set(hits)
+    r = range(-2 * STEP, 2 * STEP + 1, STEP)
+    return [(x, y) for x, y in hits if sum((x + dx, y + dy) in on for dx in r for dy in r) >= BLOCK_MIN]
 
 
 def same(a, b, tol):

@@ -18,14 +18,13 @@ the rows below it move down by the group's height so far, the largest shift
 with MIN_VOTES rows. Exit 1 when a frame moved them further than the last frame
 did (an overshoot), or when the last frame can't be measured.
 
-The window's size comes from lib.sh (E2E_WIN_W, E2E_WIN_H). Needs pyobjc (Quartz)."""
+The window's size comes from lib.sh (E2E_WIN_W, E2E_WIN_H). Reads the PNGs with png.py (no pyobjc): it runs in the test box too."""
 import json
 import os
 import sys
 from collections import Counter
 
-import Quartz
-from Foundation import NSURL
+import png
 
 W, H = int(os.environ.get("E2E_WIN_W", 1280)), int(os.environ.get("E2E_WIN_H", 820))  # the e2e window, in pt
 X0, X1, Y0, Y1 = 420, W - 100, 110, H - 260  # the transcript at any zoom the flow uses
@@ -39,11 +38,7 @@ MAX_SHIFT = 360
 
 def grey(path):
     """The frame in grey at W×H pt, one byte a point."""
-    src = Quartz.CGImageSourceCreateWithURL(NSURL.fileURLWithPath_(path), None)
-    img = Quartz.CGImageSourceCreateImageAtIndex(src, 0, None)
-    ctx = Quartz.CGBitmapContextCreate(None, W, H, 8, W, Quartz.CGColorSpaceCreateDeviceGray(), Quartz.kCGImageAlphaNone)
-    Quartz.CGContextDrawImage(ctx, Quartz.CGRectMake(0, 0, W, H), img)
-    return bytes(Quartz.CGBitmapContextGetData(ctx).as_buffer(W * H))
+    return png.grey(path, W, H)
 
 
 def rows(path):

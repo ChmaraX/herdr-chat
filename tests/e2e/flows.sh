@@ -20,7 +20,7 @@ if want dialogs; then
   for _ in 1 2; do # a window that isn't drawn can drop keys: check the field, retype slowly
     until_ '[ "$(d "d[\"dialog\"][\"value\"]")" = nightly ]' 3 && break
     note "the dialog field had \"$(d 'd["dialog"]["value"]')\": retyping"
-    cmd focus; sleep 0.3; keys 0:cmd backspace; type_slow nightly
+    cmd focus; sleep 0.3; keys 0:$PK backspace; type_slow nightly
   done
   until_ '[ "$(d "d[\"dialog\"][\"value\"]")" = nightly ]' 1 || { by_command "the dialog's field took no keys"; cmd "click:dialog:reason:nightly"; }
   shot dialogs-2-input 0.3
@@ -39,6 +39,33 @@ if want dialogs; then
   cmd focus; sleep 0.3
   keys_or esc '[ "$(d "d[\"dialog\"]")" = null ]' "key:escape" "Esc cancels it"
   [ "$(d 'd["lastAnswer"]["cancelled"]')" = true ] && ok "sent cancelled: true" || fail "cancel"
+fi
+
+# --- flow: a select whose title is a 64-line command -------------------------------------------
+if want long-dialog; then
+  step "long-dialog: a select with a whole command as its title keeps its options and the chat in view"
+  CHAT=$(open_chat long-dialog long-dialog)
+  ready
+  visible
+  V0=$(d 'd["viewH"]')
+  send_text "rewrite the guard"
+  expect '[ "$(d "d[\"dialog\"][\"method\"]")" = select ]' "the select is open" 10
+  until_ '[ "$(d "d[\"bottomH\"]")" != null ] && [ "$(d "d[\"viewH\"]")" != "$V0" ]' 3 || true
+  shot long-dialog-1-open 0.6
+  BH=$(d 'd["bottomH"]'); VH=$(d 'd["viewH"]')
+  note "chat bottom $BH px, timeline $VH px (was $V0 px before the card)"
+  if [ "$BH" = null ] || [ "$VH" = null ]; then skip "the card's height (no frames)"
+  else
+    python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) <= 600 else 1)' "$BH" \
+      && ok "the card and composer take $BH px, not the 64 lines' height" || fail "the card grew with its title: $BH px"
+    python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= 120 else 1)' "$VH" \
+      && ok "the timeline keeps $VH px to scroll in" || fail "the timeline was squeezed to $VH px"
+  fi
+  cmd focus; sleep 0.3
+  keys_or enter '[ "$(d "d[\"lastAnswer\"][\"value\"]")" = "Allow once" ]' "key:enter" "Enter picked Allow once" quick
+  expect '[ "$(d "d[\"dialog\"]")" = null ] && [ "$(phase)" = idle ]' "the card closed and the run settled" 10
+  shot long-dialog-2-answered 0.4
+  hidden
 fi
 
 # --- flow: Esc mid-tool, with a steer queued ---------------------------------------------------
@@ -124,19 +151,6 @@ if want commands; then
 fi
 
 # --- flow: messages from outside (hc send), with the sender shown -------------------------------
-if want external; then
-  step "hc send from another terminal reaches the chat, tagged with the sender"
-  CHAT=$(open_chat external)
-  ready
-  HOST_T=$(d 'd["host"]["address"]')
-  hc run --bg --no-parent --name sender -- sh -c "hc send $HOST_T 'please summarise'; sleep 3" >>"$LOG" 2>&1
-  expect '[ "$(d "[i[\"source\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][-1]")" = external ]' "a user item with source external" 15
-  FROM=$(d "[i['from'] for i in d['items'] if i['kind']=='user'][-1]")
-  note "from: $FROM" # (the attribution: extras' envelope and fix1 reports)
-  expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 1 ]' "Pi answered it" 15
-  shot external-1-from 0.3
-fi
-
 # --- flow: Pi's TUI hand-off and back ---------------------------------------------------------------
 if want handoff; then
   step "/tui: Pi's TUI in a dialog over the chat (no pane: the tab stays as it is), then back"
@@ -297,8 +311,7 @@ EOF
   [ "$(d 'd["composer"].get("chipSizes") == [{"w": 600, "h": 200}, {"w": 400, "h": 900}]')" = true ] && ok "the chips carry the images' sizes, for the viewer" \
     || fail "chip sizes: $(d 'd["composer"].get("chipSizes")')"
   type_text "what is in this picture"
-  # The app's own frames (herdr-app shot: the last frame drawn) from just before Enter until 2 s after.
-  visible
+  # The app's own frames (herdr-app shot draws each one) from just before Enter until 2 s after.
   FR="$ART/misc-send-frames"; rm -rf "$FR"; mkdir -p "$FR"
   ( end=$(( $(date +%s) + 3 )); while [ "$(date +%s)" -lt "$end" ]; do
       "$APP" shot "$FR/$(perl -MTime::HiRes=time -e 'printf "%d", time*1000').png" >/dev/null 2>&1 || true; done ) &
@@ -307,8 +320,7 @@ EOF
   keys enter
   until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 2 || { note "Enter dropped: chat.click:send"; cmd click:send; }
   wait "$BURST" || true
-  SENT_DRAWN=; ! screen_locked && drawn && SENT_DRAWN=1
-  hidden
+  SENT_DRAWN=; [ "$(ls "$FR" | wc -l)" -gt 1 ] && [ "$(shasum "$FR"/*.png | cut -c1-40 | sort -u | wc -l)" -gt 1 ] && SENT_DRAWN=1
   expect '[ "$(phase)" = idle ] && [ "$(count_kind assistant)" -ge 2 ]' "answered" 15
   host >"$ART/misc-host.json"
   python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); u=[i for i in d["items"] if i["kind"]=="user"][-1]; print(u.get("images"), u.get("imagePaths")); sys.exit(0 if u.get("images")==2 else 1)' "$ART/misc-host.json" >>"$LOG" \
@@ -321,7 +333,7 @@ EOF
       *) fail "the new row: $(tail -1 "$LOG") (misc-appears.json, misc-send-frames/)" ;;
     esac
   else
-    skip "the new row's first frames (no frames: $(screen_locked && echo "the screen is locked" || echo "the window isn't drawn"))"
+    skip "the new row's first frames (no frames: every shot was the same frame)"
   fi
   if needs_frames "the thumbnails' boxes and the new row's height (measured while drawing)"; then
     python3 - "$ART/misc-host.json" "$STATE/debug/$CHAT.json" <<'EOF' >>"$LOG" && ok "the new row is measured at one height; wide 600x200 and tall 400x900 (under the 320 pt cap) keep their aspect ratio" || fail "thumbnails: $(tail -1 "$LOG")"
@@ -400,7 +412,6 @@ EOF
   attachments() { ls "$STATE/attachments/$CHAT" 2>/dev/null | wc -l | tr -d ' '; }
   pending() { d 'd["composer"].get("pending", 0)'; }
   HPID=$(reg "$CHAT" pid)
-  visible
   H0=$(d 'd["bottomH"]')
   # SIGSTOP: a host busy copying a large file, for as long as the checks need.
   kill -STOP "$HPID"
@@ -427,7 +438,6 @@ EOF
   shot thumb-2-enlarged 0.8
   do_ overlay.close
   [ "$(d 'd["composer"]["chips"]')" = "[\"$ATT\"]" ] && ok "the chip is still in the composer" || fail "chips after the click: $(d 'd["composer"]["chips"]')"
-  hidden
 
   step "thumb: ✕ removes the chip and its copy, never the dropped file"
   cmd "click:chip-x:0"
@@ -547,10 +557,11 @@ if want extras; then
   keys enter; until_ '[ "$(d "d[\"composer\"][\"text\"]")" != "make a draft" ]' 3 || cmd click:send
   expect '[ "$(d "d[\"composer\"][\"text\"]")" = "drafted by an extension: please review" ]' "the draft is in the composer" 10
   expect '[ "$(host | python3 -c "import json,sys; print(json.load(sys.stdin)[\"state\"][\"editorText\"])")" = None ]' "and acknowledged (the host cleared editorText)" 10
-  keys 0:cmd backspace; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || { cmd clear; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3; } # select all, delete (setup)
+  keys 0:$PK backspace; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3 || { cmd clear; until_ '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]' 3; } # select all, delete (setup)
   step "an <hc from> envelope shows as the sender, without the envelope"
   hc send "$(d 'd["host"]["address"]')" '<hc from="t9 reviewer">please summarise</hc>' >>"$LOG" 2>&1
   expect '[ "$(d "[i[\"from\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"][-1]")" = "t9 reviewer" ]' "from: t9 reviewer" 15
+  [ "$(d "[i['source'] for i in d['items'] if i['kind']=='user'][-1]")" = external ] && ok "a user item from outside the chat (source external)" || fail "source"
   expect '[ "$(phase)" = idle ]' "answered" 15
   shot extras-2-from-badge 0.4
   step "a long conversation: the reopened chat pages older items in"
