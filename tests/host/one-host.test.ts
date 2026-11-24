@@ -240,7 +240,14 @@ test("one host per chat: the serving host keeps the registry naming it: an entry
   const h = await new Host({ name: "repair", dir, chat, session, env: { HERDR_CHAT_REGISTRY_CHECK_MS: "200" } }).start();
   const seen: unknown[] = [];
   try {
-    await h.client.waitFor(idle, 10_000);
+    await h.client.waitFor((x) => idle(x) && !!x.state.agentVersion, 10_000, "idle, with the agent's version");
+    // The host saves the agent's version into its entry once the agent reports it, which can be just after
+    // idle: take the entry it means to keep only after that save.
+    const t0 = Date.now();
+    while (readRegistry(h.stateDir, chat)?.agentVersion !== h.client.state.agentVersion) {
+      if (Date.now() - t0 > 5000) throw new Error("the host never saved the agent's version in its entry");
+      await sleep(20);
+    }
     const mine = readRegistry(h.stateDir, chat)!;
     // A 0.5.0 duplicate's exit: its own entry, cleared, over the live host's.
     const wiped = { ...mine, pid: null, port: null, wsPort: null, terminal: "t-dup", token: "0".repeat(64) };
