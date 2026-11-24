@@ -32,7 +32,7 @@ test("steer during a tool: queued in the strip, then delivered once as a queued 
   }
 });
 
-test("abort mid-tool with a queue: clear_queue then abort, queued text restored, nothing runs after", async () => {
+test("abort mid-tool with a queue: clear_queue then abort, the steer then the held follow-up restored, nothing runs after", async () => {
   const h = await startHost({ name: "abort", scenario: "abort.json", speed: 1 });
   try {
     const c = h.client;
@@ -43,7 +43,7 @@ test("abort mid-tool with a queue: clear_queue then abort, queued text restored,
     await c.req("send", { text: "quick: and use verbose output" });
     await c.waitFor((x) => x.state.queue.followUp.length === 1 && x.state.queue.steering.length === 1, 2000, "two queued");
     const { restored } = await c.req("abort");
-    assert.deepEqual(restored.sort(), ["quick: and use verbose output", "quick: then run the tests"]);
+    assert.deepEqual(restored, ["quick: and use verbose output", "quick: then run the tests"], "Pi's steers first, then the host's held follow-up");
     await c.waitFor(idle, 5000, "idle after abort");
     await sleep(400); // Would a queued message start a new run?
     assert.equal(c.state.phase, "idle");
@@ -55,6 +55,7 @@ test("abort mid-tool with a queue: clear_queue then abort, queued text restored,
     assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
     const types = h.piCommands().map((x) => x.type);
     const ci = types.indexOf("clear_queue");
+    assert.ok(!h.piCommands().some((x) => x.type === "prompt" && x.message === "quick: then run the tests"), "the held follow-up never reached Pi");
     assert.ok(ci >= 0 && types.indexOf("abort") > ci, `clear_queue before abort: ${types.join(",")}`);
     await h.waitStatus(/^idle$/);
     await h.waitTranscript(/^· \$ make build ✗$/m);

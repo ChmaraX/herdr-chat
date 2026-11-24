@@ -28,6 +28,20 @@ export function providerIcon(provider, size = 14) {
   return (FULL_COLOR.has(provider) ? image(path) : svg(path)).size(size).flex_none();
 }
 
+// The app's UI zoom: window pt per layout px. Elements take layout px (w(), h(),
+// top()…), but what the window reports back is in window pt: on_size_change
+// sizes, and a pointer or wheel event's position, bounds and delta. Every such
+// value that goes back into layout is divided by this where it's read (#28).
+// settings().zoom is the zoom the app applies (an invalid value in
+// settings.json reads 1, as the app falls back to), and it changes before the
+// render that lays out at the new zoom, so a size reported later is always in
+// the zoom read then. Measured against a 100 px probe at 0.9, 1.1, 1.2, 1.5 and
+// on changes at runtime: equal every time.
+export function uiScale() {
+  const z = Number(settings()?.zoom);
+  return z > 0 && Number.isFinite(z) ? z : 1;
+}
+
 export function monoFont() {
   const s = settings() ?? {};
   return s.font_family ?? s.font ?? "JetBrains Mono";

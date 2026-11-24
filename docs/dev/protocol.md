@@ -56,11 +56,46 @@ The host writes `<stateDir>/chats/<chat>.json` with mode 0600:
 - `stateDir` is passed on the host command line (`--state-dir`). The mod uses
   `appHome() + "/data/herdr-chat"`.
 - **Atomic write:** write a temp file, then rename it over the old one.
-- `terminal` is `$HC_TERMINAL_ID` of the host's terminal.
+- `terminal` is `$HC_TERMINAL_ID` of the host's terminal. It is how the mod
+  knows which terminal is the chat's host (connection.js `registeredHost`,
+  that terminal while it is live and labelled with the chat): the
+  herdr-chat.chat label alone doesn't say, since a starting, refusing or
+  older second host carries it too.
+- Only the chat's host writes it: the one holding the chat's claim (below).
+  The host checks every 2 s that the file still names it (its `token`) and
+  writes its entry back when it doesn't (a host from before the claim wrote
+  it, or it was removed), so the chat's live host can always be reached.
 - On clean exit the host rewrites the file with `pid: null, port: null, wsPort: null` and
   keeps `sessionFile`, so a client can restart the chat on the same session.
+  It does so only while the file still names it (a second host from before
+  the claim may have written it since).
 - A client treats the host as alive only after a successful `hello`/`welcome`.
   A `pid` alone doesn't prove it.
+
+### One host per chat (the claim)
+
+A chat has one host process. Before anything else (the registry, the chat's
+images, the agent), `serve` claims the chat (`host/claim.ts`):
+
+- `<stateDir>/chats/<chat>.lock/` holds numbered generations `<n>.json`,
+  each `{pid, started, terminal, at}` (`started`: the process's start time as
+  `ps -o lstart` prints it in UTC, to the second; `registry.ts`
+  `processStamp`). The highest is the chat's claim.
+- A host claims by reading the highest, n. If that host still runs (its pid
+  is alive with the same start time, and it hasn't written `<n>.released`),
+  it refuses: `herdr-chat-host: chat <id> already has a host (pid P,
+  terminal T): not starting a second one` on stderr, the same line (`refused:`)
+  in the chat's log, exit code 3. Otherwise it creates n + 1 with an
+  exclusive link of a file it wrote first. Of several racing hosts exactly
+  one creates n + 1; the rest read it, live, and refuse.
+- A host that dies without releasing (SIGKILL, a crash) leaves its
+  generation; the next host takes it over (its log says `took over the claim
+  of a host that died`). A pid reused by another process has another start
+  time, so it doesn't hold the chat.
+- On exit (any way but SIGKILL) the host writes `<n>.released`, last, after
+  the registry. A restart (the old host shuts down, then the mod starts a new
+  one) and `--after-pid` (the new host waits for the TUI's pid after it has
+  claimed the chat) are unaffected.
 
 ## Records: client → host
 
@@ -277,7 +312,7 @@ type ToolDetail =
 | `fork_points` | | `{points: {id, text}[]}` | the person's messages in this session, newest first, as typed (a skill as its `/command`). Refused when the agent can't fork (`capabilities.fork`) |
 | `fork` | `point` | `{text}` | a new session holding what came before that message (the agent's own fork: Pi `fork`, Claude Code `--fork-session --resume-session-at`, Codex `thread/fork`); the original is unchanged. Then a new snapshot, and `text` (the message, as typed) is the client's to put in its composer |
 | `files` | `query`, `limit?` | `{files: string[]}` | cwd-relative paths, fuzzy-ranked. `git ls-files` (else a bounded walk), cached and refreshed every 30 s |
-| `clipboard_image` | | `{path: string \| null, size?}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»); null when the clipboard holds none. `size` (v3.7): its pixel size `{w, h}`, or null |
+| `clipboard_image` | | `{path: string \| null, size?}` | saves the clipboard image as an attachment, `<stateDir>/attachments/<chat>/<ms>-<hex>-paste.png` (macOS: osascript «class PNGf»; Linux: `wl-paste` on Wayland, else `xclip` on X11, a PNG only); null when the clipboard holds none. An error when the host can't read the clipboard at all (Linux: no `wl-paste`/`xclip`, or neither `WAYLAND_DISPLAY` nor `DISPLAY`), its message for the person. `size` (v3.7): its pixel size `{w, h}`, or null |
 | `attach_image` | `path` | `{path, size}` | a copy of an image file (a drop) as an attachment, `<ms>-<hex>-<name>` (a name over 200 bytes is shortened, its extension kept). It checks the file as `send` does and fails with the same messages (type, unreadable or over 64 MiB, not a valid PNG/JPEG/GIF/WebP). `size` (v3.7): its pixel size `{w, h}`, or null |
 | `detach_image` | `path` | `{}` | the chip's ✕: removes an attachment, unless a held or queued message lists it. Any path outside the chat's attachments is left alone |
 | `sweep_attachments` | `open: string[]` | `{removed: string[]}` | `open`: the chats with a pane in the app's layout. Removes the attachments of other chats that have no pane and no live host, once two calls in a row agree (see "Attachments") |
@@ -459,7 +494,10 @@ phase: … | "conflict";               // new value: another live writer has the
 handoff: { argv: string[]; terminal: string | null; since: number } | null;
   // set by `handoff` (argv = the TUI command, terminal = null until `handoff_started`), cleared on resume
 conflict: { chat: string | null; terminal: string | null; pid: number | null } | null;
-  // chat/terminal/pid of the other chat's host (from its session lock);
+  // chat/terminal/pid of the other chat's host (from its session lock: a live holder is its pid with the
+  // start time the lock records, `stamp`; a lock from before 0.6 has none). chat may be this same chat: a
+  // second host of it from before the claim ("One host per chat"; its pid must still run `serve --chat`
+  // for the chat), which the mod's sweep ends;
   // chat: null = an agent process outside any chat (Claude Code's ~/.claude/sessions registry, Codex "active writer"; pid null when Codex doesn't say)
 queue: { steering: string[]; followUp: string[];
          steeringFrom?: (string | null)[]; followUpFrom?: (string | null)[] };
@@ -492,7 +530,7 @@ queue: { steering: string[]; followUp: string[];
 
 ## Host env (tests, tuning)
 
-`HERDR_CHAT_HC` (hc binary, default `hc`), `HERDR_CHAT_HANDOFF_POLL_MS` (2000), `HERDR_CHAT_HANDOFF_GRACE_MS` (60000).
+`HERDR_CHAT_HC` (hc binary, default `hc`), `HERDR_CHAT_HANDOFF_POLL_MS` (2000), `HERDR_CHAT_HANDOFF_GRACE_MS` (60000), `HERDR_CHAT_PLATFORM` (the OS whose clipboard and image tools the host uses, default Node's `process.platform`: the tests run Linux's on any machine).
 
 ## Notes for the mod
 
@@ -575,7 +613,7 @@ Before it serves, it labels its own terminal (`hc label $HC_TERMINAL_ID …`):
 
 | Label | Value | Read by |
 |---|---|---|
-| `herdr-chat.chat` | the chat id | the mod (`hostTerminal`), chat-agents, chat-menu |
+| `herdr-chat.chat` | the chat id | the mod (`registeredHost` checks it on the registry's terminal; the orphan sweep), chat-agents, chat-menu |
 | `herdr-chat.role` | `subagent` (a chat's own host: `host`) | `sweepOrphans` ends only `role=host` terminals |
 | `herdr-chat.provider` | `pi` / `claude` / `codex` | the dialog's `provider` prop |
 

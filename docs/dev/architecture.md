@@ -33,6 +33,8 @@ Herdr tab
   Mermaid turned into a self-contained SVG, diffs and tool output as lines.
 - Reports Herdr status with OSC 7501, turns `hc send` input on its stdin
   into messages, and prints a plain transcript for `hc read` (`terminal.ts`).
+- Claims its chat first: one host process per chat, a second one refuses
+  (`claim.ts`; protocol.md "One host per chat").
 - Writes the chat registry and a lock on the session file (`registry.ts`).
   The Pi extension `extension/herdr-chat-lock.ts` reads that lock, so a Pi
   TUI never writes a session a chat has open.
@@ -87,9 +89,19 @@ the row under the parent is.
 
 `chat-menu` offers **Continue as chat** on an agent's TUI (Herdr reports the
 agent: Pi, Claude Code or Codex) that is idle or done. `new-chat`
-asks the host which session it has open, `herdr-chat-host tui-session
---provider <agent> --pid <its pid>`; each agent's module answers its own way
-(`host/providers/<agent>/tui.ts`):
+asks the host for the TUI's process and the session it has open,
+`herdr-chat-host tui-session --provider <agent> --terminal <hc get json>`.
+The process (`host/providers/tui.ts` `tuiProcess`) is the foreground when
+Herdr's argv for it names the agent (argv[0] or argv[1]: typed in a shell),
+else the terminal's own program, likewise. Else it's one under the foreground,
+from the process table, in the terminal's foreground process group: a terminal
+whose own command started it (`fish -ic 'claude --resume …; exec fish -i'`).
+There a process is the agent when its program is (`pi`), or when it's
+`node`/`bun` running a script that is. A background or stopped job is in a
+group of its own, so it doesn't count; two agents there is refused (none is
+stopped). The answer then also has the `group`: its id, the shell, and what
+else ran in it. Each agent's module then
+finds the session its own way (`host/providers/<agent>/tui.ts`):
 
 - **Pi:** the lock extension labels the TUI's terminal with its session file
   (`herdr-chat.session`); the model and thinking level are the session's last
@@ -108,7 +120,13 @@ Then:
   The chat's host waits for that pid to exit before it opens the session
   (`--after-pid`), so the two never write it at once; while the agent still
   holds it (Codex's daemon keeps a thread up to a minute), the host tries
-  again every 5 s for 90 s. Then the TUI's pane closes. The model and
+  again every 5 s for 90 s. Then the TUI's pane closes, once its shell is
+  idle (else the pane stays, and a toast says what runs). A shell's job:
+  Herdr's foreground is the shell again. A shell that ran the agent as its
+  command: `herdr-chat-host tui-busy --group <json>` reads the table and finds
+  a process that was in the group before, or a new child of the shell (`claude;
+  other`). The interactive shell's helpers after `exec fish -i` run in jobs of
+  their own, so they don't count. The model and
   thinking level are passed as `--model` and `--thinking`.
 - **A sub-agent** (`hc run … -- pi`): a terminal runs one program, so the
   TUI ends and a chat host starts in its place, with the same parent, name

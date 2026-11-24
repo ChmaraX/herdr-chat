@@ -101,27 +101,6 @@ test("claude: /name of a skill is a pill; another command and a mention stay tex
   }
 });
 
-test("codex: /name of a skill is sent as $name with the skill, and the echo's pill carries its file", async () => {
-  const h = await codexHost({ name: "skill-codex", speed: 1, scenario: { default: [{ text: "hi Bob" }] } });
-  try {
-    const c = h.client;
-    await c.waitFor((x) => idle(x) && x.state.commands.some((k: any) => k.name === "greet" && k.source === "skill"), 10_000, "skills");
-    await c.req("send", { text: "/greet Bob" });
-    await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "assistant" && i.text === "hi Bob"), 10_000, "answered");
-    const input = h.requests("turn/start").at(-1).params.input;
-    assert.equal(input[0].text, "$greet Bob");
-    assert.equal(input[1].type, "skill");
-    assert.equal(users(c).length, 1);
-    const u = users(c)[0];
-    assert.equal(u.text, "Bob", "no $greet left in the text");
-    assert.equal(cmds(u), "greet");
-    assert.match(u.skills[0].path, /skills\/greet\/SKILL\.md$/);
-    h.artifact("skill-codex");
-  } finally {
-    await h.stop();
-  }
-});
-
 // ---------------------------------------------------------------- several skills in one message
 
 /** A skills folder of real SKILL.md files (frontmatter and all), as an agent lists them. */
@@ -273,6 +252,7 @@ test("codex: several skills go as $mentions, each with its skill input; the pill
     const input = h.requests("turn/start").at(-1).params.input;
     assert.equal(input[0].text, `$greet $tdd $audit ${REST}`);
     assert.deepEqual(input.slice(1).map((i: any) => [i.type, i.name]), [["skill", "greet"], ["skill", "tdd"], ["skill", "audit"]]);
+    assert.equal(users(c).length, 1, "the echo confirmed the shown item");
     const u = users(c)[0];
     assert.equal(u.text, REST, "no $mentions left in the text");
     assert.equal(cmds(u), "greet tdd audit");

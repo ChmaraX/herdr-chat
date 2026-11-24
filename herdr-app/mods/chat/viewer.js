@@ -6,6 +6,10 @@
 //   pan    plain scroll (both axes) · drag · clamped: an image larger than
 //          the frame always covers it, a smaller one is centered on that axis
 //
+// Every size and point here is in layout px (what left()/w() take): the
+// frame's measured size, pointer points and wheel deltas come in window pt
+// and are divided by the UI zoom (util.js uiScale) where they're read (#28).
+//
 // Zoom is relative to the image's natural size (an SVG's width/height or
 // viewBox, a raster's pixels). The image is drawn at the zoomed size inside an
 // overflow-hidden frame, at an offset. GPUI rasterizes an SVG drawn by
@@ -28,7 +32,8 @@ import { h_flex, v_flex } from "gpui-base";
 import { appHome, closeOverlay, nextCommand, props, readTextFile, theme } from "herdr";
 import { stateDir } from "./connection.js";
 import { Debug } from "./debug.js";
-import { homeRel } from "./util.js";
+import { homeRel, uiScale } from "./util.js";
+import { PLATFORM } from "./platform.js";
 
 const MIN = 0.1;
 const MAX = 8;
@@ -49,7 +54,8 @@ export class Viewer {
     // guess, since the mod can't read raster files (no fs.read grant). An SVG's is read below.
     this.natural = v.w > 0 && v.h > 0 ? { w: v.w, h: v.h } : this.svg ? null : { w: 1600, h: 1000 };
     const [W, H] = v.want ?? [900, 600];
-    this.frame = { w: W - 32, h: H - 84, measured: false }; // until on_size_change says
+    this.framePt = { w: W - 32, h: H - 84, measured: false }; // window pt, until on_size_change says
+    this.fitAt = uiScale(); // the zoom the fit was worked out at
     this.fit = true;
     this.z = 1;
     this.x = 0;
@@ -94,6 +100,12 @@ export class Viewer {
 
   // ---- geometry ----------------------------------------------------------------------
 
+  // The frame in layout px, at the zoom now.
+  get frame() {
+    const k = uiScale(), f = this.framePt;
+    return { w: f.w / k, h: f.h / k, measured: f.measured };
+  }
+
   fitScale() {
     const n = this.natural ?? { w: 1600, h: 1000 };
     return Math.min(this.frame.w / n.w, this.frame.h / n.h, 3);
@@ -105,6 +117,7 @@ export class Viewer {
 
   refit() {
     this.fit = true;
+    this.fitAt = uiScale();
     this.z = this.fitScale();
     this.clamp();
     this.debug.mark();
@@ -248,6 +261,8 @@ export class Viewer {
 
   render(cx) {
     this.renders = (this.renders ?? 0) + 1;
+    // The UI zoom changed: the frame holds less (or more) in layout px.
+    if (uiScale() !== this.fitAt) { if (this.fit) this.refit(); else { this.fitAt = uiScale(); this.clamp(); } }
     const t = theme();
     const n = this.natural ?? { w: 1600, h: 1000 };
     const W = Math.round(n.w * this.z), H = Math.round(n.h * this.z);
@@ -270,15 +285,17 @@ export class Viewer {
     const frame = div().id("viewer-frame").flex_1().min_h(0).w_full().relative().overflow_hidden().rounded(8)
       .when(Boolean(this.drag), (e) => e.cursor_grabbing()).when(!this.drag, (e) => e.cursor_grab())
       .on_size_change((sz, cx) => {
-        if (this.frame.measured && Math.abs(sz.width - this.frame.w) < 0.5 && Math.abs(sz.height - this.frame.h) < 0.5) return;
-        this.frame = { w: sz.width, h: sz.height, measured: true };
+        const f = this.framePt;
+        if (f.measured && Math.abs(sz.width - f.w) < 0.5 && Math.abs(sz.height - f.h) < 0.5) return;
+        this.framePt = { w: sz.width, h: sz.height, measured: true };
         if (this.fit) this.refit(); else this.clamp();
         this.debug.mark();
         cx.notify();
       })
       .on_scroll_wheel((e, cx) => {
         const p = local(e);
-        this.wheel(e.delta.x, e.delta.y, e.modifiers.platform || e.modifiers.control, p.x, p.y);
+        const k = uiScale();
+        this.wheel(e.delta.x / k, e.delta.y / k, e.modifiers.platform || e.modifiers.control, p.x, p.y);
         cx.stop_propagation();
         cx.notify();
       })
@@ -286,7 +303,7 @@ export class Viewer {
         this.focus.focus();
         const p = local(e);
         this.dragStart(p.x, p.y);
-        this.dragOrigin = { x: e.position.x - p.x, y: e.position.y - p.y }; // the frame's window position
+        this.dragOrigin = point(e.position, { x: p.x, y: p.y }); // the frame's window position, in layout px
         cx.notify();
       })
       .children(this.under && this.under.scale !== b ? [placed(this.under.scale)] : [])
@@ -300,13 +317,14 @@ export class Viewer {
       })
       .on_mouse_move((e, cx) => {
         if (!this.drag || !this.dragOrigin) return;
-        if (this.dragMove(e.position.x - this.dragOrigin.x, e.position.y - this.dragOrigin.y)) cx.notify();
+        const p = point(e.position, this.dragOrigin);
+        if (this.dragMove(p.x, p.y)) cx.notify();
       })
       .on_mouse_up("left", (_e, cx) => { if (this.drag) { this.dragEnd(); cx.notify(); } })
       .on_hover((h, cx) => { if (!h && this.drag) { this.dragEnd(); cx.notify(); } })
       .child(h_flex().gap(4).items_center()
         .child(div().flex_none().max_w(260).truncate().text_size(12).text_color(t.dim).child(this.path.split("/").pop()))
-        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).pl(8).child("⌘ scroll to zoom · drag to pan · 0 fit"))
+        .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).pl(8).child(`${PLATFORM.zoomScroll} to zoom · drag to pan · 0 fit`))
         .child(btn("viewer-out", "−", "Zoom out (-)", () => this.zoomTo(this.z / STEP)))
         .child(btn("viewer-pct", `${pct} %`, "Fit (0)", () => this.refit()).min_w(52))
         .child(btn("viewer-in", "+", "Zoom in (+)", () => this.zoomTo(this.z * STEP)))
@@ -330,11 +348,18 @@ export class Viewer {
   }
 }
 
-// An event's point in the element it was delivered to.
+// An event's point in the element it was delivered to, in layout px.
 function local(e) {
-  if (e.local_position) return e.local_position;
-  if (e.bounds) return { x: e.position.x - e.bounds.x, y: e.position.y - e.bounds.y };
-  return e.position;
+  const k = uiScale();
+  if (e.local_position) return { x: e.local_position.x / k, y: e.local_position.y / k };
+  if (e.bounds) return { x: (e.position.x - e.bounds.x) / k, y: (e.position.y - e.bounds.y) / k };
+  return { x: e.position.x / k, y: e.position.y / k };
+}
+
+// A window point (window pt) in layout px, less `origin` (layout px).
+function point(pos, origin) {
+  const k = uiScale();
+  return { x: pos.x / k - origin.x, y: pos.y / k - origin.y };
 }
 
 // The SVG with its root drawn `b` times bigger: width/height × b, the viewBox kept (added when missing).

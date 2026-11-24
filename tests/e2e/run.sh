@@ -7,11 +7,15 @@
 #   tests/e2e/run.sh [artifacts dir] [flows...]     (default: every flow)
 #
 # Flows drive the chat as a person does: the launcher key, typing (keys.py
-# posts keys to the private app only), Enter, Esc; clicks go through the
-# mod's own commands (`chat.click:<control>`, `chat.toggle:<id>`),
-# which run the click handlers' code. Checks read the host (`herdr-chat-host
-# inspect`) and the mod's debug dump (data/herdr-chat/debug/<chat>.json), never
-# the screen. Screenshots are taken in short visual passes (lib.sh visible).
+# posts keys to the private app only; x11input.py in the test box), Enter, Esc;
+# clicks go through the mod's own commands (`chat.click:<control>`,
+# `chat.toggle:<id>`), which run the click handlers' code. Checks read the host
+# (`herdr-chat-host inspect`) and the mod's debug dump
+# (data/herdr-chat/debug/<chat>.json), never the screen. Screenshots are
+# `herdr-app shot`: the app draws them itself, the window hidden.
+#
+# On macOS it runs on the host; on Linux, in the test box:
+#   tests/box/box run <item> [flows...]
 set -euo pipefail
 ART_ARG="${1:-}"
 shift || true
@@ -21,9 +25,6 @@ FLOWS="${*:-}"
 . "$(dirname "$0")/lib.sh" "$ART_ARG"
 FAKE="$REPO/tests/fake-pi"
 SCEN="$FAKE/scenarios"
-# E2E_VISUAL=1: the whole run in visual passes (the private window in
-# front, the person's app given back every VISIBLE_MAX s and at the end).
-[ -z "${E2E_VISUAL:-}" ] || visible
 want() { [ -z "$FLOWS" ] || [[ " $FLOWS " == *" $1 "* ]]; }
 
 # The fake TUI for hand-offs: prints its argv, then waits for "q".
@@ -177,20 +178,20 @@ handoff_tui() {
   until_ '[ "$(d "(d[\"handoff\"] or {}).get(\"terminal\") is not None")" = true ]' 10 || fail "the dump never showed the hand-off's terminal"
   TUI=$(d 'd["handoff"]["terminal"]')
 }
-# Whether the chat renders frames now. A locked screen or an undrawn window
-# renders nothing (keys, records and the debug dump still work), so checks of
-# render-time behaviour (the measured scroller, paging on scroll, sizes read
-# while drawing) can't run: they SKIP with the reason instead (needs_frames).
-# The probe: two commands (each makes the view notify); its render count must move.
+# Whether the chat renders frames now (lib.sh draw: on macOS the hidden window
+# draws when a shot asks). An app that still draws none for it takes keys and
+# writes its debug dump, but checks of render-time behaviour (the measured
+# scroller, paging on scroll, sizes read while drawing) can't run: they SKIP
+# with the reason instead (needs_frames).
+# The probe: two commands (each makes the view notify), each drawn; its render count must move.
 frames() {
-  screen_locked && return 1
   local r0; r0=$(d 'd["renders"]')
-  cmd hover:; sleep 0.6; cmd hover:
+  cmd hover:; draw; sleep 0.3; cmd hover:; draw
   until_ '[ "$(d "d[\"renders\"]")" -gt "$r0" ]' 3
 }
 needs_frames() {
   frames && return 0
-  skip "$1 (no frames: $(screen_locked && echo "the screen is locked" || echo "the window isn't drawn"))"
+  skip "$1 (no frames: the app drew none for this chat)"
   return 1
 }
 # One key at a time, a beat apart (a window that isn't drawn drops fast bursts).
@@ -254,7 +255,7 @@ EOF
   BASH=$(d "[i['id'] for i in d['items'] if i['kind']=='tool' and i['name']=='bash'][0]")
   cmd "toggle:$EDIT"
   cmd "toggle:$BASH"
-  expect '[ "$(d "sorted(d[\"expanded\"])")" = "$(python3 -c "import json; print(json.dumps(sorted([\"$EDIT\",\"$BASH\"])))")" ]' "toggle expands the edit and bash cards"
+  need '[ "$(d "sorted(d[\"expanded\"])")" = "$(python3 -c "import json; print(json.dumps(sorted([\"$EDIT\",\"$BASH\"])))")" ]' "toggle: the edit and bash cards"
   expect '[ "$(d "d[\"tabName\"]")" = "$(d "d[\"name\"]")" ] && [ "$(d "d[\"name\"]")" != "New chat" ]' "the launcher's tab \"pi\" took the chat's name ($(d 'd["name"]'))" 5
   shot basic-1-cards-expanded 0.6
 fi
@@ -267,9 +268,13 @@ fi
 . "$E2E/flows-keymap.sh"
 . "$E2E/flows-sockets.sh"
 . "$E2E/flows-stall.sh"
+. "$E2E/flows-onehost.sh"
+. "$E2E/flows-zoom.sh"
 . "$E2E/flows-subagent.sh" # it switches the app to a clone of main
 . "$E2E/flows-update.sh" # after subagent: it needs the floating new-chat block
 . "$E2E/flows-core.sh" # last: it restarts the core
+# E2E_FLOW=<file>: one more flow, sourced here with every helper above (a bug's replay, kept outside the
+# repo's flows). `tests/e2e/run.sh <art> none` runs it alone.
+[ -z "${E2E_FLOW:-}" ] || . "$E2E_FLOW"
 expect no_mod_errors "no mod errors: none in the app's status, no chat's last render threw (run.log)" 3
-hidden
 passed
