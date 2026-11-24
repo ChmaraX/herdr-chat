@@ -233,10 +233,12 @@ export class UpdateDialog {
       body = [p.current ? `You have ${p.current}.` : "A new version is out."];
       buttons = [btn("update-notes", "What's new", false, "notes"), btn("update-later", "Later", false, "later"), btn("update-go", "Update", true, "update")];
     }
+    // The window has a fixed height: a long body (hc's stderr when an update fails) scrolls, the buttons stay.
     return v_flex().id("update").size_full().p(18).gap(10).bg(t.popover).text_color(t.foreground)
       .track_focus(handle).on_key_down((e, cx) => { this.key(e, cx); cx.notify(); })
       .child(div().text_size(15).font_semibold().child(title))
-      .children(body.map((b) => div().text_size(12.5).text_color(t.muted).child(b)))
+      .child(v_flex().id("update-body").flex_1().min_h(0).overflow_y_scroll().gap(10)
+        .children(body.map((b) => div().text_size(12.5).text_color(t.muted).child(b))))
       .child(h_flex().pt(6).gap(8).justify_end().children(buttons));
   }
 }
