@@ -83,6 +83,10 @@ const BACKOFF = [250, 500, 1000, 2000, 2000];
 const START_GRACE = 8000;
 const START_MAX = 60000;
 
+// A request the host never took: it answered with an error, or it was never sent. (A timeout or a
+// dropped link leaves it unknown: the host may have acted on it.)
+export class NotTaken extends Error {}
+
 export class Connection {
   // opts: {chat, cwd, attachOnly (never start a host), place: () => ({space, tab}) | null (a host starts only once the chat's tab is known), session, hostEnv, handOver ({pid, model, thinking} | null), onRecord(rec, cx), onChange(cx), log}
   constructor(opts) {
@@ -200,7 +204,7 @@ export class Connection {
             if (p) {
               this.pending.delete(rec.id);
               if (rec.ok) p.resolve(rec.data ?? {});
-              else p.reject(new Error(rec.error ?? "failed"));
+              else p.reject(new NotTaken(rec.error ?? "failed"));
             }
           }
           if (welcomed && rec.t !== "ping") this.o.onRecord(rec, cx); // ping: the host's keepalive
@@ -298,7 +302,7 @@ export class Connection {
 
   req(op, args = {}, { timeout = 30000 } = {}) {
     const link = this.link;
-    if (!link || this.status !== "connected") return Promise.reject(new Error("not connected to the host"));
+    if (!link || this.status !== "connected") return Promise.reject(new NotTaken("not connected to the host"));
     const id = `m${this.nextId++}`;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, op, deadline: Date.now() + timeout });

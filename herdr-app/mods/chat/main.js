@@ -34,7 +34,7 @@ import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
 import { SHORTCUTS, actionName, chordOf, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
 import { keepKeys } from "./keymap.js";
-import { Connection, readConfig, readRegistry, registeredHost, runsHost } from "./connection.js";
+import { Connection, NotTaken, readConfig, readRegistry, registeredHost, runsHost } from "./connection.js";
 import { Store } from "./store.js";
 import { Timeline } from "./timeline.js";
 import { lineOf, planProgress, row, samePlan } from "./cards.js";
@@ -788,9 +788,10 @@ export default class HerdrChat extends View {
     this.composer.dialogKeys = s.dialog?.method === "select" || s.dialog?.method === "confirm";
     this.composer.askCard = s.dialog?.method === "permission" || s.dialog?.method === "questions" ? s.dialog.method : null;
     if (s.editorText != null && s.editorText !== this.editorAcked) {
+      // The host piles up text until it is acknowledged: only what this view hasn't added yet goes in.
+      const added = this.editorAcked && s.editorText.startsWith(`${this.editorAcked}\n\n`) ? s.editorText.slice(this.editorAcked.length + 2) : s.editorText;
       this.editorAcked = s.editorText;
-      this.composer.set(s.editorText);
-      this.composer.focus();
+      this.toComposer(added);
       this.req("ack_editor_text", {}, cx);
     } else if (s.editorText == null) this.editorAcked = null;
     if (this.composer.menu?.kind === "slash") this.updateMenu(cx);
@@ -833,13 +834,26 @@ export default class HerdrChat extends View {
     });
   }
 
+  // Text (and image chips) handed back to the composer: a queued message taken out to edit, a send
+  // the agent rejected, text the host returns (`editorText`). It goes after what is typed there,
+  // never over it.
+  toComposer(text, images = []) {
+    const now = this.composer.value.replace(/\s+$/, "");
+    if (text) this.composer.set(now.trim() ? `${now}\n\n${text}` : text);
+    for (const im of images) this.composer.addChip(im.path, { size: im.size ?? null });
+    this.composer.focus();
+  }
+
   // `mode`: "auto" (Enter: steers while the agent works) or "followUp" (Alt+Enter: after this run).
   // A follow-up taken out of its lane for editing goes back to it on Enter (its lane never changes implicitly).
   send(cx, mode = "auto") {
-    if (mode === "auto" && this.editingQueued?.lane === "followUp") mode = "followUp";
+    const editing = this.editingQueued;
+    if (mode === "auto" && editing?.lane === "followUp") mode = "followUp";
     this.editingQueued = null;
+    // The draft as typed (its skill pills as `/skill:…`, its chips), for when the send fails.
+    const draft = { text: this.composer.value.replace(/\s+$/, ""), images: this.composer.chips.map((c) => ({ path: c.path, size: c.size })) };
     const text = this.composer.message().replace(/\s+$/, "");
-    const images = this.composer.chips.map((c) => c.path);
+    const images = draft.images.map((c) => c.path);
     if (!text.trim() && !images.length) return;
     const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text.trim());
     // /reload on a host older than the install restarts the host, not just the agent.
@@ -859,7 +873,20 @@ export default class HerdrChat extends View {
     }
     this.composer.clear();
     this.timeline.toBottom();
-    this.fire("send", { text, ...(images.length ? { images } : {}), mode }, cx);
+    // A failed send's draft goes back to the composer (a rejection after the host answered `pending`
+    // comes back as `editorText` instead). A send that timed out or lost the link may have gone through
+    // all the same: the draft comes back, with a warning.
+    const sendTimeout = 90_000; // past the host's wait for a starting agent (2 × 30 s) and its 1.5 s for the reply
+    cx.spawn(async (cx) => {
+      try {
+        await this.req("send", { text, ...(images.length ? { images } : {}), mode }, cx, { timeout: sendTimeout });
+      } catch (e) {
+        this.toComposer(draft.text, draft.images);
+        this.editingQueued ??= editing;
+        this.flash(`send: ${message(e)}${e instanceof NotTaken ? "" : " (it may have been sent)"}`, cx);
+      }
+      cx.notify();
+    });
   }
 
   abort(cx) {
@@ -1149,11 +1176,8 @@ export default class HerdrChat extends View {
     }
     if (op === "edit") {
       return this.fire("queue_edit", { message: id }, cx, (d, cx) => {
-        const now = this.composer.value.replace(/\s+$/, "");
-        this.composer.set(now.trim() ? `${now}\n\n${d?.text ?? ""}` : d?.text ?? "");
-        for (const p of d?.images ?? []) this.composer.addChip(p);
+        this.toComposer(d?.text ?? "", (d?.images ?? []).map((path) => ({ path })));
         this.editingQueued = { lane };
-        this.composer.focus();
         const k = chordOf("steer") === "enter" || !chordOf("steer") ? "Enter" : keyHint("steer");
         this.flash(lane === "followUp" ? `Editing a follow-up: ${k} queues it again` : `Editing a steer: ${k} steers with it`, cx);
         this.debug.mark();

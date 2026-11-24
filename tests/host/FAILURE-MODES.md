@@ -38,6 +38,7 @@ the test that has to catch it; "not covered" rows are known gaps
 | The pills shown and the skills sent differ (a skill named twice, a list the adapter splits by on its own) | `skills.test.ts`: `/skill:tdd /skill:tdd once` (Pi) and `/tdd /tdd once` (Claude) reach the agent once, shown once |
 | Several pills come back out of order, or a resumed session shows fewer | `skills.test.ts`: the three pills in order, live and resumed (Pi, Claude); `fork_points` and the session list give them as typed |
 | A rejected prompt stays on the timeline | `prompt-echo.test.ts` "pi: … a prompt Pi rejects" |
+| A prompt rejected after `send` returned `pending` is lost (or an external send / drained follow-up corrupts `editorText`) | `prompt-echo.test.ts` "pi: a rejection after send returned pending…": composer draft returns via `editorText`, external sends don't, drained follow-ups return once; E2E `reject`: the composer gets it back (text and image chip at once, after typed text when late) |
 | Esc before the turn starts loses the prompt or doubles it | `prompt-echo.test.ts` "claude: Esc before the turn starts" |
 | A fake echoes in an order the real agent doesn't (hiding the above) | `fake-fidelity.test.ts`: each fake against a real recording |
 

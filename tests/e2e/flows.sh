@@ -584,6 +584,43 @@ EOF
   fi
 fi
 
+# --- flow: Pi rejects a message: the draft goes back to the composer ----------------------------
+if want reject; then
+  step "reject: a message Pi rejects at once comes back to the composer, its image chip too"
+  CHAT=$(open_chat reject reject)
+  ready
+  python3 - "$PROJ/reject.png" <<'EOF'
+import struct, sys, zlib
+chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress((b"\0" + b"\xff\0\xff" * 8) * 8)) + chunk(b"IEND", b""))
+EOF
+  cmd "drop:$PROJ/reject.png"
+  expect '[ "$(d "len(d[\"composer\"][\"chips\"])")" = 1 ] && [ "$(d "d[\"composer\"][\"pending\"]")" = 0 ]' "an image chip" 5
+  CHIP=$(d 'd["composer"]["chips"][0]')
+  cmd focus; sleep 0.3
+  type_text "nope this long careful message"; BYCMD_NEXT= # (setup; not send_text: the draft comes back)
+  keys enter; until_ '[ -n "$(d "d[\"flash\"] or \"\"")" ]' 3 || cmd click:send
+  expect '[ "$(d "d[\"flash\"] or \"\"")" = "send: Rejected: nope this long careful message" ]' "the chat says Pi rejected it" 10
+  expect '[ "$(d "d[\"composer\"][\"text\"]")" = "nope this long careful message" ]' "the typed text is back in the composer" 5
+  [ "$(d 'd["composer"]["chips"]')" = "[\"$CHIP\"]" ] && ok "and its image chip" || fail "chips after the rejection: $(d 'd["composer"]["chips"]')"
+  [ -f "$CHIP" ] && ok "the chip's file is still there (a send that failed doesn't detach it)" || fail "the chip's file is gone: $CHIP"
+  [ "$(d "[i['text'] for i in d['items'] if i['kind']=='user']")" = "[]" ] && ok "no user message on the timeline" || fail "user items: $(d "[i['text'] for i in d['items'] if i['kind']=='user']")"
+  shot reject-1-fast 0.3
+
+  step "reject: a message Pi rejects after the host answered pending comes back after what is typed meanwhile"
+  CHAT=$(open_chat reject-late reject-late)
+  ready
+  type_text "nope a slow rejection"; BYCMD_NEXT=
+  press enter '[ "$(d "d[\"composer\"][\"text\"]")" = "" ]'
+  expect '[ "$(d "[i[\"text\"] for i in d[\"items\"] if i[\"kind\"]==\"user\"]")" = "[\"nope a slow rejection\"]" ]' "it is on the timeline while Pi decides" 5
+  type_text "half typed"; BYCMD_NEXT=
+  BOTH=$(printf 'half typed\n\nnope a slow rejection')
+  expect '[ "$(d "d[\"composer\"][\"text\"]")" = "$BOTH" ]' "the rejected text comes back after what was typed, not over it" 10
+  expect '[ "$(host | python3 -c "import json,sys; print(json.load(sys.stdin)[\"state\"][\"editorText\"])")" = None ]' "and acknowledged (the host cleared editorText)" 10
+  [ "$(d "[i['text'] for i in d['items'] if i['kind']=='user']")" = "[]" ] && ok "no user message on the timeline" || fail "user items: $(d "[i['text'] for i in d['items'] if i['kind']=='user']")"
+  shot reject-2-late 0.3
+fi
+
 # --- LIVE=1: one real Pi chat (anthropic/claude-haiku-4-5, temp session dir) ------------------
 if want live && [ -n "${LIVE:-}" ]; then
   step "real Pi: a prompt with a bash call, through the launcher"
