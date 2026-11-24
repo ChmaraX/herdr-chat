@@ -32,7 +32,7 @@ import { UpdateQuestion, checkHosts, checkRelease, checkRunning } from "./update
 import { resolveSelection, visibleChoices } from "./choices.js";
 
 const CHOICES = [
-  { id: "terminal", label: "Terminal (zsh)", icon: "terminal", tint: true, letter: "z", altLetter: "t", isTerminal: true },
+  { id: "terminal", label: "Terminal (zsh)", icon: "terminal", tint: true, letter: "t", isTerminal: true },
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
@@ -364,7 +364,7 @@ export default class NewChat extends View {
   key(e, cx) {
     const k = e.keystroke;
     const list = this.visible();
-    const letter = list.findIndex((c) => c.letter === k || c.altLetter === k);
+    const letter = list.findIndex((c) => c.letter === k);
     if (letter >= 0) this.open(letter, cx);
     else if (/^[1-9]$/.test(k)) {
       const idx = Number(k) - 1;
@@ -398,7 +398,7 @@ export default class NewChat extends View {
         .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.open(i, cx))
         .child(mark(c))
         .child(div().flex_1().text_size(13).text_color(t.foreground).child(c.label))
-        .child(h_flex().gap(4).items_center().child(badge(String(i + 1))).child(badge(c.altLetter ? `${c.letter.toUpperCase()}/${c.altLetter.toUpperCase()}` : c.letter.toUpperCase())))))
+        .child(h_flex().gap(4).items_center().child(badge(String(i + 1))).child(badge(c.letter.toUpperCase())))))
       .child(div().px(8).pt(6).text_size(10.5).text_color(t.dim).child(`${nums}, ${letters} or ↑↓ Enter · Esc`));
   }
 }
