@@ -7,8 +7,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { ROOT } from "./harness.ts";
 import { agentsBase, writeBases } from "../../install/mods.ts";
@@ -445,4 +445,55 @@ test("version: a Herdr that won't say its version is a warning, not a refusal", 
   assert.equal(r.status, 0);
   assert.match(r.out, new RegExp(`herdr-chat: can't tell Herdr's version \\(.*--version.*\\): tested with ${TESTED.tested.app.replace(/\./g, "\\.")}\\. If something breaks, \`\\./install\\.sh --uninstall\``));
   assert.match(r.out, /can't tell herdr-core's version/);
+});
+
+test("symlinks: a keys.json and a layout kept in dotfiles stay links (chained, relative, dangling); the edits and their undo land in the dotfiles copies; no temporary file is left", () => {
+  const d = mkdtempSync(join(tmpdir(), "herdr-chat-symlink-"));
+  const dot = join(d, "dotfiles");
+  const home = keysHome();
+  rmSync(join(home, "keys.json"));
+  mkdirSync(join(home, "layouts"));
+  mkdirSync(join(dot, "herdr", "layouts"), { recursive: true });
+  writeFileSync(join(home, "installed.json"), JSON.stringify({ "layout:main": {} }));
+  writeFileSync(join(home, "shared.json"), JSON.stringify({ layout: "mine" }));
+
+  // keys.json: an absolute link, through a folder that is a link (as a stow folder), to a relative
+  // link with `..`, which the kernel resolves from the real folder (herdr/links), not the linked one.
+  const realKeys = join(dot, "herdr", "keys.json");
+  writeFileSync(realKeys, JSON.stringify(herdrKeys(), null, 2) + "\n");
+  mkdirSync(join(dot, "herdr", "links"));
+  symlinkSync(join("..", "keys.json"), join(dot, "herdr", "links", "keys.json"));
+  symlinkSync(join("herdr", "links"), join(dot, "stow"));
+  symlinkSync(join(dot, "stow", "keys.json"), join(home, "keys.json"));
+  // The layout: a relative link into a sibling folder.
+  const realLayout = join(dot, "herdr", "layouts", "mine.json");
+  const layoutText = JSON.stringify(personal(), null, 2) + "\n";
+  writeFileSync(realLayout, layoutText);
+  symlinkSync(relative(join(home, "layouts"), realLayout), join(home, "layouts", "mine.json"));
+
+  const links = () => [join(home, "keys.json"), join(dot, "herdr", "links", "keys.json"), join(home, "layouts", "mine.json")].map((f) => lstatSync(f).isSymbolicLink());
+  const leftovers = () => [home, join(home, "layouts"), dot, join(dot, "herdr"), join(dot, "herdr", "links"), join(dot, "herdr", "layouts")]
+    .flatMap((f) => readdirSync(f).filter((n) => n.endsWith(".herdr-chat.tmp")));
+  const keysWant = herdrKeys();
+  delete (keysWant.global as any)["cmd-j shift-p"];
+
+  keysOn("linux", "install", home, "--no-direct");
+  run("install", home);
+  assert.deepEqual(links(), [true, true, true], "the links stay links after install");
+  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], "mod.open:new-chat");
+  assert.equal(JSON.parse(readFileSync(realLayout, "utf8")).terminal_menu, "chat-menu");
+
+  keys("uninstall", home);
+  run("uninstall", home);
+  assert.deepEqual(links(), [true, true, true], "the links stay links after uninstall");
+  assert.equal(readFileSync(realKeys, "utf8"), JSON.stringify(keysWant, null, 2) + "\n");
+  assert.equal(readFileSync(realLayout, "utf8"), layoutText, "the dotfiles layout is as it was, byte for byte");
+  assert.deepEqual(leftovers(), [], "no temporary file left after install and uninstall");
+
+  // A dotfiles keys.json not made yet (a dangling link): the install makes it where the link points.
+  rmSync(realKeys);
+  keysOn("linux", "install", home, "--no-direct");
+  assert.deepEqual(links(), [true, true, true], "a dangling link stays a link");
+  assert.equal(JSON.parse(readFileSync(realKeys, "utf8")).global["ctrl-alt-shift-p"], "mod.open:new-chat");
+  assert.deepEqual(leftovers(), []);
 });

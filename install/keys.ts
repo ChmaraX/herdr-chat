@@ -17,13 +17,15 @@
 // - Every install first undoes the bindings the last one made (an older
 //   install's `cmd-j shift-p → mod.open:new-chat` too), then binds again: a
 //   chord the person moved elsewhere goes back to what it was.
-// - keys.json is replaced whole, only if nobody changed it meanwhile.
+// - keys.json is replaced whole, only if nobody changed it meanwhile; a symlink
+//   (into dotfiles) stays one (install/file.ts).
 //
 //   node install/keys.ts install <app home> [--no-direct] [--platform darwin|linux]
 //   node install/keys.ts uninstall <app home>
-import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { keyLabel } from "../herdr-app/mods/chat/chord.js";
+import { replaceFile } from "./file.ts";
 
 type Json = any;
 export const NAMES = ["open", "pi", "claude", "codex", "continue"] as const;
@@ -120,19 +122,12 @@ export function summary(bound: Partial<Record<Name, string>>, platform: string):
 
 /** Read keys.json, change it, replace it whole unless it changed meanwhile. Returns whether it wrote. */
 function editKeys(path: string, edit: (doc: Json) => void): boolean {
-  for (let i = 0; i < 5; i++) {
-    const before = existsSync(path) ? readFileSync(path, "utf8") : null;
+  return replaceFile(path, (before) => {
     const doc = before === null ? {} : JSON.parse(before);
     const was = JSON.stringify(doc);
     edit(doc);
-    if (JSON.stringify(doc) === was) return false;
-    const tmp = join(path, "..", ".keys.json.herdr-chat.tmp");
-    writeFileSync(tmp, JSON.stringify(doc, null, 2) + "\n");
-    if ((existsSync(path) ? readFileSync(path, "utf8") : null) !== before) { rmSync(tmp, { force: true }); continue; }
-    renameSync(tmp, path);
-    return true;
-  }
-  throw new Error(`${path} keeps changing; run the install again`);
+    return JSON.stringify(doc) === was ? null : JSON.stringify(doc, null, 2) + "\n";
+  });
 }
 
 const readJson = (f: string): Json => { try { return JSON.parse(readFileSync(f, "utf8")); } catch { return null; } };

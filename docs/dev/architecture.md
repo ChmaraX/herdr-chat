@@ -148,6 +148,9 @@ Each change is recorded under `data/herdr-chat/` in the app home, so
   `--take-agents-slot` / `--take-menu`;
 - `keys.ts`: the global keys in Herdr's `keys.json`, the file rewritten only
   if unchanged since it was read;
+- `file.ts`: how `layout.ts` and `keys.ts` replace a file whole: a copy
+  renamed over it, at the end of its symlink chain, so a `keys.json` or layout
+  linked from dotfiles stays a link and the dotfiles copy gets the change;
 - `instructions.ts`: the marked sub-agents block
   (`<!-- herdr-chat:subagents begin -->` … `end -->`) in each installed
   agent's instruction file; uninstall leaves each file byte for byte as it
