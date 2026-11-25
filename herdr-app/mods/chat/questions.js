@@ -9,6 +9,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { alpha, icon } from "./util.js";
+import { prose } from "./rich.js";
 import { SPACE } from "./space.js";
 
 export class QuestionsForm {
@@ -220,7 +221,7 @@ export class QuestionsForm {
         .child(h_flex().gap(8).items_center()
           .when(Boolean(q.header), (e) => e.child(div().flex_none().h(18).px(6).rounded(6).flex().items_center().text_size(10.5)
             .text_color(current ? t.accent : t.dim).bg(alpha(current ? t.accent : t.muted, 0.14)).child(q.header)))
-          .child(div().flex_1().min_w(0).text_size(13).text_color(t.foreground).child(q.question))
+          .child(div().flex_1().min_w(0).text_size(13).text_color(t.foreground).child(prose(`dlg-question-${q.id}`, q.question)))
           .when(q.multiSelect, (e) => e.child(div().text_size(11).text_color(t.dim).child("choose any"))))
         .child(v_flex().gap(4).children((q.options ?? []).map((o, i) => {
           const on = set.has(o.label);
