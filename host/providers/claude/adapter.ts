@@ -41,6 +41,10 @@ const INTERRUPT_MS = () => num(process.env.HERDR_CHAT_CLAUDE_INTERRUPT_MS, 8_000
 const POLL_MS = () => num(process.env.HERDR_CHAT_CLAUDE_POLL_MS, 1_000);
 /** A model without its context suffix: `opus[1m]` → `opus`, `claude-opus-5-5[1m]` → `claude-opus-5-5`. */
 const withoutContext = (model: string) => model.replace(/\[[^\]]+\]$/, "");
+/** A supportedModels entry's name as the chip and picker show it: "Sonnet 5.5 (recommended)" → "Sonnet 5.5". */
+const displayName = (m: Rec) => String(m.displayName ?? m.value).replace(/\s*\(recommended\)\s*$/i, "");
+/** Claude Code's alias that runs Opus in plan mode and Sonnet otherwise (supportedModels may not list it). */
+const OPUSPLAN = "opusplan";
 
 type PendingAsk = { requestId: string; kind: "permission" | "plan" | "questions"; request: Rec };
 
@@ -193,26 +197,49 @@ export class ClaudeAdapter implements ProviderAdapter {
    * one (a project setting we don't read, a pinned id), init's wins.
    */
   private currentModel(): ModelInfo {
-    const want = this.modelValue ?? this.configuredModel ?? "default";
+    const want = this.wantedModel();
     const live = this.mapper.initModel;
     // An exact alias first; `opus[1m]` falls back to `opus` only when the list has no `opus[1m]`.
     let m = this.models.find((x) => x.value === want) ?? this.models.find((x) => x.value === withoutContext(want));
-    if (live && m?.value !== "opusplan" && m?.resolvedModel !== withoutContext(live) && m?.value !== live) {
+    // opusplan's turns report its Opus or Sonnet: that is still opusplan, any other model is a pin we didn't see.
+    const opusplan = want === OPUSPLAN && (!live || this.opusplanRuns(live));
+    if (live && !opusplan && m?.resolvedModel !== withoutContext(live) && m?.value !== live) {
       m = this.models.find((x) => x.value === live) ?? this.models.find((x) => x.resolvedModel === live && x.value !== "default");
     }
-    const id = m ? String(m.value) : live ?? want;
+    const id = opusplan ? OPUSPLAN : m ? String(m.value) : live ?? want;
     return {
-      provider: "anthropic", id, name: m ? this.modelName(m) : id,
+      provider: "anthropic", id, name: opusplan ? this.opusplanName(m) : m ? displayName(m) : id,
       reasoning: m ? m.supportsEffort === true : true, contextWindow: this.mapper.contextWindow, input: ["text", "image"],
     };
   }
 
-  /** `opusplan` switches model with the permission mode, so name the one in use and keep the alias as a tag. */
-  private modelName(m: Rec): string {
-    const name = String(m.displayName ?? m.value).replace(/\s*\(recommended\)\s*$/i, "");
-    if (m.value !== "opusplan") return name;
-    const target = this.models.find((x) => x.value === (this.mapper.permissionMode === "plan" ? "opus" : "sonnet"));
-    return target ? `${String(target.displayName ?? target.value)} · opusplan` : name;
+  /** The alias we launched with, else the one the user's config names, else "default". */
+  private wantedModel(): string {
+    return this.modelValue ?? this.configuredModel ?? "default";
+  }
+
+  /** opusplan's model for the permission mode: its Opus entry while planning, its Sonnet entry otherwise. */
+  private opusplanTarget(): Rec | undefined {
+    return this.models.find((x) => x.value === (this.mapper.permissionMode === "plan" ? "opus" : "sonnet"));
+  }
+
+  /** Whether init's model is one opusplan runs (the alias itself, or its Opus or Sonnet). */
+  private opusplanRuns(live: string): boolean {
+    const model = withoutContext(live);
+    return model === OPUSPLAN || this.models.some((x) => (x.value === "opus" || x.value === "sonnet") && (x.value === model || x.resolvedModel === model));
+  }
+
+  /** The model in use, with the alias as a tag: "Opus 5.5 · opusplan" while planning. */
+  private opusplanName(alias: Rec | undefined): string {
+    const target = this.opusplanTarget();
+    if (target) return `${displayName(target)} · ${OPUSPLAN}`;
+    return alias ? displayName(alias) : OPUSPLAN;
+  }
+
+  /** A permission-mode change, from the chat or the CLI: opusplan's model follows it. */
+  private emitPermissionMode(mode: string): void {
+    this.emit({ type: "permission_mode", mode });
+    if (this.wantedModel() === OPUSPLAN) this.emitModel();
   }
 
   private emitModel(): void {
@@ -332,8 +359,8 @@ export class ClaudeAdapter implements ProviderAdapter {
         else w.resolve();
       }
     }
-    this.emit(ev);
-    if (ev.type === "permission_mode" && this.currentModel().id === "opusplan") this.emitModel();
+    if (ev.type === "permission_mode") this.emitPermissionMode(ev.mode);
+    else this.emit(ev);
   }
 
   private onSystem(rec: Rec): void {
@@ -580,7 +607,7 @@ export class ClaudeAdapter implements ProviderAdapter {
       if (Array.isArray(r.models) && r.models.length) this.models = r.models;
     } catch {}
     return this.models.map((m) => ({
-      provider: "anthropic", id: String(m.value), name: String(m.displayName ?? m.value).replace(/\s*\(recommended\)\s*$/i, ""), reasoning: m.supportsEffort === true, enabled: true,
+      provider: "anthropic", id: String(m.value), name: displayName(m), reasoning: m.supportsEffort === true, enabled: true,
     }));
   }
 
@@ -652,8 +679,7 @@ export class ClaudeAdapter implements ProviderAdapter {
     const r: Rec = await this.require().control({ subtype: "set_permission_mode", mode }, 15_000);
     this.permissionMode = typeof r.mode === "string" ? r.mode : mode;
     this.mapper.permissionMode = this.permissionMode;
-    this.emit({ type: "permission_mode", mode: this.permissionMode });
-    if (this.currentModel().id === "opusplan") this.emitModel();
+    this.emitPermissionMode(this.permissionMode);
   }
 
   compact(instructions?: string): Promise<void> {

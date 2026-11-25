@@ -268,23 +268,71 @@ test("claude: a turn nobody sent (a background task wakes the agent) shows as an
   }
 });
 
-test("claude: opusplan names the model in use and follows the permission mode", async () => {
+const PLAN_TURN = { match: "plan", steps: [{ plan: "# Plan\n\n1. Fix it" }, { text: "Plan handled in {mode} mode." }] };
+
+test("claude: opusplan names the model in use and follows the permission mode, picked or left by approving a plan", async () => {
   const models = [
     { value: "opusplan", resolvedModel: "claude-sonnet-5-5", displayName: "Opus Plan Mode", supportsEffort: true },
     { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", supportsEffort: true },
-    { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5", supportsEffort: true },
+    { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5 (recommended)", supportsEffort: true },
   ];
-  const h = await startClaude({ name: "claude-opusplan", speed: 4, scenario: { models, default: [{ text: "ok" }] } });
+  const h = await startClaude({ name: "claude-opusplan", speed: 4, scenario: { models, turns: [PLAN_TURN], default: [{ text: "ok" }] } });
   try {
     const c = h.client;
     await c.waitFor((x) => idle(x) && x.state.model, 10_000);
     await c.req("set_model", { provider: "anthropic", modelId: "opusplan" });
     await c.waitFor((x) => x.state.model?.id === "opusplan", 2000);
     assert.equal(c.state.model.name, "Sonnet 5.5 · opusplan");
+    // A turn's init reports the model opusplan runs (claude-sonnet-5-5): still opusplan, not the sonnet entry.
+    await c.req("send", { text: "hello" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok"), 5000);
+    assert.deepEqual([c.state.model.id, c.state.model.name], ["opusplan", "Sonnet 5.5 · opusplan"]);
     await c.req("set_permission_mode", { mode: "plan" });
     await c.waitFor((x) => x.state.model?.name === "Opus 5.5 · opusplan", 2000, "opus while planning");
+    // Claude leaves plan itself once the plan is approved (its ExitPlanMode answer sets the mode).
+    await c.req("send", { text: "make a plan" });
+    await c.waitFor((x) => x.state.dialog?.method === "permission", 5000);
+    await c.req("dialog_answer", { dialog: c.state.dialog.id, choice: "approve" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Plan handled in default mode."), 5000);
+    await c.waitFor((x) => x.state.model?.name === "Sonnet 5.5 · opusplan", 2000, "sonnet once the plan is approved");
+    assert.equal(c.state.model.id, "opusplan");
+    h.artifact("claude-opusplan");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("claude: opusplan from the settings when Claude Code doesn't list it; a project pin still wins", async () => {
+  // Claude Code's own list (docs/dev/research/samples/claude/resume.jsonl): opus and sonnet, no opusplan entry.
+  const models = [
+    { value: "default", resolvedModel: "claude-opus-5-5", displayName: "Default (recommended)", supportsEffort: true },
+    { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus 5.5", supportsEffort: true },
+    { value: "sonnet", resolvedModel: "claude-sonnet-5-5", displayName: "Sonnet 5.5", supportsEffort: true },
+    { value: "haiku", resolvedModel: "claude-haiku-5-5", displayName: "Haiku 5.5", supportsEffort: true },
+  ];
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "pich-claude-opusplan-")));
+  mkdirSync(join(dir, "claude-config"), { recursive: true });
+  writeFileSync(join(dir, "claude-config", "settings.json"), JSON.stringify({ model: "opusplan" }));
+  const h = await startClaude({ name: "claude-opusplan-unlisted", speed: 4, dir, scenario: { models, default: [{ text: "model={model}" }] } });
+  try {
+    const c = h.client;
+    await c.waitFor((x) => idle(x) && x.state.model, 10_000);
+    assert.deepEqual([c.state.model.id, c.state.model.name], ["opusplan", "Sonnet 5.5 · opusplan"]);
+    await c.req("send", { text: "which?" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "model=opusplan"), 5000);
+    await c.req("set_permission_mode", { mode: "plan" });
+    await c.waitFor((x) => x.state.model?.name === "Opus 5.5 · opusplan", 2000, "opus while planning");
+    assert.equal(c.state.model.id, "opusplan");
     await c.req("set_permission_mode", { mode: "default" });
-    await c.waitFor((x) => x.state.model?.name === "Sonnet 5.5 · opusplan", 2000, "sonnet once out of plan");
+    // A project setting the chip can't see pins another model: init's model wins, as for any alias.
+    mkdirSync(join(h.cwd, ".claude"), { recursive: true });
+    writeFileSync(join(h.cwd, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_MODEL: "haiku" } }));
+    await c.req("send", { text: "/reload" });
+    await c.req("send", { text: "pinned?" });
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "model=haiku"), 10_000);
+    await c.waitFor((x) => x.state.model?.id === "haiku", 2000, "the pin wins");
+    assert.equal(c.state.model.name, "Haiku 5.5");
+    h.artifact("claude-opusplan-unlisted");
   } finally {
     await h.stop();
   }
