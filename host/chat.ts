@@ -1404,6 +1404,9 @@ export class Chat {
 
   async switchSession(path: string): Promise<void> {
     if (!path) throw new Error("switch_session needs `path`");
+    // Before anything stops (a run, the agent for a conflict, or a start in conflict): a refusal leaves the chat as it was.
+    const cant = this.adapter.cantResume?.(path);
+    if (cant) throw new Error(cant);
     if (this.state.phase === "conflict") {
       if (path !== this.state.sessionFile) this.replaceTimeline(this.newTimeline());
       this.start(path);
