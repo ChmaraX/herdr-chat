@@ -1558,7 +1558,8 @@ export default class HerdrChat extends View {
   // A file a tool touched, in an editor (files.js).
   openFile(path, line, cx) {
     const me = this.myPane();
-    const abs = /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path) ? path : `${this.cwd ?? this.store.state.cwd}/${path}`;
+    // Absolute: /…, or C:\… on Windows. A network path (\\server\…) is refused in openFile.
+    const abs = /^(\/|[A-Za-z]:[\\/])/.test(path) ? path : `${this.cwd ?? this.store.state.cwd}/${path}`;
     this.lastOpen = { path: abs, line, at: Date.now(), how: null };
     cx.spawn(async (cx) => {
       try {

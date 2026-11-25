@@ -51,6 +51,9 @@ async function editorArgv() {
 
 // {path (absolute), line, cwd, tab, space} → {how: "herdr-nvim" | "editor", terminal?}
 export async function openFile(o) {
+  // Windows: a network path (\\server\share, //server, \\?\UNC) makes Windows sign in to that server with the
+  // person's credentials (NTLM), and a tool's output names it: never opened.
+  if (PLATFORM.win && /^[\\/]{2}/.test(o.path ?? "")) throw new Error(`not opening a network path: ${o.path}`);
   const nvim = await herdrNvim();
   if (nvim && o.tab) {
     const args = ["open", "--tab", String(o.tab)];
@@ -59,7 +62,10 @@ export async function openFile(o) {
     const r = await exec(nvim, args, { cwd: o.cwd });
     if (r.code === 0) return { how: "herdr-nvim" };
   }
-  const ed = await editorArgv();
+  let ed = await editorArgv();
+  // Windows runs a .cmd/.bat through cmd.exe, which re-reads its arguments: a file name with cmd's metacharacters
+  // (it comes from a tool's output) goes to Notepad instead.
+  if (PLATFORM.win && /\.(cmd|bat)$/i.test(ed[0] ?? "") && /[&|^%<>!"]/.test(o.path ?? "")) ed = ["notepad.exe"];
   const argv = /(^|[\\/])(n?vim?|vi|hx|helix|kak|micro|nano|emacs)(\.exe)?$/i.test(ed[0]) ? [...ed, `+${o.line || 1}`, o.path] : [...ed, o.path];
   if (!o.space || !o.tab) throw new Error("no tab to open the editor in");
   const r = await hc(["run", "--bg", "--json", "--no-parent", "--cwd", o.cwd ?? "/", "--label", `herdr.space=${o.space}`,
