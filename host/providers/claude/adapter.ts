@@ -237,7 +237,7 @@ export class ClaudeAdapter implements ProviderAdapter {
   }
 
   /** A permission-mode change, from the chat or the CLI: opusplan's model follows it. */
-  private emitPermissionMode(mode: string): void {
+  private emitPermissionMode(mode: string | null): void {
     this.emit({ type: "permission_mode", mode });
     if (this.wantedModel() === OPUSPLAN) this.emitModel();
   }
