@@ -3,3 +3,4 @@
 // ImageMagick paths on any machine, with stand-in tools on PATH.
 export const OS = (process.env.HERDR_CHAT_PLATFORM || process.platform) as NodeJS.Platform;
 export const IS_MAC = OS === "darwin";
+export const IS_WIN = OS === "win32";

@@ -2,6 +2,9 @@
 // take it over (mod new-chat continueAsChat, via `herdr-chat-host tui-session`).
 // Each agent's module says how it finds it (providers/index.ts `tuiSession`).
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { splitCommandLine, winProcesses, type WinProc } from "../winproc.ts";
 
 /**
  * session: the file a chat resumes; model ("provider/id") and thinking: the
@@ -17,6 +20,7 @@ const PROCESS_LIMIT = 64;
 
 /** The process and its descendants (an agent's launcher may run the real one as a child). */
 export function processTree(pid: number): number[] {
+  if (process.platform === "win32") return winTree(pid);
   const out = [pid];
   for (let i = 0; i < out.length && out.length < PROCESS_LIMIT; i++) {
     try {
@@ -27,8 +31,9 @@ export function processTree(pid: number): number[] {
 }
 
 /** A program's name, for telling an agent's process: its path's last part, without a script's extension (`…/cli.js` → `cli`). */
-export const programName = (p: string) => p.replace(/^.*\//, "").replace(/\.[mc]?[jt]s$/, "");
-const basename = (p: string | undefined) => (p ?? "").replace(/^.*\//, "");
+// Windows: paths with backslashes and programs with .exe (`C:\…\claude.exe` → claude).
+export const programName = (p: string) => p.replace(/^.*[\\/]/, "").replace(/\.([mc]?[jt]s|exe|cmd)$/i, "");
+const basename = (p: string | undefined) => (p ?? "").replace(/^.*[\\/]/, "").replace(/\.(exe|cmd)$/i, "");
 
 /** A process as Herdr reports it (`hc get --json`: the terminal's own program, its foreground). */
 export type Launched = { pid: number; argv: string[] };
@@ -63,7 +68,37 @@ export type Proc = { pid: number; ppid: number; pgid: number; tpgid: number; pro
 /** Whether a process under the terminal's command runs the agent `command` (`pi`): its program, else an interpreter's script. */
 export function runsAgent(p: Proc, command: string): boolean {
   const program = programName(p.program);
-  return program === command || (INTERPRETERS.has(program) && programName(p.script) === command);
+  return program === command || (INTERPRETERS.has(program) && scriptRuns(p.script, command));
+}
+
+/**
+ * Whether an interpreter's script is the agent `command`: its name (`…/bin/pi`, a symlink npm made), or,
+ * on Windows, where npm's pi.cmd runs node on the package's own file (`…\node_modules\…\cli.js`), the
+ * package whose package.json names `command` among its bins.
+ */
+function scriptRuns(script: string, command: string): boolean {
+  if (programName(script) === command) return true;
+  return process.platform === "win32" && Boolean(script) && npmBins(script).includes(command);
+}
+
+const binsOf = new Map<string, string[]>();
+/** The bins (`"bin"` names) of the npm package a script belongs to: the nearest package.json above it, up to 4 folders. */
+function npmBins(script: string): string[] {
+  let dir = dirname(script);
+  for (let i = 0; i < 4; i++, dir = dirname(dir)) {
+    const cached = binsOf.get(dir);
+    if (cached) return cached;
+    const f = join(dir, "package.json");
+    if (!existsSync(f)) continue;
+    let bins: string[] = [];
+    try {
+      const pkg = JSON.parse(readFileSync(f, "utf8"));
+      bins = typeof pkg.bin === "string" ? [String(pkg.name ?? "").replace(/^.*\//, "")] : Object.keys(pkg.bin ?? {});
+    } catch {}
+    binsOf.set(dir, bins);
+    return bins;
+  }
+  return [];
 }
 
 /**
@@ -89,6 +124,8 @@ export function tuiProcess(o: { terminal: TerminalView; command: string; label: 
   const { terminal, command, label } = o;
   for (const p of [terminal.foreground, terminal.own]) {
     if (p && (basename(p.argv[0]) === command || basename(p.argv[1]) === command)) return { pid: p.pid, group: null };
+    // Windows: npm's agents run as `node …\node_modules\<package>\cli.js` (see scriptRuns).
+    if (p && process.platform === "win32" && INTERPRETERS.has(programName(p.argv[0] ?? "")) && p.argv[1] && scriptRuns(p.argv[1], command)) return { pid: p.pid, group: null };
   }
   const table = o.processes();
   const top = table.find((p) => p.pid === terminal.foreground.pid);
@@ -108,6 +145,9 @@ export function tuiProcess(o: { terminal: TerminalView; command: string; label: 
   const tree = new Set([agent.pid]);
   walk(kids, agent.pid, (c) => (tree.add(c.pid), true));
   const before = table.filter((p) => p.pgid === group && p.pid !== top.pid && !tree.has(p.pid)).map((p) => p.pid);
+  // Windows has no process groups (winTable gives every process group 0): no group to watch. The mod then
+  // asks Herdr's foreground whether the terminal is idle again, as for a TUI that is the foreground.
+  if (process.platform === "win32") return { pid: agent.pid, group: null };
   return { pid: agent.pid, group: { id: group, shell: top.pid, before } };
 }
 
@@ -165,6 +205,7 @@ function walk(kids: Map<number, Proc[]>, root: number, visit: (p: Proc) => boole
  * when `ps` fails, times out or prints more than 16 MB: never a half-read table.
  */
 export function processTable(): Proc[] {
+  if (process.platform === "win32") return winTable();
   const ps = (cols: string) => {
     try {
       return execFileSync("ps", ["-A", "-ww", "-o", cols], { encoding: "utf8", timeout: 5000, maxBuffer: 16 * 1024 * 1024 });
@@ -193,6 +234,13 @@ export function processTable(): Proc[] {
 
 /** When the process started (ms), or null. */
 export function processStart(pid: number): number | null {
+  if (process.platform === "win32") {
+    try {
+      return winProcesses(pid)[0]?.start ?? null;
+    } catch {
+      return null;
+    }
+  }
   try {
     const s = Number(execFileSync("ps", ["-o", "etime=", "-p", String(pid)], { encoding: "utf8", timeout: 3000 }).trim().replace(/^(\d+)-/, (_m, d) => `${d * 24}:`).split(":").reduce((a, x) => a * 60 + Number(x), 0));
     return Number.isFinite(s) ? Date.now() - s * 1000 : null;
@@ -203,10 +251,34 @@ export function processStart(pid: number): number | null {
 
 /** The files the processes have open (`lsof`), or []. */
 export function openFiles(pids: number[]): string[] {
+  if (process.platform === "win32") return []; // no lsof: the callers fall back (Codex: the folder's newest session)
   try {
     return execFileSync("lsof", ["-p", pids.join(","), "-Fn"], { encoding: "utf8", timeout: 5000 }).split("\n").filter((l) => l.startsWith("n")).map((l) => l.slice(1));
   } catch (e) {
     const out = (e as { stdout?: string }).stdout;
     return typeof out === "string" ? out.split("\n").filter((l) => l.startsWith("n")).map((l) => l.slice(1)) : [];
   }
+}
+
+// Windows: no process groups and no terminal foreground group, so every process gets
+// group 0, and "the terminal's foreground group" is the whole tree under its command.
+// program: the executable's path (its name when Windows hides the path); script: argv[1].
+function winTable(): Proc[] {
+  let procs: WinProc[];
+  try {
+    procs = winProcesses();
+  } catch (e) {
+    throw new Error(`can't read the process table (Win32_Process): ${e instanceof Error ? e.message.split("\n")[0] : String(e)}`);
+  }
+  return procs.map((p) => ({ pid: p.pid, ppid: p.ppid, pgid: 0, tpgid: 0, program: p.path || p.name, script: splitCommandLine(p.cmdline)[1] ?? "" }));
+}
+
+function winTree(pid: number): number[] {
+  let procs: WinProc[] = [];
+  try {
+    procs = winProcesses();
+  } catch {}
+  const out = [pid];
+  for (let i = 0; i < out.length && out.length < PROCESS_LIMIT; i++) for (const p of procs) if (p.ppid === out[i] && p.pid !== p.ppid && !out.includes(p.pid)) out.push(p.pid);
+  return out;
 }

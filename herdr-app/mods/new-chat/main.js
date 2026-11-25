@@ -27,8 +27,22 @@ import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, spaces, terminals, theme } from "herdr";
 import * as fs from "fs/promises";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { UpdateQuestion, checkHosts, checkRelease, checkRunning } from "./update.js";
+
+// `n` random hex digits (chat's util.js has the same: mods can't import each other). Buffer.toString("hex") comes back empty in the app's runtime on Windows (Herdr 0.1.18):
+// randomUUID there, else Math.random (ids, not secrets).
+function hexId(n) {
+  let s = "";
+  try {
+    s = randomBytes(Math.ceil(n / 2)).toString("hex");
+  } catch {}
+  if (s.length < n) try {
+    s = randomUUID().replace(/-/g, "");
+  } catch {}
+  while (s.length < n) s += Math.random().toString(16).slice(2);
+  return s.slice(0, n);
+}
 
 const CHOICES = [
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
@@ -46,7 +60,7 @@ async function openChat(provider) {
   const [what, machine] = f?.pane === null ? ["This terminal", machineOf(f.terminal)] : ["This space", space?.machine ?? null];
   if (machine) throw new Error(`${what} is on ${machine}: chats run on this computer only.`);
   const cwd = f?.cwd || space?.folder || null;
-  const chat = `c-${randomBytes(4).toString("hex")}`;
+  const chat = `c-${hexId(8)}`;
   run("tab.new", { name: provider, mod: "chat", props: { chat, provider, ...(cwd ? { cwd } : {}) } });
   await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
   await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
@@ -127,9 +141,14 @@ async function tuiSession(cfg, agent, info, cwd, label) {
   return JSON.parse(r.stdout);
 }
 
-const host = (cfg, args) => exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, ...args]);
+// Windows: the install names bin/herdr-chat-host.mjs, which node runs (no /usr/bin/env, no sh, no kill).
+const WIN = /\.mjs$/;
+const host = (cfg, args) => WIN.test(cfg.host)
+  ? exec(cfg.node || "node", [cfg.host, ...args])
+  : exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, ...args]);
 
-const alive = async (pid) => (await exec("kill", ["-0", String(pid)])).code === 0;
+const winPid = async (pid) => (await exec("tasklist", ["/FI", `PID eq ${pid}`, "/NH", "/FO", "CSV"])).stdout.includes(`"${pid}"`);
+const alive = async (pid, cfg) => (cfg && WIN.test(cfg.host)) ? winPid(pid) : (await exec("kill", ["-0", String(pid)])).code === 0;
 
 /**
  * Continue as chat (research subagent-chat.md §F): an agent's TUI becomes a
@@ -190,17 +209,20 @@ export async function continueInPlace(t, agent, cfg, cwd, found, cx) {
   const pane = panes().find((p) => p.terminal === t.address);
   if (!pane) throw new Error(`${t.address} has no pane in a tab`);
   const before = new Set(panes().map((p) => p.pane));
-  const chat = `c-${randomBytes(4).toString("hex")}`;
+  const chat = `c-${hexId(8)}`;
   run("pane.split", { direction: "right", pane: pane.pane, mod: "chat",
     props: { chat, provider: agent, session: found.session, afterPid: pid, cwd, ...(found.model ? { model: found.model } : {}), ...(found.thinking ? { thinking: found.thinking } : {}) } });
   let mine = null;
   for (let i = 0; i < 50 && !mine; i++) { mine = panes().find((p) => !before.has(p.pane) && p.mod === "chat" && p.tab === pane.tab); if (!mine) await cx.sleep(100); }
   if (!mine) throw new Error("the chat's pane didn't appear beside the TUI");
   run("pane.focus", { pane: mine.pane });
-  const k = await exec("kill", ["-TERM", String(pid)]);
-  if (k.code !== 0) throw new Error(`kill -TERM ${pid}: ${k.stderr.trim()}`);
-  for (let i = 0; i < 100 && (await alive(pid)); i++) await cx.sleep(100);
-  if (await alive(pid)) {
+  // Windows has no SIGTERM: taskkill /F ends it (the agents write their sessions as they go), /T with what it
+  // started (npm's codex: a node wrapper whose codex.exe child holds the console and the session).
+  const win = WIN.test(cfg.host);
+  const k = win ? await exec("taskkill", ["/F", "/T", "/PID", String(pid)]) : await exec("kill", ["-TERM", String(pid)]);
+  if (k.code !== 0) throw new Error(`${win ? "taskkill" : "kill -TERM"} ${pid}: ${(k.stderr || k.stdout).trim()}`);
+  for (let i = 0; i < 100 && (await alive(pid, cfg)); i++) await cx.sleep(100);
+  if (await alive(pid, cfg)) {
     toast({ title: "Continue as chat", body: `${NAMES[agent]} (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
     return mine.pane;
   }

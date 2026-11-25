@@ -32,8 +32,25 @@ function setTerminal(hc: string, address: string, state: "live" | "finished" | n
   else rmSync(f, { force: true });
 }
 
+/**
+ * The hand-off argv in the shape it has on macOS and Linux: Windows has no env program, so the host gives
+ * `node -e <script> K=V <program> …` there, with node before a script (pi/adapter.ts tuiCommand).
+ */
+function posixShape(argv: string[]): string[] {
+  if (process.platform !== "win32") return argv;
+  let a = argv;
+  let env: string[] = [];
+  if (a[0] === process.execPath && a[1] === "-e") {
+    env = ["env", a[3]!];
+    a = a.slice(4);
+  }
+  if (a[0] === process.execPath) a = a.slice(1);
+  return [...env, ...a];
+}
+
 /** Runs the hand-off argv (fake-pi standing in for Pi's TUI, `env K=V` prefix honoured) and drives it over RPC. */
-function runTui(h: Host, argv: string[], opts: { reportSession?: boolean } = {}): { proc: ChildProcess; send: (cmd: object) => void; settled: (n: number) => Promise<void> } {
+function runTui(h: Host, given: string[], opts: { reportSession?: boolean } = {}): { proc: ChildProcess; send: (cmd: object) => void; settled: (n: number) => Promise<void> } {
+  const argv = posixShape(given);
   const env: Record<string, string> = { ...(process.env as Record<string, string>), FAKE_PI_SPEED: "4" };
   delete env.HERDR_CHAT_HOST;
   let i = 0;
@@ -43,7 +60,10 @@ function runTui(h: Host, argv: string[], opts: { reportSession?: boolean } = {})
   }
   const [prog, ...args] = argv.slice(i);
   assert.equal(prog, FAKE_PI);
-  const proc = spawn(prog!, ["--mode", "rpc", ...args, "--session-dir", join(h.dir, "sessions")], { stdio: ["pipe", "pipe", "inherit"], env, cwd: h.cwd });
+  const tuiArgs = ["--mode", "rpc", ...args, "--session-dir", join(h.dir, "sessions")];
+  // Windows runs the script through node (a .mjs is no program there).
+  const proc = process.platform === "win32" ? spawn(process.execPath, [prog!, ...tuiArgs], { stdio: ["pipe", "pipe", "inherit"], env, cwd: h.cwd })
+    : spawn(prog!, tuiArgs, { stdio: ["pipe", "pipe", "inherit"], env, cwd: h.cwd });
   let out = "";
   proc.stdout!.on("data", (d) => (out += d));
   return {
@@ -73,7 +93,7 @@ test("hand-off: the TUI forks and exits; the host resumes by itself on the sessi
 
     const { argv } = await c.req("handoff");
     const report = join(h.stateDir, "handoff", "c-test.json");
-    assert.deepEqual(argv, ["env", `HERDR_CHAT_HANDOFF=${report}`, FAKE_PI, "--session", original]);
+    assert.deepEqual(posixShape(argv), ["env", `HERDR_CHAT_HANDOFF=${report}`, FAKE_PI, "--session", original]);
     assert.equal(c.state.phase, "handoff");
     assert.equal(readLock(original), null, "lock released for the TUI");
     assert.deepEqual({ ...c.state.handoff, since: typeof c.state.handoff.since }, { argv, terminal: null, since: "number" });

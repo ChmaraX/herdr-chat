@@ -54,20 +54,24 @@ https://github.com/user-attachments/assets/cefe4c53-19f6-4c3b-8188-f8480f4c2816
 - **Node 20** or later.
 - At least one agent on `PATH`, signed in: `pi` (1.5 or later), `claude` or
   `codex`.
-- macOS or Linux. On Linux, pasting an image needs `wl-paste`
+- macOS, Linux or Windows. On Linux, pasting an image needs `wl-paste`
   (wl-clipboard, Wayland) or `xclip` (X11), and large images are shrunk with
-  ImageMagick when it's installed (else sent as they are).
+  ImageMagick when it's installed (else sent as they are). On Windows, the
+  install runs in Git Bash ([Git for Windows](https://gitforwindows.org)), and
+  the clipboard, the process list and image shrinking go through the built-in
+  Windows PowerShell (ImageMagick's `magick` first, when installed). Agents
+  installed with npm (`claude.cmd`, `codex.cmd`, `pi.cmd`) work as they are.
 
 ## Install
 
-With the Herdr app open:
+With the Herdr app open (on Windows, in Git Bash):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ChmaraX/herdr-chat/main/install.sh | sh -s -- --app
 ```
 
 It downloads the release, checks it, adds its mods, binds ⌘I
-(Ctrl+Alt+Shift+P on Linux) to the launcher where it's free, and points the agents list and the right-click
+(Ctrl+Alt+Shift+P on Linux and Windows) to the launcher where it's free, and points the agents list and the right-click
 menu at the chat. No clone, no npm install. Or ask the agent in your Herdr
 window to "add the mod at github.com/ChmaraX/herdr-chat".
 
@@ -108,7 +112,7 @@ window to "add the mod at github.com/ChmaraX/herdr-chat".
 | ⇧⌘R | chat | Resume another session |
 | ⇧⌘N | chat | A new chat with the same agent, same folder |
 
-On Linux the chat's keys use Ctrl where macOS uses ⌘: [the Linux
+On Linux and Windows the chat's keys use Ctrl where macOS uses ⌘: [the Linux
 keys](herdr-app/mods/chat/KEYS.md).
 
 Change them, or bind a key per agent, in
@@ -143,8 +147,13 @@ another URL with GitHub's release JSON.
 
 - **This computer only.** Chats run on this computer only: in another machine's space,
   New chat and Continue as chat say so.
-- **The end-to-end tests drive macOS only** (`tests/e2e/`); on Linux the
-  host's tests run, and the mods were tried by hand.
+- **The end-to-end tests drive macOS only** (`tests/e2e/`); on Linux and
+  Windows the host's tests run, and the mods were tried by hand.
+- **Windows:** a chat's tab has two panes (the chat and its hidden host), so a
+  layout that frames focused panes only in a split draws that frame around the
+  chat. Continue as chat stops the TUI with `taskkill` (Windows has no SIGTERM):
+  the agents keep their sessions as they go, so nothing is lost, but a TUI gets
+  no chance to say goodbye.
 - **Run the install again after a Herdr update.** The agents list and the
   right-click menu are copies of Herdr's, made at install time.
 - **Continue as chat on Codex guesses the session** when Codex runs on its

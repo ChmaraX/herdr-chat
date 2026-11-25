@@ -189,8 +189,8 @@ test("shutdown: bye, registry cleared, the Pi process group gone, the host exits
   const h = await startHost({ name: "shutdown", speed: 4 });
   const c = h.client;
   await c.waitFor(idle, 10_000);
-  const { execSync } = await import("node:child_process");
-  const children = execSync(`pgrep -P ${h.proc.pid}`).toString().trim().split("\n").map(Number);
+  const { processTree } = await import("../../host/providers/tui.ts");
+  const children = processTree(h.proc.pid!).slice(1);
   assert.ok(children.length >= 1);
   const file = c.state.sessionFile;
   await c.req("shutdown");

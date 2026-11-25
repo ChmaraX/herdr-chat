@@ -29,7 +29,6 @@ import { View, div } from "gpui-kit";
 import { fps_monitor } from "gpui-fps";
 import { v_flex, h_flex, Popup } from "gpui-base";
 import { agents, appHome, closeOverlay, focused, hc, home, nextCommand, notify, openOverlay, panes, props, run, settings, setShared, shared, spaces, terminals, theme, updates, window as appWindow } from "herdr";
-import { randomBytes } from "crypto";
 import { modPanes, readDoc } from "./place.js";
 import { getDoc, hideHost, locate } from "./hostpane.js";
 import { SHORTCUTS, actionName, chordOf, errors as keyErrors, keyHint, loadShortcuts, shortcuts, withKey } from "./shortcuts.js";
@@ -50,7 +49,7 @@ import { Updater, quiet } from "./update.js";
 import { CodeView, owners } from "./codeview.js";
 import { Viewer, readSvgSize } from "./viewer.js";
 import { TermBar } from "./termbar.js";
-import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, skillsOf, uiScale, spinner, tildePath, typedText, unwrapHc } from "./util.js";
+import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, baseName, hexId, homeRel, icon, message, monoFont, plural, relTime, spansText, skillsOf, uiScale, spinner, tildePath, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
@@ -1190,7 +1189,7 @@ export default class HerdrChat extends View {
   newChat(cx, { cwd = this.cwd, session = null } = {}) {
     const place = this.findPlace();
     const provider = this.providerId();
-    const chat = `c-${randomBytes(4).toString("hex")}`;
+    const chat = `c-${hexId(8)}`;
     const hostEnv = props()?.hostEnv; // (E2E: the fake agent's scenario)
     this.lastNewChat = chat;
     run("tab.new", { name: provider, ...(place?.space ? { space: place.space } : {}), mod: MOD,
@@ -1274,7 +1273,7 @@ export default class HerdrChat extends View {
     let seq = 0;
     const row = (s, scope, now) => ({
       value: s.path, s, current: s.path === this.store.state.sessionFile,
-      label: oneLine(s.name || s.firstMessage) || s.path.split("/").pop(),
+      label: oneLine(s.name || s.firstMessage) || baseName(s.path),
       meta: [scope === "all" && s.cwd ? tildePath(s.cwd, this.homeDir) : null, s.messageCount == null ? null : plural(s.messageCount, "message"), relTime(s.modified, now)]
         .filter(Boolean).join(" · "),
     });
@@ -1559,7 +1558,7 @@ export default class HerdrChat extends View {
   // A file a tool touched, in an editor (files.js).
   openFile(path, line, cx) {
     const me = this.myPane();
-    const abs = path.startsWith("/") ? path : `${this.cwd ?? this.store.state.cwd}/${path}`;
+    const abs = /^(\/|[A-Za-z]:[\\/]|\\\\)/.test(path) ? path : `${this.cwd ?? this.store.state.cwd}/${path}`;
     this.lastOpen = { path: abs, line, at: Date.now(), how: null };
     cx.spawn(async (cx) => {
       try {

@@ -183,7 +183,7 @@ test("claude: a crash mid-run shows the error; the next message restarts the CLI
     const starts = h.inputs().filter((r) => r.type === "_start");
     assert.equal(starts.length, 2);
     assert.ok(starts[1].argv.includes("--resume"), "resumed the same session");
-    assert.equal(starts[1].argv[starts[1].argv.indexOf("--resume") + 1], file.replace(/^.*\//, "").replace(/\.jsonl$/, ""));
+    assert.equal(starts[1].argv[starts[1].argv.indexOf("--resume") + 1], file.replace(/^.*[\\/]/, "").replace(/\.jsonl$/, ""));
     assert.ok(c.items.some((i) => i.text === "First answer."), "the history came back from the transcript");
     h.artifact("claude-crash");
   } finally {

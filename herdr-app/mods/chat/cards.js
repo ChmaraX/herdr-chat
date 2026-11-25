@@ -11,7 +11,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
-import { absTime, alpha, count, duration, fileChip, icon, money, plural, relTime, shortPath, skillsOf, spinner, thumbnail, typedText, unwrapHc } from "./util.js";
+import { absTime, alpha, baseName, count, duration, fileChip, icon, money, plural, relTime, shortPath, skillsOf, spinner, thumbnail, typedText, unwrapHc } from "./util.js";
 import { blocks, copyButton, diffView, outputBox, prose, textDiff } from "./rich.js";
 import { cardLive, defaultOpen, groupCards, groupSummary } from "./rows.js";
 import { SPACE } from "./space.js";
@@ -68,7 +68,7 @@ function images(paths, sizes, owner, c) {
     const k = size && Math.min(1, maxW / size.w, 320 / size.h);
     const [w, h] = (size ? [size.w * k, size.h * k] : [maxW, (maxW * 10) / 16]).map((v) => Math.max(1, Math.round(v)));
     return thumbnail(`img-${owner}-${i}`, { path, size }, w, h, c)
-      ?? fileChip(`img-${owner}-${i}`, path.split("/").pop(), c.t).cursor_pointer().on_click((_e, cx) => c.enlarge(path, size, cx));
+      ?? fileChip(`img-${owner}-${i}`, baseName(path), c.t).cursor_pointer().on_click((_e, cx) => c.enlarge(path, size, cx));
   }));
 }
 
@@ -149,7 +149,7 @@ function skillPill(it, s, i, c) {
   const t = c.t;
   const key = skillKey(it, i);
   const open = c.expanded.has(key);
-  const tip = [s.path ? s.path.replace(/^\/Users\/[^/]+/, "~") : `/${s.command}`, s.body ? (open ? "click to hide it" : "click to read it") : null].filter(Boolean).join(" · ");
+  const tip = [s.path ? s.path.replace(/^(\/Users\/[^/]+|[A-Za-z]:[\\/]Users[\\/][^\\/]+)/, "~") : `/${s.command}`, s.body ? (open ? "click to hide it" : "click to read it") : null].filter(Boolean).join(" · ");
   return h_flex().id(`skill-pill-${it.id}-${i}`).flex_none().h(22).px(7).gap(5).items_center().rounded(6)
     .bg(alpha(t.accent, 0.14)).text_color(t.accent).text_size(12).font_medium().tooltip(tip)
     .when(Boolean(s.body), (e) => e.cursor_pointer().hover((x) => x.bg(alpha(t.accent, 0.22))).on_click((_e, cx) => c.toggle(key, cx)))

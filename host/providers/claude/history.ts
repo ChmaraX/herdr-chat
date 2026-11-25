@@ -4,7 +4,7 @@
 // compaction boundaries continue through logicalParentUuid, so what came
 // before a compaction stays visible (with a compaction notice), as live.
 import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { basename, join, dirname } from "node:path";
 import { readTranscript, promptText } from "./sessions.ts";
 import { imagesOf, textOf, toolEnded, usageOf } from "./mapper.ts";
 import type { NormalizedEvent, AssistantBlock, StopReason } from "../types.ts";
@@ -160,7 +160,7 @@ function emitRecords(records: Rec[], ctx: Ctx, parent?: string): void {
 export function historyEvents(path: string, upTo?: string): NormalizedEvent[] {
   const records = readTranscript(path);
   if (!records.length) return [];
-  const ctx: Ctx = { names: new Map(), out: [], sessionDir: join(dirname(path), path.replace(/^.*\//, "").replace(/\.jsonl$/, "")) };
+  const ctx: Ctx = { names: new Map(), out: [], sessionDir: join(dirname(path), basename(path).replace(/\.jsonl$/, "")) };
   emitRecords(activeBranch(records, upTo), ctx);
   return ctx.out;
 }

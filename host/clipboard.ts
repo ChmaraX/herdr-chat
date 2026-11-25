@@ -5,7 +5,8 @@ import { join, extname } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 import { imageSize } from "./imagesize.ts";
-import { IS_MAC, OS } from "./platform.ts";
+import { IS_MAC, IS_WIN, OS } from "./platform.ts";
+import { winClipboardImage, winShrinkImage } from "./winproc.ts";
 
 /**
  * Saves the clipboard's image as `path` (its folder must exist): `path`, or null when it holds none.
@@ -13,6 +14,7 @@ import { IS_MAC, OS } from "./platform.ts";
  */
 export function clipboardImage(path: string): Promise<string | null> {
   if (OS === "linux") return linuxClipboardImage(path);
+  if (IS_WIN) return winClipboardImage(path).then((ok) => (ok && existsSync(path) && statSync(path).size > 0 ? path : null));
   if (!IS_MAC) return Promise.resolve(null);
   const script = [
     "set png to (the clipboard as «class PNGf»)",
@@ -93,10 +95,14 @@ function run(cmd: string, args: string[]): Promise<string | null> {
   });
 }
 
-/** How to shrink `file` in place to a MAX_EDGE longest edge, in the order to try: `sips` on macOS; ImageMagick elsewhere, when installed. */
+/**
+ * How to shrink `file` in place to a MAX_EDGE longest edge, in the order to try: `sips` on macOS; ImageMagick elsewhere,
+ * when installed. Windows: only `magick` (its convert.exe is the system's FAT-to-NTFS tool), then System.Drawing.
+ */
 function shrinkCommands(file: string): { cmd: string; args: string[] }[] {
   if (IS_MAC) return [{ cmd: "sips", args: ["-Z", String(MAX_EDGE), file] }];
   const args = [file, "-resize", `${MAX_EDGE}x${MAX_EDGE}>`, file];
+  if (IS_WIN) return [{ cmd: "magick", args }];
   return [{ cmd: "magick", args }, { cmd: "convert", args }];
 }
 
@@ -106,7 +112,6 @@ function shrinkCommands(file: string): { cmd: string; args: string[] }[] {
  * or when no tool can do it.
  */
 export async function downscale(path: string, bytes: Buffer, mime: string): Promise<Buffer> {
-  if (OS === "win32") return bytes;
   const dim = imageSize(bytes);
   if (!dim || Math.max(dim.w, dim.h) <= MAX_EDGE) return bytes;
   const dir = join(tmpdir(), "herdr-chat-images");
@@ -116,6 +121,7 @@ export async function downscale(path: string, bytes: Buffer, mime: string): Prom
     writeFileSync(tmp, bytes);
     let shrunk = false;
     for (const { cmd, args } of shrinkCommands(tmp)) if ((shrunk = (await run(cmd, args)) !== null)) break;
+    if (!shrunk && IS_WIN) shrunk = await winShrinkImage(tmp, MAX_EDGE);
     if (!shrunk) return bytes;
     const out = readFileSync(tmp);
     return out.length && sniff(out) === mime ? out : bytes;

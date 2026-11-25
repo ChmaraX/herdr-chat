@@ -4,6 +4,7 @@
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
+import { resolveCommand, splitCommandLine, winProcessesAsync } from "./winproc.ts";
 import { randomUUID } from "node:crypto";
 import { Timeline, toWire } from "./timeline.ts";
 import type { Item, WireItem, UserSource, ImageBlock, ToolDetail, NoticeItem, Plan } from "./timeline.ts";
@@ -1567,7 +1568,8 @@ export class Chat {
   /** `hc get <terminal>`: "live", "gone" (finished or no such terminal), or "unknown" (hc failed). */
   private tuiTerminal(address: string): Promise<"live" | "gone" | "unknown"> {
     return new Promise((resolve) => {
-      execFile(this.opts.hcCommand ?? "hc", ["get", address, "--json"], { timeout: 5000 }, (err, stdout, stderr) => {
+      const hc = resolveCommand(this.opts.hcCommand ?? "hc", ["get", address, "--json"]);
+      execFile(hc.command, hc.args, { timeout: 5000 }, (err, stdout, stderr) => {
         for (const text of [stdout, stderr]) {
           let r: Rec;
           try {
@@ -1598,12 +1600,27 @@ export class Chat {
   /** A process whose argv names the TUI's session (its last argument) and the agent's program. */
   private processHolder(argv: string[]): Promise<number | null> {
     const token = argv.at(-1);
+    const base = (p: string) => p.replace(/^.*[\\/]/, "").replace(/\.([mc]?[jt]s|exe|cmd)$/i, "");
     let i = 0;
     if (argv[0] === "env") for (i = 1; argv[i]?.includes("="); i++);
+    // Windows: `node -e <script> K=V <program> …` (Pi's TUI with its env: pi/adapter.ts tuiCommand), and node before a script.
+    if (base(argv[i] ?? "") === "node" && argv[i + 1] === "-e") i += 4;
+    if (base(argv[i] ?? "") === "node" && argv[i + 1]) i++;
     const program = argv[i];
     if (!token || !program) return Promise.resolve(null);
-    const base = (p: string) => p.replace(/^.*\//, "").replace(/\.[mc]?[jt]s$/, "");
     const names = new Set(["pi", "claude", "codex", base(program)]);
+    if (process.platform === "win32") {
+      // Windows: Win32_Process's command lines, split as Windows does, in place of ps's.
+      return winProcessesAsync().then((procs) => {
+        for (const p of procs) {
+          const args = splitCommandLine(p.cmdline);
+          if (p.pid === process.pid || !args.includes(token)) continue;
+          if (args.some((a) => /herdr-chat-host(\.mjs)?$|host[\\/]main\.[jt]s$/.test(a))) continue; // a chat host, not a TUI
+          if (args.slice(0, 3).some((a) => names.has(base(a)))) return p.pid;
+        }
+        return null;
+      }, () => null);
+    }
     return new Promise((resolve) => {
       execFile("ps", ["-Ao", "pid=,args="], { timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
         if (err) return resolve(null);

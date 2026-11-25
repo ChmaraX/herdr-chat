@@ -766,13 +766,16 @@ async function handle(msg) {
 function replayLines(file) {
   const raw = readFileSync(file, "utf8").split("\n").filter(Boolean);
   const out = [];
-  const home = HOME.replace(/\/$/, "");
+  // Into JSON text: escaped as JSON strings are (a Windows path's backslashes).
+  const esc = (p) => JSON.stringify(p).slice(1, -1);
+  const home = esc(HOME.replace(/[\\/]$/, ""));
+  const cwd = esc(CWD);
   for (const l of raw) {
     const fixed = l
       .replaceAll('"~/.codex', `"${home}`)
-      .replaceAll("/private/tmp/codex-probe/work", CWD)
-      .replaceAll("/tmp/codex-probe/work", CWD)
-      .replaceAll("/tmp/codex-fixture", CWD);
+      .replaceAll("/private/tmp/codex-probe/work", cwd)
+      .replaceAll("/tmp/codex-probe/work", cwd)
+      .replaceAll("/tmp/codex-fixture", cwd);
     const r = JSON.parse(fixed);
     if (r.dir === "note" || r.dir === "mark") continue;
     out.push(r);

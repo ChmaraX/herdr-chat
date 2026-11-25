@@ -35,9 +35,13 @@ writeFileSync(leaver, `process.title = "pi"; const k = require("node:child_proce
 // No title: found by its program's name or its script's.
 const idle = join(d, "pi.cjs");
 writeFileSync(idle, `${record} setInterval(() => {}, 1000);\n`);
+// Windows: no process groups or job control to test, and symlinks need admin rights (tests skipped below).
+const POSIX_ONLY = process.platform === "win32" && "POSIX only: process groups, job control and symlinked programs";
 mkdirSync(join(d, "My Tools"));
-symlinkSync(HOST_NODE, join(d, "My Tools", "pi"));
-symlinkSync(HOST_NODE, join(d, "less"));
+if (!POSIX_ONLY) {
+  symlinkSync(HOST_NODE, join(d, "My Tools", "pi"));
+  symlinkSync(HOST_NODE, join(d, "less"));
+}
 
 const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 const node = q(HOST_NODE);
@@ -88,7 +92,7 @@ const gone = async (pid: number) => {
 };
 const comm = (pid: number) => spawnSync("ps", ["-o", "comm=", "-p", String(pid)], { encoding: "utf8" }).stdout.trim();
 
-test("tui-session --terminal: the agent its terminal's command started, in the terminal's foreground group only", async (t) => {
+test("tui-session --terminal: the agent its terminal's command started, in the terminal's foreground group only", { skip: POSIX_ONLY }, async (t) => {
   t.after(cleanup);
 
   // viewer: a Pi with its title, two levels down (sh → sh → pi), and a viewer naming a pi.cjs beside it.
@@ -134,7 +138,7 @@ test("tui-session --terminal: the agent its terminal's command started, in the t
   assert.match(r.error ?? "", /no Pi process in the terminal \(its foreground, 999999, is gone\)/);
 });
 
-test("tui-busy: once the agent is gone, what its terminal's command went on to run, not the shell's helpers or the agent's leftovers", async (t) => {
+test("tui-busy: once the agent is gone, what its terminal's command went on to run, not the shell's helpers or the agent's leftovers", { skip: POSIX_ONLY }, async (t) => {
   t.after(cleanup);
   const stop = async (name: string, script: string, count = 1) => {
     const fg = await terminal(script, count);

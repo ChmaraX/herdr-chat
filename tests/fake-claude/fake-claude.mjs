@@ -182,7 +182,13 @@ function textOf(content) {
   return typeof content === "string" ? content : Array.isArray(content) ? content.filter((b) => b.type === "text").map((b) => b.text).join("\n") : "";
 }
 const fill = (s, ctx) => String(s).replace(/\{prompt\}/g, ctx.prompt).replace(/\{steers\}/g, ctx.steered.join(" / ")).replace(/\{model\}/g, model).replace(/\{effort\}/g, effort ?? "default").replace(/\{mode\}/g, permissionMode).replace(/\{cwd\}/g, realCwd);
-const fillDeep = (v, ctx) => JSON.parse(fill(JSON.stringify(v ?? {}), ctx));
+// Each string filled where it is, not the JSON text: a Windows cwd's backslashes would break the JSON.
+const fillDeep = (v, ctx) => {
+  if (typeof v === "string") return fill(v, ctx);
+  if (Array.isArray(v)) return v.map((x) => fillDeep(x, ctx));
+  if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fillDeep(x, ctx)]));
+  return v ?? {};
+};
 
 function openMessage() {
   if (current) return current;

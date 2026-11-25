@@ -17,7 +17,7 @@ from the agents list.
 Don't copy the folders. The chat needs its host (a Node program, shipped
 built in the release), a config that points at it, edits to the person's
 layout and keys, and the `hc` templates, and copying does none of that.
-With the app open, run its installer:
+With the app open, run its installer (on Windows, in Git Bash):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ChmaraX/herdr-chat/main/install.sh | sh -s -- --app
@@ -27,8 +27,9 @@ Tell the person first what it does:
 
 - downloads the release (`herdr-chat-<version>.tar.gz`) from GitHub,
   checks it against the release's `SHA256SUMS`, and unpacks it to
-  `~/.local/share/herdr-chat/<version>`, with a `current` link to it;
-- needs macOS, Herdr 0.1.12 or later with `hc` on `PATH`, Node 20 or
+  `~/.local/share/herdr-chat/<version>`, with a `current` link to it (a
+  directory junction on Windows);
+- needs macOS, Linux or Windows (with Git Bash), Herdr 0.1.12 or later with `hc` on `PATH`, Node 20 or
   later, and at least one agent on `PATH`: `pi`, `claude` or `codex`. A
   Herdr newer than the tested 0.1.14 gets a warning; an older one than
   0.1.12 is refused;
@@ -37,7 +38,8 @@ Tell the person first what it does:
   right-click menu becomes `chat-menu`, and an empty `new-chat` block floats
   in it. A slot another plugin holds is left to that plugin, and the install
   says what that costs;
-- binds ⌘I to the launcher (⌘J A when ⌘I is taken). It never replaces a key
+- binds ⌘I to the launcher (⌘J A when ⌘I is taken; Ctrl+Alt+Shift+P on
+  Linux and Windows). It never replaces a key
   of the person's unless they asked for that key;
 - writes the `hc` templates `pi-chat`, `claude-chat` and `codex-chat`, and a
   short marked note in each installed agent's instruction file
@@ -138,7 +140,7 @@ install changed, and removes the unpacked release.
 - Some screens exist only in the TUIs (Pi extension panels, Claude Code's
   and Codex's `/mcp` and `/permissions`): `/tui`.
 - Chats run on this computer only: New chat and Continue as chat refuse another machine's space or agent.
-- macOS only.
+- macOS, Linux and Windows (Windows: the install runs in Git Bash).
 
 ## Done when
 

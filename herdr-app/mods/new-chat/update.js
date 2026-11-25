@@ -140,6 +140,10 @@ export async function checkRelease({ now = false } = {}) {
  * part of the command text.
  */
 function updateArgv(cfg, version) {
+  // Windows: the install's Git Bash (config.json "shell"), no /usr/bin/env, as a login shell: Git's /etc/profile
+  // puts its tools (sh, cygpath, sha256sum…) on PATH, which a default Git for Windows leaves out of the user's.
+  // The app home is an argument too, never part of the command text.
+  if (cfg.shell) return [cfg.shell, "-lc", `export HERDR_APP_HOME="$2"; ${cfg.update} --version "$1"`, "sh", version, appHome()];
   const dirs = [cfg.node, cfg.hc, cfg.pi, cfg.claude, cfg.codex].filter((p) => typeof p === "string" && p.includes("/")).map((p) => p.slice(0, p.lastIndexOf("/")));
   const path = [...new Set([...dirs, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":");
   return ["/usr/bin/env", `PATH=${path}`, `HERDR_APP_HOME=${appHome()}`, "sh", "-c", `${cfg.update} --version "$1"`, "sh", version];

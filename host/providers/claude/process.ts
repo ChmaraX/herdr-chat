@@ -4,6 +4,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { LineFramer } from "../../framing.ts";
+import { resolveCommand, winKillTree } from "../../winproc.ts";
 import type { Oversized } from "../../framing.ts";
 import { AgentError } from "../types.ts";
 
@@ -27,7 +28,8 @@ export class ClaudeProcess {
   onBadLine: (line: string) => void = () => {};
 
   constructor(opts: { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }) {
-    this.child = spawn(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });
+    const run = resolveCommand(opts.command, opts.args); // Windows: npm's .cmd shims, scripts
+    this.child = spawn(run.command, run.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });
     this.pid = this.child.pid;
     const framer = new LineFramer();
     framer.onLine = (line) => this.route(line);
@@ -145,7 +147,9 @@ export class ClaudeProcess {
   private signal(sig: NodeJS.Signals): void {
     if (this.pid === undefined) return;
     try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, sig);
+      // Windows: no process groups, and a signal there ends only the one process: the tree goes (taskkill /T).
+      if (process.platform === "win32") return winKillTree(this.pid);
+      process.kill(-this.pid, sig);
     } catch {}
   }
 

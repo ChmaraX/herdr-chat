@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import type { Args } from "./args.ts";
 import { DEFAULT_PROVIDER, providerNames } from "./providers/index.ts";
 import type { ChatConfig } from "./settings.ts";
+import { resolveCommand } from "./winproc.ts";
 
 export type SubagentPlan = {
   chat: string;
@@ -77,7 +78,8 @@ export function planSubagent(o: { args: Args; env: NodeJS.ProcessEnv; cwd: strin
 export function labelSelf(plan: SubagentPlan): string | null {
   if (!plan.terminal) return "not in a herdr-core terminal (no HC_TERMINAL_ID): no labels, the agents list shows its TUI peek";
   try {
-    execFileSync(plan.hc, ["label", plan.terminal, ...plan.labels], { timeout: 5000, stdio: ["ignore", "ignore", "pipe"] });
+    const hc = resolveCommand(plan.hc, ["label", plan.terminal, ...plan.labels]); // Windows: a script or .cmd as node runs it
+    execFileSync(hc.command, hc.args, { timeout: 5000, stdio: ["ignore", "ignore", "pipe"] });
     return null;
   } catch (e) {
     const err = e as { stderr?: Buffer; message?: string };

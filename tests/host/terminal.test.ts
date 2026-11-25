@@ -102,7 +102,7 @@ test("auth: wrong token, no hello and junk are closed without a reply", async ()
     // The registry is private.
     const { statSync } = await import("node:fs");
     const { registryPath } = await import("../../host/registry.ts");
-    assert.equal(statSync(registryPath(h.stateDir, h.chat)).mode & 0o777, 0o600);
+    if (process.platform !== "win32") assert.equal(statSync(registryPath(h.stateDir, h.chat)).mode & 0o777, 0o600); // Windows has no POSIX modes
   } finally {
     await h.stop();
   }

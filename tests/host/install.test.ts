@@ -295,7 +295,7 @@ test("sub-agents note: uninstall touches only the current agents' files, never a
 
 // --- install.sh on a scratch home --------------------------------------------------------
 const has = (c: string) => spawnSync("sh", ["-c", `command -v ${c}`]).status === 0;
-test("install.sh: --no-subagents writes no templates and no notes; a plain install adds both; --uninstall gives back every file as it was", { skip: !(has("hc") && has("herdr-app")) && "needs hc and herdr-app" }, () => {
+test("install.sh: --no-subagents writes no templates and no notes; a plain install adds both; --uninstall gives back every file as it was", { skip: (process.platform === "win32" && "its fake herdr-app and agents are sh scripts, which Windows doesn't run (install.sh itself runs in Git Bash there)") || (!(has("hc") && has("herdr-app")) && "needs hc and herdr-app") }, () => {
   const d = mkdtempSync(join(tmpdir(), "herdr-chat-installsh-"));
   const app = join(d, "app");
   mkdirSync(join(app, "layouts"), { recursive: true });
@@ -425,7 +425,7 @@ function compat(app: string | null, core: string | null) {
   return { status: r.status, out: r.stdout + r.stderr };
 }
 
-test("version: the tested versions install quietly; a newer Herdr warns in one line and installs; an older one than the minimum is refused with the reason", () => {
+test("version: the tested versions install quietly; a newer Herdr warns in one line and installs; an older one than the minimum is refused with the reason", { skip: process.platform === "win32" && "its fake herdr-app and agents are sh scripts, which Windows doesn't run (install.sh itself runs in Git Bash there)" }, () => {
   assert.deepEqual(compat(TESTED.tested.app, TESTED.tested.core), { status: 0, out: "" });
   const newer = compat("9.0.0", TESTED.tested.core);
   assert.equal(newer.status, 0);
@@ -447,7 +447,7 @@ test("version: a Herdr that won't say its version is a warning, not a refusal", 
   assert.match(r.out, /can't tell herdr-core's version/);
 });
 
-test("symlinks: a keys.json and a layout kept in dotfiles stay links (chained, relative, dangling); the edits and their undo land in the dotfiles copies; no temporary file is left", () => {
+test("symlinks: a keys.json and a layout kept in dotfiles stay links (chained, relative, dangling); the edits and their undo land in the dotfiles copies; no temporary file is left", { skip: process.platform === "win32" && "symlinks need admin rights on Windows" }, () => {
   const d = mkdtempSync(join(tmpdir(), "herdr-chat-symlink-"));
   const dot = join(d, "dotfiles");
   const home = keysHome();

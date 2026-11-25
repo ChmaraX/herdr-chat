@@ -7,6 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { ROOT, sleep } from "./harness.ts";
 
@@ -18,7 +19,7 @@ async function load(env: Record<string, string | undefined>) {
   Object.assign(process.env, env);
   for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k];
   const handlers: Record<string, (event: unknown, ctx: unknown) => unknown> = {};
-  const mod = await import(EXT);
+  const mod = await import(pathToFileURL(EXT).href); // a file URL: Windows paths are no import specifiers
   mod.default({ on: (name: string, fn: (event: unknown, ctx: unknown) => unknown) => (handlers[name] = fn) });
   const start = (file: string) => handlers.session_start?.({ reason: "startup" }, { hasUI: false, sessionManager: { getSessionFile: () => file } });
   return { handlers, start, restore: () => { process.env = saved; } };

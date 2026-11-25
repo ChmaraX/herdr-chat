@@ -73,7 +73,7 @@ test("rich content: blocks mid-stream and done, highlighting, mermaid SVG, ANSI 
 
     // Mermaid: a themed SVG file a native renderer can draw.
     svgPath = mermaid.svg;
-    assert.match(svgPath, new RegExp(`^${h.stateDir}/images/c-test/mermaid-[0-9a-f]{16}\\.svg$`));
+    assert.match(svgPath.replace(/\\/g, "/"), new RegExp(`^${h.stateDir.replace(/\\/g, "/").replace(/[.*+?^${}()|[\]]/g, "\\$&")}/images/c-test/mermaid-[0-9a-f]{16}\\.svg$`));
     const svg = readFileSync(svgPath, "utf8");
     assert.ok(wellFormed(svg), "the SVG is well-formed");
     assert.match(svg, /^<svg [^>]*viewBox="[\d. ]+"/);

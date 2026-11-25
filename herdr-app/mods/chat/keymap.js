@@ -19,6 +19,7 @@ import { appHome, exec, watchFolder } from "herdr";
 import { bindComposerKeys } from "./composer.js";
 import { bindCodeKeys } from "./codeview.js";
 import { bindShortcuts } from "./shortcuts.js";
+import { PLATFORM } from "./platform.js";
 
 const AFTER_WRITE = [300, 1500]; // ms after the last write to keys.json: the installs
 const RETRY = 5000; // ms before watching again after a watch failed
@@ -43,6 +44,7 @@ function written(cx) {
 // Resolved: /tmp is /private/tmp on macOS, and ~/.config may be a link.
 async function resolvedHome() {
   const dir = appHome().replace(/\/+$/, "");
+  if (PLATFORM.win) return dir; // no /bin/pwd; Windows paths have no /private/tmp to resolve
   const r = await exec("/bin/pwd", ["-P"], { cwd: dir }).catch(() => null);
   return r?.code === 0 && r.stdout.trim() ? r.stdout.trim() : dir;
 }

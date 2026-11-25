@@ -4,6 +4,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { LineFramer } from "../../framing.ts";
+import { resolveCommand, winKillTree } from "../../winproc.ts";
 import type { Oversized } from "../../framing.ts";
 import { AgentError } from "../types.ts";
 
@@ -51,7 +52,8 @@ export class CodexProcess {
   onBadLine: (line: string) => void = () => {};
 
   constructor(opts: SpawnOptions) {
-    this.child = spawn(opts.command, opts.args, {
+    const run = resolveCommand(opts.command, opts.args); // Windows: npm's .cmd shims, scripts
+    this.child = spawn(run.command, run.args, {
       cwd: opts.cwd,
       env: opts.env,
       stdio: ["pipe", "pipe", "pipe"],
@@ -216,7 +218,9 @@ export class CodexProcess {
   private signal(sig: NodeJS.Signals): void {
     if (this.pid === undefined) return;
     try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, sig);
+      // Windows: no process groups, and a signal there ends only the one process: the tree goes (taskkill /T).
+      if (process.platform === "win32") return winKillTree(this.pid);
+      process.kill(-this.pid, sig);
     } catch {}
   }
 

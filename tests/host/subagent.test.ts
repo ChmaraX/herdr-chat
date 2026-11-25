@@ -15,7 +15,9 @@ import { ChatClient } from "../../host/client.ts";
 import { readRegistry } from "../../host/registry.ts";
 import { FAKE_PI, ROOT, SCENARIOS, plain, sleep } from "./harness.ts";
 
-const LAUNCHER = join(ROOT, "bin", "herdr-chat-subagent");
+// Windows has no sh for the bin/ shims: the .mjs entries, which node runs (what the install names there).
+const WIN = process.platform === "win32";
+const LAUNCHER = join(ROOT, "bin", WIN ? "herdr-chat-subagent.mjs" : "herdr-chat-subagent");
 const FAKE_HC = join(ROOT, "tests", "fake-hc", "hc.mjs");
 // Each wait's budget. A host start or a turn takes ~0.3 s alone, but the
 // suite runs four files at once, and on a busy machine a 10 s budget failed
@@ -34,7 +36,7 @@ function launch(name: string, opts: { args?: string[]; env?: Record<string, stri
   mkdirSync(hcDir, { recursive: true });
   // What install.sh writes, and the person's settings (test plumbing in "env", as the e2e's).
   writeFileSync(join(app, "mods", "chat", "config.json"), JSON.stringify({
-    host: join(ROOT, "bin", "herdr-chat-host"), node: process.execPath, hc: FAKE_HC, pi: FAKE_PI,
+    host: join(ROOT, "bin", WIN ? "herdr-chat-host.mjs" : "herdr-chat-host"), node: process.execPath, hc: FAKE_HC, pi: FAKE_PI,
   }));
   mkdirSync(join(app, "data", "herdr-chat"), { recursive: true });
   writeFileSync(join(app, "data", "herdr-chat", "settings.json"), JSON.stringify({
@@ -45,7 +47,8 @@ function launch(name: string, opts: { args?: string[]; env?: Record<string, stri
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("HC_") && !k.startsWith("HERDR_") && !k.startsWith("HERDR_CHAT_")) env[k] = v;
   Object.assign(env, { HERDR_APP_HOME: app, HC_TERMINAL_ID: "t99" }, opts.env ?? {});
-  const proc = spawn(LAUNCHER, opts.args ?? [], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
+  const proc = WIN ? spawn(process.execPath, [LAUNCHER, ...(opts.args ?? [])], { cwd, env, stdio: ["pipe", "pipe", "pipe"] })
+    : spawn(LAUNCHER, opts.args ?? [], { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
   let screen = "";
   proc.stdout!.on("data", (d) => (screen += d.toString("utf8")));
   proc.stderr!.on("data", (d) => (screen += d.toString("utf8")));
@@ -145,12 +148,15 @@ test("a template launch of herdr-chat-subagent: own labels, the app's state dir,
       await h2.exited;
     }
 
-    // hc kill / the parent's end: SIGHUP, exit 0, the registry cleared.
-    h.proc.kill("SIGHUP");
-    assert.equal(await h.exited, 0);
-    const after = readRegistry(h.stateDir, chat)!;
-    assert.equal(after.pid, null);
-    assert.equal(after.port, null);
+    // hc kill / the parent's end: SIGHUP, exit 0, the registry cleared. Windows has no SIGHUP (a kill ends the
+    // process at once, and the next host takes over the stale claim: claim.test.ts).
+    if (!WIN) {
+      h.proc.kill("SIGHUP");
+      assert.equal(await h.exited, 0);
+      const after = readRegistry(h.stateDir, chat)!;
+      assert.equal(after.pid, null);
+      assert.equal(after.port, null);
+    }
   } finally {
     h.stop();
   }

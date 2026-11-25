@@ -16,7 +16,7 @@
 
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea } from "gpui-base";
-import { alpha, fileChip, icon, thumbnail } from "./util.js";
+import { alpha, baseName, fileChip, icon, thumbnail } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
 import { PLATFORM } from "./platform.js";
@@ -192,7 +192,7 @@ export class Composer {
 
   // `pending`: a dropped file the host is still copying (main.js attachImage); it gets the thumbnail's box.
   addChip(path, { pending = false, size = null } = {}) {
-    const chip = { path, size, label: path.split("/").pop(), pending };
+    const chip = { path, size, label: baseName(path), pending };
     this.chips.push(chip);
     return chip;
   }
