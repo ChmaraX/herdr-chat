@@ -23,7 +23,7 @@ import type { SessionList } from "./sessions.ts";
 import { loadImages } from "./clipboard.ts";
 import type { Attachments } from "./attachments.ts";
 import type { ImageFile } from "./imagesize.ts";
-import { Renderer, diffLines } from "./render.ts";
+import { Renderer, diffLines, warmRender } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
 import type {
@@ -169,6 +169,7 @@ export class Chat {
   state: ChatState;
   timeline: Timeline;
   render: Renderer;
+  private warm: Promise<unknown> = Promise.resolve();
   sinks: Sink[] = [];
 
   private dirtyState = new Set<keyof ChatState>();
@@ -398,6 +399,7 @@ export class Chat {
       return;
     }
     this.set({ phase: "starting", error: null, sessionFile, conflict: null });
+    this.warm = warmRender().catch((e) => this.opts.log(`render warm-up failed: ${errText(e)}`)); // while the agent starts
     void this.boot(gen, sessionFile);
   }
 
@@ -536,6 +538,8 @@ export class Chat {
       if (this.adapter.alive) this.fatal(`${this.agent} failed to start: ${errText(e)}`);
       return;
     }
+    if (gen !== this.generation) return;
+    await this.warm; // history and live items are rendered from here on
     if (gen !== this.generation) return;
     for (const t of this.startupTimers) clearTimeout(t);
     if (this.stalledPrefixes().some((p) => this.state.error?.startsWith(p))) this.set({ error: null });

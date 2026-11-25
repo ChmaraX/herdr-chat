@@ -3,7 +3,9 @@
 // the core's commands. The settle fallback (a `get_state` probe after a quiet
 // spell) lives here because it is Pi's.
 import { execFile } from "node:child_process";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { readFileSync, writeFileSync, realpathSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { PiProcess } from "./rpc.ts";
 import type { PiRecord, Oversized } from "./rpc.ts";
 import { contentText, echoText, countImages, imageBlocks, resultText, resultImages } from "./content.ts";
@@ -25,6 +27,23 @@ const typed = (text: string) => {
 };
 
 type Rec = Record<string, any>;
+
+/** A file cache of `pi --version`, keyed by the binary's real path and mtime; null when the binary can't be resolved (a bare command name off PATH). */
+export function piVersionCache(command: string): { read(): string | null; write(v: string): void } | null {
+  try {
+    const real = realpathSync(command);
+    const key = `${real}:${statSync(real).mtimeMs}`;
+    const file = join(tmpdir(), `herdr-chat-pi-version-${process.getuid?.() ?? 0}.json`);
+    return {
+      read: () => {
+        try { const j = JSON.parse(readFileSync(file, "utf8")); return j.key === key && typeof j.version === "string" ? j.version : null; } catch { return null; }
+      },
+      write: (version) => { try { writeFileSync(file, JSON.stringify({ key, version })); } catch {} },
+    };
+  } catch {
+    return null;
+  }
+}
 
 export const PI_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
@@ -226,10 +245,18 @@ export class PiAdapter implements ProviderAdapter {
   }
 
   private probeVersion(host: AdapterHost): void {
-    execFile(this.opts.command, ["--version"], { timeout: 10_000, env: { ...process.env, HERDR_CHAT_HOST: "1" } }, (err, stdout) => {
-      const v = err ? null : (/\d+\.\d+\.\d+[\w.-]*/.exec(stdout)?.[0] ?? null);
+    const report = (v: string | null) => {
       host.emit({ type: "version", version: v });
       if (v && /^(0\.|1\.[0-4]\.)/.test(v)) host.emit({ type: "notice", level: "warning", source: "host", text: `Pi ${v} is older than 1.5; the chat needs Pi 1.5 or newer.` });
+    };
+    // `pi --version` is a whole Node start: remember it per binary (path + mtime) across chats.
+    const cache = piVersionCache(this.opts.command);
+    const hit = cache?.read();
+    if (hit) return report(hit);
+    execFile(this.opts.command, ["--version"], { timeout: 10_000, env: { ...process.env, HERDR_CHAT_HOST: "1" } }, (err, stdout) => {
+      const v = err ? null : (/\d+\.\d+\.\d+[\w.-]*/.exec(stdout)?.[0] ?? null);
+      if (v) cache?.write(v);
+      report(v);
     });
   }
 

@@ -7,8 +7,11 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { splitBlocks } from "./blocks.ts";
-import { highlight, langForPath, plainLines, MAX_LINES } from "./highlight.ts";
-import { renderMermaid, DEFAULT_THEME } from "./mermaid.ts";
+import { highlight, langForPath, plainLines, warmHighlight, MAX_LINES } from "./highlight.ts";
+import { renderMermaid, warmMermaid, DEFAULT_THEME } from "./mermaid.ts";
+
+/** Loads highlight.js and the mermaid renderer (slow imports kept off the host's start). Until it resolves, code is plain and diagrams ASCII. */
+export const warmRender = (): Promise<unknown> => Promise.all([warmHighlight(), warmMermaid()]);
 import type { Theme } from "./mermaid.ts";
 import { toSpans } from "./ansi.ts";
 import type { Span } from "./ansi.ts";

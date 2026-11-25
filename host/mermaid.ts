@@ -1,7 +1,6 @@
 // Mermaid → a self-contained SVG that a native (resvg-style) renderer can draw:
 // no CSS variables, no color-mix(), no web fonts, no foreignObject. Falls back
 // to beautiful-mermaid's box-drawing ASCII art.
-import { renderMermaidSVG, renderMermaidASCII } from "beautiful-mermaid";
 import { toSpans } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 
@@ -148,21 +147,28 @@ export function svgColors(t: Theme) {
   };
 }
 
+// beautiful-mermaid is slow to load: warmMermaid() runs while the agent starts, not at the host's start.
+let lib: typeof import("beautiful-mermaid") | null = null;
+export async function warmMermaid(): Promise<void> {
+  lib ??= await import("beautiful-mermaid");
+}
+
 export type MermaidResult = { svg: string } | { ascii: Span[][]; error: string };
 
 /** Renders a closed mermaid block: SVG, else ASCII art plus the error. */
 export function renderMermaid(source: string, theme: Theme): MermaidResult {
   let error: string;
   try {
+    if (!lib) throw new Error("the diagram renderer is still loading");
     if (source.length > MAX_SOURCE) throw new Error(`diagram too large (${Math.round(source.length / 1024)} KiB)`);
-    const svg = renderMermaidSVG(source, { ...svgColors(theme), font: "sans-serif" });
+    const svg = lib.renderMermaidSVG(source, { ...svgColors(theme), font: "sans-serif" });
     return { svg: flattenSvg(svg, theme.background) };
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
   }
   try {
     if (source.length > MAX_SOURCE) throw new Error(error);
-    const art = renderMermaidASCII(source, { colorMode: "ansi16" });
+    const art = lib!.renderMermaidASCII(source, { colorMode: "ansi16" });
     return { ascii: art.split("\n").map((l) => toSpans(l)), error };
   } catch {
     return { ascii: source.split("\n").map((l) => (l ? [{ text: l }] : [])), error };
