@@ -182,11 +182,17 @@ if want journey; then
   step "the launcher's letters: X picks Codex"
   BEFORE=$(chat_dumps)
   open_launcher "the launcher (cmd-alt-p)"
-  keys "text:x"
-  until_ '! overlay_open new-chat' 3 || { by_command "x didn't land (or knownAgents says Codex isn't installed)"; do_ new-chat.pick:codex; }
-  expect '! overlay_open new-chat' "x picked (the launcher closed)" 3
-  expect '[ -n "$(new_chat_since "$BEFORE")" ] && [ "$(dbg "$(new_chat_since "$BEFORE")" "d[\"provider\"]")" = codex ]' "a Codex chat tab" 15
-  close_chat "$(new_chat_since "$BEFORE")"
+  until_ '[ "$(cached_installed codex)" != none ]' 15 || true
+  if [ "$(cached_installed codex)" = false ]; then
+    skip "X picks Codex: Herdr finds no codex here, so the launcher has no Codex row (flow launcher checks that)"
+    keys esc; until_ '! overlay_open new-chat' 3 || do_ overlay.close
+  else
+    keys "text:x"
+    until_ '! overlay_open new-chat' 3 || { by_command "x didn't land"; do_ new-chat.pick:codex; }
+    expect '! overlay_open new-chat' "x picked (the launcher closed)" 3
+    expect '[ -n "$(new_chat_since "$BEFORE")" ] && [ "$(dbg "$(new_chat_since "$BEFORE")" "d[\"provider\"]")" = codex ]' "a Codex chat tab" 15
+    close_chat "$(new_chat_since "$BEFORE")"
+  fi
 
   step "Continue as chat: a Pi TUI sub-agent, idle, its session labeled (as herdr-chat-lock does)"
   TS="$BASE/tui-session.jsonl"

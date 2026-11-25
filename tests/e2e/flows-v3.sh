@@ -112,8 +112,6 @@ while bot < H - 1 and same(bot + 1): bot += 1
 print(bot - top + 1)' "$1" "$E2E"; }
 new_terms() { comm -13 <(printf '%s\n' $1 | sort) <(term_panes | awk '{print $3}' | sort) || true; }
 last_choice() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("last"))' "$STATE/launcher.json" 2>/dev/null; }
-# knownAgents' answer as the launcher keeps it (shared new-chat.installed): installed or not, of agent $1.
-cached_installed() { python3 -c 'import json,sys; print(str((json.load(open(sys.argv[1])).get("new-chat.installed") or {}).get(sys.argv[2])).lower())' "$HERDR_APP_HOME/shared.json" "$1" 2>/dev/null; }
 # Key $1 (a letter, a digit or enter) in the open launcher until it closes (a dropped key: again, primed).
 launcher_key() {
   local k="text:$1"; [ "$1" != enter ] || k=enter
@@ -123,9 +121,9 @@ launcher_key() {
 }
 
 if want launcher; then
-  step "launcher: with every agent installed, Pi, Claude Code, Codex, then Terminal; t opens a shell tab in the focused folder"
+  step "launcher: the installed agents, then Terminal; t opens a shell tab in the focused folder"
   open_launcher "the launcher opens"
-  expect '[ "$(cached_installed codex)" = true ]' "knownAgents answered: Codex is installed" 15
+  expect '[ "$(cached_installed codex)" != none ]' "knownAgents answered" 15
   shot launcher-1-all 0.5
   H4=$(dialog_h "$ART/launcher-1-all.png")
   BEFORE=$(term_panes | awk '{print $3}')
@@ -144,8 +142,8 @@ if want launcher; then
   launcher_key enter
   expect '[ -n "$(new_terms "$BEFORE")" ]' "Enter: another shell tab" 8
 
-  if [ -z "$AGENT_BIN" ]; then
-    skip "launcher without Codex: this machine has its own agents (the e2e stand-ins only go where none is installed)"
+  if [ -z "$AGENT_BIN" ] || [ "$(command -v codex)" != "$AGENT_BIN/codex" ]; then
+    skip "launcher without Codex: Codex here isn't the e2e's stand-in (lib.sh adds them only where no agent is installed)"
   else
     step "launcher: Codex uninstalled: its row is gone, x does nothing, 3 is the third row on screen (Terminal), the dialog one row shorter"
     rm "$AGENT_BIN/codex"
