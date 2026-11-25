@@ -73,6 +73,8 @@ while [ "$n" -gt 0 ]; do
   esac
 done
 
+[ -z "$win" ] || say "Windows support is experimental: please report problems at https://github.com/$repo/issues"
+
 # --- a clone (or an unpacked release run in place) ------------------------------------
 here=$(dirname "$0")
 case $0 in *install.sh) local_tree=1 ;; *) local_tree= ;; esac

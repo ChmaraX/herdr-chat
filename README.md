@@ -66,6 +66,8 @@ https://github.com/user-attachments/assets/cefe4c53-19f6-4c3b-8188-f8480f4c2816
 
 With the Herdr app open (on Windows, in Git Bash):
 
+Windows (Git Bash): experimental. Not tested in CI; please report what breaks.
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ChmaraX/herdr-chat/main/install.sh | sh -s -- --app
 ```
@@ -149,6 +151,7 @@ another URL with GitHub's release JSON.
   New chat and Continue as chat say so.
 - **The end-to-end tests drive macOS only** (`tests/e2e/`); on Linux and
   Windows the host's tests run, and the mods were tried by hand.
+- **Windows (Git Bash): experimental.** Not tested in CI; please report what breaks.
 - **Windows:** a chat's tab has two panes (the chat and its hidden host), so a
   layout that frames focused panes only in a split draws that frame around the
   chat. Continue as chat stops the TUI with `taskkill` (Windows has no SIGTERM):
