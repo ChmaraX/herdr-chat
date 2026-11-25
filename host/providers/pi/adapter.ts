@@ -4,7 +4,7 @@
 // spell) lives here because it is Pi's.
 import { execFile } from "node:child_process";
 import { basename, dirname, join } from "node:path";
-import { readFileSync, writeFileSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, realpathSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { PiProcess } from "./rpc.ts";
 import type { PiRecord, Oversized } from "./rpc.ts";
@@ -28,10 +28,13 @@ const typed = (text: string) => {
 
 type Rec = Record<string, any>;
 
-/** A file cache of `pi --version`, keyed by the binary's real path and mtime; null when the binary can't be resolved (a bare command name off PATH). */
+/** A file cache of `pi --version`, keyed by the binary's real path and mtime; null when the binary can't be resolved (not found on PATH). */
 export function piVersionCache(command: string): { read(): string | null; write(v: string): void } | null {
   try {
-    const real = realpathSync(command);
+    // A bare command name (the default `pi`) is looked up on PATH: realpath alone would resolve it against the cwd.
+    const found = command.includes("/") ? command : (process.env.PATH ?? "").split(":").filter(Boolean).map((d) => join(d, command)).find((f) => existsSync(f));
+    if (!found) return null;
+    const real = realpathSync(found);
     const key = `${real}:${statSync(real).mtimeMs}`;
     const file = join(tmpdir(), `herdr-chat-pi-version-${process.getuid?.() ?? 0}.json`);
     return {

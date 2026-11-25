@@ -23,3 +23,22 @@ test("pi version cache: a miss, a hit, and a new binary (mtime) forgets it", () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("pi version cache: a bare command name is found on PATH (the default `pi`)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pi-ver-"));
+  const bin = join(dir, "pi-bare-test");
+  writeFileSync(bin, "#!/bin/sh\n");
+  chmodSync(bin, 0o755);
+  const path = process.env.PATH;
+  try {
+    assert.equal(piVersionCache("pi-bare-test"), null, "not on PATH yet");
+    process.env.PATH = `${dir}:${path}`;
+    const c = piVersionCache("pi-bare-test")!;
+    assert.ok(c, "found through PATH");
+    c.write("8.8.8");
+    assert.equal(piVersionCache("pi-bare-test")!.read(), "8.8.8");
+  } finally {
+    process.env.PATH = path;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
