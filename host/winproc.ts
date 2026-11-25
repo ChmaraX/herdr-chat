@@ -113,18 +113,21 @@ export function winShrinkImage(file: string, edge: number): Promise<boolean> {
 /**
  * A command as Windows can start it without a shell (Node refuses .cmd and .bat in spawn since
  * 20.12, and a script isn't a program): a bare name found on PATH as .exe, else .cmd; an npm
- * shim (.cmd) as node and the script it runs; a .js/.mjs/.cjs as node and the file. Elsewhere,
- * and for anything else, as given.
+ * shim (.cmd) as node and the script it runs; a .js/.mjs/.cjs as node and the file. Anything
+ * else as given. process.ts resolveCommand calls it on Windows only.
  */
-export function resolveCommand(command: string, args: string[]): { command: string; args: string[] } {
-  if (process.platform !== "win32") return { command, args };
+export function winResolveCommand(command: string, args: string[]): { command: string; args: string[] } {
   let cmd = command;
-  if (!/[\\/]/.test(cmd) &&!/\.[a-z0-9]+$/i.test(cmd)) cmd = onPath(cmd) ?? cmd;
+  if (!/[\\/]/.test(cmd) && !/\.[a-z0-9]+$/i.test(cmd)) cmd = onPath(cmd) ?? cmd;
   if (/\.[mc]?js$/i.test(cmd)) return { command: process.execPath, args: [cmd, ...args] };
   if (/\.(cmd|bat)$/i.test(cmd)) {
-    const target = npmShimTarget(cmd);
-    if (target && /\.exe$/i.test(target)) return { command: target, args };
-    if (target) return { command: process.execPath, args: [target, ...args] };
+    let text = "";
+    try {
+      text = readFileSync(cmd, "utf8");
+    } catch {}
+    const rel = npmShimTarget(text);
+    const target = rel ? join(dirname(cmd), rel) : null;
+    if (target && existsSync(target)) return /\.exe$/i.test(target) ? { command: target, args } : { command: process.execPath, args: [target, ...args] };
     // Node refuses it (EINVAL), and cmd.exe would re-read the arguments: say so instead.
     throw new Error(`${cmd} isn't a program: Windows runs .cmd and .bat files only through cmd.exe, and this one isn't an npm shim to read. Point the chat at the program (.exe) or its script (README "Configuration").`);
   }
@@ -141,16 +144,15 @@ function onPath(name: string): string | null {
   return null;
 }
 
-// npm's .cmd shims end with `"%_prog%"  "%dp0%\node_modules\…\cli.js" %*` (a script node runs),
-// or `"%dp0%\node_modules\…\bin\x.exe" %*` (a native binary): that file.
-function npmShimTarget(file: string): string | null {
-  try {
-    const m = /"%dp0%\\([^"]+\.(?:[mc]?js|exe))"/i.exec(readFileSync(file, "utf8"));
-    const script = m ? join(dirname(file), m[1]!) : null;
-    return script && existsSync(script) ? script : null;
-  } catch {
-    return null;
-  }
+/**
+ * The file an npm .cmd shim (npm's cmd-shim) runs, relative to the shim's folder, or null. Its last line is
+ * `… "%_prog%"  "%dp0%\node_modules\…\cli.js" %*` (a script node runs) or `"%dp0%\node_modules\…\x.exe" %*`
+ * (a native binary): the last `"%dp0%\…"`. An earlier one is the shim's `IF EXIST "%dp0%\node.exe"` (a node
+ * beside it), no target.
+ */
+export function npmShimTarget(shim: string): string | null {
+  const last = [...shim.matchAll(/"%dp0%\\([^"]+\.(?:[mc]?js|exe))"/gi)].at(-1)?.[1];
+  return last && !/^node\.exe$/i.test(last) ? last : null;
 }
 
 /** Ends `pid` and every process under it (taskkill /T /F): Windows has no process groups to signal. */

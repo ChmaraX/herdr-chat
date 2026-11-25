@@ -1,10 +1,9 @@
 // The `codex app-server` child: JSON-RPC 2.0 over LF-framed JSONL on stdio.
 // Spawned in its own process group; correlates our requests, routes the
 // server's requests and notifications, keeps a stderr tail, tears down checked.
-import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { LineFramer } from "../../framing.ts";
-import { resolveCommand, winKillTree } from "../../winproc.ts";
+import { groupAlive, killGroup, spawnResolved } from "../../process.ts";
 import type { Oversized } from "../../framing.ts";
 import { AgentError } from "../types.ts";
 
@@ -52,13 +51,7 @@ export class CodexProcess {
   onBadLine: (line: string) => void = () => {};
 
   constructor(opts: SpawnOptions) {
-    const run = resolveCommand(opts.command, opts.args); // Windows: npm's .cmd shims, scripts
-    this.child = spawn(run.command, run.args, {
-      cwd: opts.cwd,
-      env: opts.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
+    this.child = spawnResolved(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], ownGroup: true });
     this.pid = this.child.pid;
     const framer = new LineFramer(CODEX_MAX_LINE);
     framer.onLine = (line) => this.route(line);
@@ -206,22 +199,11 @@ export class CodexProcess {
   }
 
   private groupAlive(): boolean {
-    if (this.pid === undefined) return false;
-    try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
+    return this.pid !== undefined && groupAlive(this.pid);
   }
 
   private signal(sig: NodeJS.Signals): void {
-    if (this.pid === undefined) return;
-    try {
-      // Windows: no process groups, and a signal there ends only the one process: the tree goes (taskkill /T).
-      if (process.platform === "win32") return winKillTree(this.pid);
-      process.kill(-this.pid, sig);
-    } catch {}
+    if (this.pid !== undefined) killGroup(this.pid, sig);
   }
 
   /** Close stdin (app-server exits on EOF), then SIGTERM, then SIGKILL the group. */

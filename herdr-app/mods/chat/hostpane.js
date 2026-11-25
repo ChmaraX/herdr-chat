@@ -29,14 +29,19 @@ async function rpc(method, params, at = null) {
 }
 
 // Windows: no sh to pipe into hc connect, and the document can outgrow a command line (32 767 characters):
-// the lines go in a file, which the host's core-rpc (bin/herdr-chat-host.mjs) sends and then deletes.
+// the lines go in a file, which the host's core-rpc (bin/herdr-chat-host.mjs) sends and then deletes. A node that
+// never started leaves it: deleted here then (hideHost retries).
 async function winRpc(req, at) {
   const cfg = await readConfig();
   const dir = `${stateDir()}/rpc`;
   await fs.mkdir(dir, { recursive: true });
   const file = `${dir}/${hexId(16)}.jsonl`;
   await fs.writeFile(file, `${HELLO}\n${req}\n`);
-  return exec(cfg.node || "node", [cfg.host, ...(cfg.hc ? [`HERDR_CHAT_HC=${cfg.hc}`] : []), "core-rpc", "--lines-file", file, ...(at ? ["--at", String(Math.round(at))] : [])]);
+  try {
+    return await exec(cfg.node || "node", [cfg.host, ...(cfg.hc ? [`HERDR_CHAT_HC=${cfg.hc}`] : []), "core-rpc", "--lines-file", file, ...(at ? ["--at", String(Math.round(at))] : [])]);
+  } finally {
+    await fs.unlink(file).catch(() => {});
+  }
 }
 
 // The layout document and its version: {value, version}.

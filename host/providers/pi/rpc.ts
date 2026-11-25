@@ -1,9 +1,8 @@
 // The Pi child process: spawn in its own process group, LF framing with a size
 // cap, request correlation, stderr tail, checked teardown.
-import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { LineFramer } from "../../framing.ts";
-import { resolveCommand, winKillTree } from "../../winproc.ts";
+import { groupAlive, killGroup, spawnResolved } from "../../process.ts";
 import type { Oversized } from "../../framing.ts";
 import { AgentError } from "../types.ts";
 
@@ -45,13 +44,7 @@ export class PiProcess {
   onBadLine: (line: string) => void = () => {};
 
   constructor(opts: SpawnOptions) {
-    const run = resolveCommand(opts.command, opts.args); // Windows: npm's .cmd shims, scripts
-    this.child = spawn(run.command, run.args, {
-      cwd: opts.cwd,
-      env: opts.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
+    this.child = spawnResolved(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], ownGroup: true });
     this.pid = this.child.pid;
     const framer = new LineFramer();
     framer.onLine = (line) => this.route(line);
@@ -172,22 +165,11 @@ export class PiProcess {
   }
 
   private groupAlive(): boolean {
-    if (this.pid === undefined) return false;
-    try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
+    return this.pid !== undefined && groupAlive(this.pid);
   }
 
   private signal(sig: NodeJS.Signals): void {
-    if (this.pid === undefined) return;
-    try {
-      // Windows: no process groups, and a signal there ends only the one process: the tree goes (taskkill /T).
-      if (process.platform === "win32") return winKillTree(this.pid);
-      process.kill(-this.pid, sig);
-    } catch {}
+    if (this.pid !== undefined) killGroup(this.pid, sig);
   }
 
   /**

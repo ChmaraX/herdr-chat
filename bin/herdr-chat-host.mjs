@@ -28,7 +28,8 @@ else {
  * `core-rpc --lines-file <file> [--at <epoch ms>]`, for the chat mod's hostpane.js where macOS and
  * Linux pipe printf into `hc connect`: the file's first line goes to `hc connect`, the rest at --at;
  * hc's output as is, its exit code; the file is deleted. Here, before the host loads: the mod waits
- * on it while it edits the layout document.
+ * on it while it edits the layout document. Any failure (no file, no lines, hc that won't start or
+ * closes early) is one line on stderr and exit 1, never a stack trace.
  */
 async function coreRpc(rest) {
   const flag = (name) => {
@@ -41,18 +42,27 @@ async function coreRpc(rest) {
     process.exit(2);
   }
   const at = Number(flag("--at")) || 0;
-  let lines;
+  const die = (why) => {
+    process.stderr.write(`herdr-chat-host: core-rpc: ${why}\n`);
+    process.exit(1);
+  };
+  let lines = [];
   try {
     lines = readFileSync(file, "utf8").split("\n").filter(Boolean);
+  } catch (e) {
+    die(`can't read ${file}: ${e.message}`);
   } finally {
     rmSync(file, { force: true });
   }
+  if (!lines.length) die(`${file} has no lines to send`);
   const { spawn } = await import("node:child_process");
   const p = spawn(process.env.HERDR_CHAT_HC || "hc", ["connect"], { stdio: ["pipe", "inherit", "inherit"], windowsHide: true });
+  p.on("error", (e) => die(`hc connect: ${e.message}`));
+  p.stdin.on("error", () => {}); // hc closed early: its exit code says why
+  p.on("close", (c) => process.exit(c ?? 1));
   p.stdin.write(lines[0] + "\n");
   const wait = at - Date.now();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   for (const l of lines.slice(1)) p.stdin.write(l + "\n");
   p.stdin.end();
-  p.on("close", (c) => process.exit(c ?? 1));
 }

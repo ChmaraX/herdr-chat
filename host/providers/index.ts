@@ -6,7 +6,8 @@ import { piTuiSession } from "./pi/tui.ts";
 import { claudeTuiSession } from "./claude/tui.ts";
 import { codexTuiSession } from "./codex/tui.ts";
 import type { ProviderAdapter, AdapterOptions } from "./types.ts";
-import { processTable, tuiProcess, type TerminalView, type TuiFound, type TuiQuery, type TuiSession } from "./tui.ts";
+import { processTable } from "../process.ts";
+import { tuiProcess, type TerminalView, type TuiFound, type TuiQuery, type TuiSession } from "./tui.ts";
 
 type Factory = {
   /** The agent's CLI, also its program's name (a TUI's process is found by it). */

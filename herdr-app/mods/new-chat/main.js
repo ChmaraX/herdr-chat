@@ -28,6 +28,7 @@ import { v_flex, h_flex } from "gpui-base";
 import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, spaces, terminals, theme } from "herdr";
 import * as fs from "fs/promises";
 import { randomBytes, randomUUID } from "crypto";
+import os from "os";
 import { UpdateQuestion, checkHosts, checkRelease, checkRunning } from "./update.js";
 
 // `n` random hex digits (chat's util.js has the same: mods can't import each other). Buffer.toString("hex") comes back empty in the app's runtime on Windows (Herdr 0.1.18):
@@ -141,14 +142,22 @@ async function tuiSession(cfg, agent, info, cwd, label) {
   return JSON.parse(r.stdout);
 }
 
-// Windows: the install names bin/herdr-chat-host.mjs, which node runs (no /usr/bin/env, no sh, no kill).
-const WIN = /\.mjs$/;
-const host = (cfg, args) => WIN.test(cfg.host)
-  ? exec(cfg.node || "node", [cfg.host, ...args])
-  : exec("/usr/bin/env", [...(cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []), cfg.host, ...args]);
+// Windows (no sh, /usr/bin/env or kill there): as chat's platform.js PLATFORM.win (mods can't import each other).
+const WIN = ["windows", "win32"].includes(os.platform());
+
+/**
+ * The argv that runs the host entry `entry` (or the sub-agent's, beside it) with `env` (NAME=value) first: a .mjs entry
+ * (Windows' install names bin/herdr-chat-host.mjs) through node, which takes the NAME=value arguments itself; the sh
+ * entry through /usr/bin/env. As chat's connection.js hostArgv.
+ */
+const hostArgv = (cfg, entry, env = []) => /\.mjs$/.test(entry) ? [cfg.node || "node", entry, ...env] : ["/usr/bin/env", ...env, entry];
+const host = (cfg, args) => {
+  const [cmd, ...rest] = hostArgv(cfg, cfg.host, cfg.node ? [`HERDR_CHAT_NODE=${cfg.node}`] : []);
+  return exec(cmd, [...rest, ...args]);
+};
 
 const winPid = async (pid) => (await exec("tasklist", ["/FI", `PID eq ${pid}`, "/NH", "/FO", "CSV"])).stdout.includes(`"${pid}"`);
-const alive = async (pid, cfg) => (cfg && WIN.test(cfg.host)) ? winPid(pid) : (await exec("kill", ["-0", String(pid)])).code === 0;
+const alive = async (pid) => WIN ? winPid(pid) : (await exec("kill", ["-0", String(pid)])).code === 0;
 
 /**
  * Continue as chat (research subagent-chat.md §F): an agent's TUI becomes a
@@ -174,7 +183,10 @@ export async function continueAsChat(addr, cx) {
   const cfg = await chatConfig();
   const found = await tuiSession(cfg, agent, info, cwd, t.labels?.["herdr-chat.session"] ?? null);
   if (!t.parent) return continueInPlace(t, agent, cfg, cwd, found, cx);
-  const launcher = cfg.host.replace(/herdr-chat-host$/, "herdr-chat-subagent");
+  // The sub-agent entry beside the host's (herdr-chat-subagent, or its .mjs), as hostArgv runs it.
+  const sub = cfg.host.replace(/herdr-chat-host(\.mjs)?$/, "herdr-chat-subagent$1");
+  if (sub === cfg.host) throw new Error(`mods/chat/config.json's host (${cfg.host}) has no herdr-chat-subagent beside it (install again)`);
+  const launcher = /\.mjs$/.test(sub) ? hostArgv(cfg, sub) : [sub]; // the sh entry runs as it is: hc gives it no env to set
   const kill = await hc(["kill", t.address]);
   if (kill.code !== 0) throw new Error(`hc kill ${t.address}: ${kill.stderr.trim()}`);
   // Its name is free once the old terminal has ended.
@@ -182,7 +194,7 @@ export async function continueAsChat(addr, cx) {
   // The model and thinking as the agent's own arguments: a sub-agent's host isn't restarted by a chat later.
   const args = found.args ?? [];
   const r = await hc(["run", "--bg", "--json", "--parent", t.parent, ...(t.name ? ["--name", t.name] : []), "--cwd", cwd,
-    "--", launcher, "--provider", agent, "--session", found.session, ...(args.length ? ["--", ...args] : [])]);
+    "--", ...launcher, "--provider", agent, "--session", found.session, ...(args.length ? ["--", ...args] : [])]);
   if (r.code !== 0) throw new Error(`hc run: ${r.stderr.trim() || r.stdout.trim()}`);
   const next = JSON.parse(r.stdout).address;
   // The launcher labels its terminal with the chat id once it starts.
@@ -218,11 +230,10 @@ export async function continueInPlace(t, agent, cfg, cwd, found, cx) {
   run("pane.focus", { pane: mine.pane });
   // Windows has no SIGTERM: taskkill /F ends it (the agents write their sessions as they go), /T with what it
   // started (npm's codex: a node wrapper whose codex.exe child holds the console and the session).
-  const win = WIN.test(cfg.host);
-  const k = win ? await exec("taskkill", ["/F", "/T", "/PID", String(pid)]) : await exec("kill", ["-TERM", String(pid)]);
-  if (k.code !== 0) throw new Error(`${win ? "taskkill" : "kill -TERM"} ${pid}: ${(k.stderr || k.stdout).trim()}`);
-  for (let i = 0; i < 100 && (await alive(pid, cfg)); i++) await cx.sleep(100);
-  if (await alive(pid, cfg)) {
+  const k = WIN ? await exec("taskkill", ["/F", "/T", "/PID", String(pid)]) : await exec("kill", ["-TERM", String(pid)]);
+  if (k.code !== 0) throw new Error(`${WIN ? "taskkill" : "kill -TERM"} ${pid}: ${(k.stderr || k.stdout).trim()}`);
+  for (let i = 0; i < 100 && (await alive(pid)); i++) await cx.sleep(100);
+  if (await alive(pid)) {
     toast({ title: "Continue as chat", body: `${NAMES[agent]} (pid ${pid}) didn't quit in 10 s: the chat waits for it (resume there once it's gone).`, level: "warning" });
     return mine.pane;
   }

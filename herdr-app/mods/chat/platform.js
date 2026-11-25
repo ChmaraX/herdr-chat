@@ -17,8 +17,8 @@ const fieldKeys = new Set(mac ? [] : FIELD_KEYS);
 
 export const PLATFORM = {
   mac,
-  /** Windows: no sh, /bin/pwd or kill for exec (the install names the .mjs host). */
-  win: os.platform() === "windows",
+  /** Windows: no sh, /bin/pwd or kill for exec. The runtime's name for it: "windows" as its "macos", or Node's "win32". */
+  win: ["windows", "win32"].includes(os.platform()),
   /** The chords that differ from keys.default.json here (shortcuts.js merges them over it); null on macOS. */
   keyOverrides: mac ? null : "keys.default.linux.json",
   /** Submits the editor dialog, where Enter is a new line. */
