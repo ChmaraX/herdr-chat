@@ -386,6 +386,11 @@ export interface ProviderAdapter {
   compact(instructions?: string): Promise<void>;
   newSession(): Promise<void>;
   switchSession(path: string): Promise<void>;
+  /**
+   * Optional: why this agent can't resume that session in a chat (null: it can). The chat asks before
+   * anything of its own stops (a run, its agent for a conflict), so a refusal leaves the chat as it was.
+   */
+  cantResume?(path: string): string | null;
   setName(name: string): Promise<void>;
 
   // ---- fork (the person's messages, then a new session from before one of them)
