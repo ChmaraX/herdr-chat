@@ -155,6 +155,33 @@ if want v3 || want claude; then
   expect '[ "$(phase)" = idle ] && [ "$(last_tool status)" = done ]' "the third run settles" 15
   [ "$(agent_log claude | grep -c '"can_use_tool"\|control_response' || true)" = "$N" ] && [ "$(d 'd["dialog"]')" = null ] && ok "no card the third time (the rule holds)" || fail "asked again after Always"
 
+  step "claude: a one-line command's card keeps it in the header; a click on it shows it whole"
+  send_text "clean the build"
+  open_dialog permission "a card for rm -rf build"
+  PERM="perm-$(d 'd["dialog"]["id"]')"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = false ]' "collapsed: the header holds the whole command" 5
+  cmd "toggle:$PERM"
+  need '[ "$(d "\"$PERM\" in d[\"expanded\"]")" = true ]' "toggle: the permission's command"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = true ]' "the header's click shows the command under it" 5
+  cmd "toggle:$PERM"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = false ]' "a second click hides it" 5
+  ask_key "text:3" '[ "$(d "d[\"lastAnswer\"][\"choice\"]")" = deny ]' "3 answers Deny"
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "claude: a multi-line command's card opens on the whole command (the header has its first line only)"
+  send_text "install the deps"
+  open_dialog permission "a card for the three-line command"
+  PERM="perm-$(d 'd["dialog"]["id"]')"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = true ]' "open by default: no line is approved unseen" 5
+  shot v3-2-claude-permission-multiline 0.4
+  cmd "toggle:$PERM"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = false ]' "a click on the header closes it" 5
+  cmd "toggle:$PERM"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = true ]' "and opens it again" 5
+  ask_key "text:1" '[ "$(d "d[\"lastAnswer\"][\"choice\"]")" = allow ]' "1 still answers Allow once with the command open"
+  expect 'agent_log claude | grep "control_response" | tail -1 | grep -q "\"behavior\":\"allow\""' "Claude got behavior allow" 5
+  expect '[ "$(phase)" = idle ] && [ "$(last_tool status)" = done ]' "the command ran" 15
+
   step "claude: Deny with a reason (Esc); the card shows declined"
   send_text "clean the build"
   open_dialog permission "a card for rm -rf build"
