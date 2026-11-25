@@ -1,19 +1,20 @@
 // new-chat: the "New chat with…" launcher, and the commands that open chats.
 //
-// As an overlay (`mod.open:new-chat`, the "open" key: cmd-i): Pi, Claude
-// Code or Codex, then a new tab with the chat (mod chat, props {chat, cwd,
-// provider}) for the focused terminal's folder (else the space's). Keys:
-// p / c / x pick (only an agent that is installed; the launcher has no text
-// field, so letters are always picks), 1/2/3 too, ↑↓ move, Enter opens the
-// selected one (the last choice, kept in <appHome>/data/herdr-chat/launcher.json),
-// Esc closes. Its commands: `new-chat.pick:<provider>`, `new-chat.enter`.
+// As an overlay (`mod.open:new-chat`, the "open" key: cmd-i): the agents that are
+// installed (Pi, Claude Code, Codex: knownAgents; until it answers, its last answer,
+// else every one), then Terminal. A new tab with the chat (mod chat, props {chat, cwd,
+// provider}), or a shell, for the focused terminal's folder (else the space's). Keys:
+// p / c / x / t pick (the launcher has no text field, so letters are always picks),
+// 1–4 the rows as numbered on screen, ↑↓ move, Enter opens the selected one (the last
+// choice, kept in <appHome>/data/herdr-chat/launcher.json), Esc closes. The dialog
+// fits its rows. Its commands: `new-chat.pick:<id>` (a row on screen), `new-chat.enter`.
 //
 // As the layout's empty floating block (props {role: "commands"},
 // install/layout.ts): always on screen at no size, so it takes the commands a
 // key or another mod runs while no launcher is open:
 // - `new-chat.open`: the launcher (as mod.open:new-chat; again: closes it);
 // - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`: that agent's chat, in a new tab
-//   (not in another machine's space or terminal: it says so);
+//   (not in another machine's space or terminal: it says so); `new-chat.terminal`: a shell tab;
 // - `new-chat.continue:<terminal>`: chat-menu's Continue as chat (an agent's
 //   TUI handed over to a chat on its session, see continueAsChat);
 //   `new-chat.continue`: the same on the focused terminal (the "continue" key);
@@ -29,36 +30,47 @@ import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, not
 import * as fs from "fs/promises";
 import { randomBytes } from "crypto";
 import { UpdateQuestion, checkHosts, checkRelease, checkRunning } from "./update.js";
-import { resolveSelection, visibleChoices } from "./choices.js";
 
+// Terminal last: 1/2/3 stay Pi/Claude Code/Codex while all three are installed.
 const CHOICES = [
-  { id: "terminal", label: "Terminal (zsh)", icon: "terminal", tint: true, letter: "t", isTerminal: true },
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
+  { id: "terminal", label: "Terminal", icon: "terminal", tint: true, letter: "t", isTerminal: true },
 ];
 const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
+// knownAgents' last answer (agent id → installed), so a launcher opens with the right rows.
 const INSTALLED_CACHE = "new-chat.installed";
 
-/** A chat with `provider` (or a plain terminal tab) in the focused terminal's folder (else the space's). */
+const openChoice = (c) => (c.isTerminal ? openTerminal() : openChat(c.id));
+const failTitle = (c) => (c?.isTerminal ? "New terminal" : "New chat");
+
+async function rememberLast(id) {
+  await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
+  await fs.writeFile(PREFS(), JSON.stringify({ last: id }));
+}
+
+/** A shell in a new tab (the default shell, as Herdr's own new tab), in the focused terminal's folder (else the space's). */
+async function openTerminal() {
+  const f = focused();
+  const space = spaces().find((s) => s.id === f?.space);
+  const folder = f?.cwd || space?.folder || null;
+  run("tab.new", { ...(space ? { space: space.id } : {}), ...(folder ? { folder } : {}) });
+  await rememberLast("terminal");
+}
+
+/** A chat with `provider` in a new tab, in the focused terminal's folder (else the space's). */
 async function openChat(provider) {
   const f = focused();
-  const space = spaces().find((s) => s.id === f?.space) ?? spaces().find((s) => s.active);
-  const cwd = f?.cwd || space?.folder || null;
-  if (provider === "terminal") {
-    run("tab.new", { ...(space?.id ? { space: space.id } : {}), ...(cwd ? { folder: cwd } : {}) });
-    await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
-    await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
-    return;
-  }
+  const space = spaces().find((s) => s.id === f?.space);
   // Another machine's (`hc machine`) focused terminal or space: its folder is there, a chat's host would run here.
   // A focused layout block or window terminal (pane null) isn't the space's; Herdr's own mods tell it the same way.
   const [what, machine] = f?.pane === null ? ["This terminal", machineOf(f.terminal)] : ["This space", space?.machine ?? null];
   if (machine) throw new Error(`${what} is on ${machine}: chats run on this computer only.`);
+  const cwd = f?.cwd || space?.folder || null;
   const chat = `c-${randomBytes(4).toString("hex")}`;
   run("tab.new", { name: provider, mod: "chat", props: { chat, provider, ...(cwd ? { cwd } : {}) } });
-  await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
-  await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
+  await rememberLast(provider);
 }
 
 // Each toast this mod posts, also as a JSON line in <appHome>/data/herdr-chat/debug/new-chat-toasts.jsonl while
@@ -271,13 +283,14 @@ class Commands {
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
+        const choice = CHOICES.find((x) => x.id === c);
         try {
           if (c === "open") run("mod.open", { name: "new-chat" });
-          else if (CHOICES.some((x) => x.id === c)) await openChat(c);
+          else if (choice) await openChoice(choice);
           else if (c === "continue" || c.startsWith("continue:")) await continueAsChat(c.slice(9), cx);
           else if (c === "update-check") await updates(true);
         } catch (e) {
-          toast({ title: c.startsWith("continue") ? "Continue as chat" : "New chat", body: String(e?.message ?? e), level: "error" });
+          toast({ title: c.startsWith("continue") ? "Continue as chat" : failTitle(choice), body: String(e?.message ?? e), level: "error" });
         }
       }
     });
@@ -302,17 +315,15 @@ export default class NewChat extends View {
       });
       return;
     }
-    this.sel = 0;
+    this.picked = null; // the row the person moved to with ↑↓ (an id), else null
+    this.last = null; // the last choice (launcher.json)
     this.done = false;
-    this.last = null;
     const cached = shared(INSTALLED_CACHE);
-    this.installed = cached && typeof cached === "object" && !Array.isArray(cached) ? cached : null; // provider id → installed (knownAgents), null until known
+    this.installed = cached && typeof cached === "object" && !Array.isArray(cached) ? cached : null; // agent id → installed (knownAgents), null until known
     this.handle = cx.focus_handle();
     cx.spawn(async (cx) => {
       try {
-        const last = JSON.parse((await readTextFile(PREFS())) ?? "{}").last;
-        this.last = last ?? null;
-        this.sel = resolveSelection(this.visible(), this.last);
+        this.last = JSON.parse((await readTextFile(PREFS())) ?? "{}").last ?? null;
       } catch {}
       this.handle.focus();
       cx.notify();
@@ -320,11 +331,9 @@ export default class NewChat extends View {
     cx.spawn(async (cx) => {
       try {
         const known = await knownAgents();
-        const currentId = this.visible()[this.sel]?.id ?? null;
-        const next = Object.fromEntries(CHOICES.map((c) => [c.id, c.isTerminal ? true : known.find((a) => a.key === c.id || HERDR_AGENTS[a.key] === c.id)?.installed !== false]));
-        this.installed = next;
-        setShared(INSTALLED_CACHE, next);
-        this.sel = resolveSelection(this.visible(), currentId, this.last);
+        this.installed = Object.fromEntries(CHOICES.filter((c) => !c.isTerminal)
+          .map((c) => [c.id, known.find((a) => HERDR_AGENTS[a.key] === c.id)?.installed !== false]));
+        setShared(INSTALLED_CACHE, this.installed);
       } catch {}
       cx.notify();
     });
@@ -334,27 +343,38 @@ export default class NewChat extends View {
         const c = await nextCommand();
         if (c === "focus") this.handle.focus();
         else if (c.startsWith("pick:")) this.open(this.visible().findIndex((x) => x.id === c.slice(5)), cx);
-        else if (c === "enter") this.open(this.sel, cx);
+        else if (c === "enter") this.open(this.selected(this.visible()), cx);
         cx.notify();
       }
     });
   }
 
+  // The rows: every agent knownAgents doesn't report missing (unknown yet: every one), and Terminal.
   visible() {
-    return visibleChoices(CHOICES, this.installed);
+    return CHOICES.filter((c) => c.isTerminal || this.installed?.[c.id] !== false);
+  }
+
+  // The highlighted row of `list`: the one moved to, else the last choice, else the first. By id, so it
+  // stays on its choice when rows appear or go (knownAgents answering).
+  selected(list) {
+    for (const id of [this.picked, this.last]) {
+      const i = list.findIndex((c) => c.id === id);
+      if (i >= 0) return i;
+    }
+    return 0;
   }
 
   open(i, cx) {
     const list = this.visible();
     if (this.done || i < 0 || i >= list.length) return;
     this.done = true;
-    const provider = list[i].id;
+    const choice = list[i];
     const overlay = props()?.overlay;
     cx.spawn(async () => {
       try {
-        await openChat(provider);
+        await openChoice(choice);
       } catch (e) {
-        toast({ title: "New tab", body: String(e?.message ?? e), level: "error" });
+        toast({ title: failTitle(choice), body: String(e?.message ?? e), level: "error" });
       } finally {
         if (overlay) closeOverlay(overlay);
       }
@@ -370,9 +390,9 @@ export default class NewChat extends View {
       const idx = Number(k) - 1;
       if (list[idx]) this.open(idx, cx);
     }
-    else if (k === "up" && list.length) this.sel = (this.sel + list.length - 1) % list.length;
-    else if ((k === "down" || k === "tab") && list.length) this.sel = (this.sel + 1) % list.length;
-    else if (k === "enter") this.open(this.sel, cx);
+    else if (k === "up") this.picked = list[(this.selected(list) + list.length - 1) % list.length].id;
+    else if (k === "down" || k === "tab") this.picked = list[(this.selected(list) + 1) % list.length].id;
+    else if (k === "enter") this.open(this.selected(list), cx);
     else if (k === "escape") { const o = props()?.overlay; if (o) closeOverlay(o); }
     cx.notify();
   }
@@ -387,12 +407,12 @@ export default class NewChat extends View {
     };
     const badge = (text) => div().px(5).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.dim).child(text);
     const list = this.visible();
-    const sel = Math.min(this.sel, Math.max(0, list.length - 1));
+    const sel = this.selected(list);
     const nums = list.map((_c, i) => String(i + 1)).join("/");
     const letters = list.map((c) => c.letter.toUpperCase()).join(" ");
     return v_flex().id("launcher").w_full().min_h(0).p(8).gap(2).bg(t.popover).text_color(t.foreground)
       .track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
-      .child(div().px(8).pt(4).pb(6).text_size(11.5).text_color(t.dim).child("New tab"))
+      .child(div().px(8).pt(4).pb(6).text_size(11.5).text_color(t.dim).child("New chat"))
       .children(list.map((c, i) => h_flex().id(`choice-${c.id}`).h(36).px(10).gap(10).items_center().rounded(8).cursor_pointer()
         .when(i === sel, (e) => e.bg(t.selected))
         .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.open(i, cx))

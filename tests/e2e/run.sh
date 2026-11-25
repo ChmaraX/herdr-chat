@@ -110,7 +110,7 @@ open_launcher() {
 # The launcher's chooser, then choose with a key ($1: enter, or a digit), else (a dropped key) by its
 # command, and the next check is a SKIP (by_command).
 launch_pick() {
-  open_launcher "the launcher shows its chooser (Pi / Claude Code / Codex)"
+  open_launcher "the launcher shows its chooser (Pi / Claude Code / Codex / Terminal)"
   if [ "$1" = enter ]; then keys enter; else keys "text:$1"; fi
   until_ '! overlay_open new-chat' 3 || { by_command "the chooser didn't take $1"; do_ new-chat.enter; }
   expect '! overlay_open new-chat' "the chooser took $1 (it closes)" 3
