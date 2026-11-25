@@ -367,9 +367,13 @@ test("claude: /compact, an image prompt, sessions + switch + new, and the TUI ha
     await c.req("resume");
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "Red."), 5000, "back from the TUI");
 
+    const starts = () => h.inputs().filter((r) => r._start).length;
+    const startsBefore = starts();
     await c.req("new_session");
     await c.waitFor((x) => idle(x) && x.state.sessionFile !== first, 5000);
     assert.deepEqual(c.items, []);
+    assert.equal(starts(), startsBefore, "/clear runs inside the running CLI: no respawn");
+    assert.equal(h.inputs().filter((r) => r.type === "user").at(-1).message.content, "/clear");
     await c.req("send", { text: "fresh start" });
     await c.waitFor((x) => idle(x) && x.items.some((i) => i.text === "ok: fresh start"), 5000);
     const { sessions } = await c.req("sessions");

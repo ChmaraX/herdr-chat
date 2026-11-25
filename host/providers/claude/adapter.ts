@@ -83,6 +83,8 @@ export class ClaudeAdapter implements ProviderAdapter {
   private settleTimer: NodeJS.Timeout | null = null;
   private interruptTimer: NodeJS.Timeout | null = null;
   private compactWaiter: { resolve: () => void; reject: (e: Error) => void } | null = null;
+  // An in-process /clear in flight: `init` carries the new session id, the `local_command: "clear"` result ends it.
+  private clearWaiter: { resolve: () => void; reject: (e: Error) => void } | null = null;
 
   constructor(opts: AdapterOptions) {
     // `-- --model haiku` on the host's command line: the starting model, which /model can change later.
@@ -240,6 +242,10 @@ export class ClaudeAdapter implements ProviderAdapter {
       this.compactWaiter.reject(new Error("Claude Code stopped"));
       this.compactWaiter = null;
     }
+    if (this.clearWaiter) {
+      this.clearWaiter.reject(new Error("Claude Code stopped"));
+      this.clearWaiter = null;
+    }
   }
 
   /** Stall watchdog: a run with no record for a while (and nothing for the user to answer) gets a warning. */
@@ -289,6 +295,11 @@ export class ClaudeAdapter implements ProviderAdapter {
     }
     const before = this.mapper.running;
     for (const ev of this.mapper.map(rec)) this.forward(ev);
+    if (rec.type === "result" && rec.local_command === "clear" && this.clearWaiter) {
+      const w = this.clearWaiter;
+      this.clearWaiter = null;
+      w.resolve();
+    }
     if (before && !this.mapper.running && this.interruptTimer) {
       clearTimeout(this.interruptTimer);
       this.interruptTimer = null;
@@ -330,6 +341,12 @@ export class ClaudeAdapter implements ProviderAdapter {
   private onSystem(rec: Rec): void {
     switch (rec.subtype) {
       case "init": {
+        // An in-process /clear: the CLI keeps running and starts a new session under a new id.
+        if (this.clearWaiter && typeof rec.session_id === "string" && rec.session_id !== this.sessionId) {
+          this.sessionId = this.mapper.sessionId = rec.session_id;
+          this.file = sessionPath(this.opts.cwd, rec.session_id);
+          this.emit({ type: "session", id: rec.session_id, file: this.file, name: null });
+        }
         if (typeof rec.model === "string" && rec.model !== this.mapper.initModel) {
           this.mapper.initModel = rec.model;
           this.emitModel();
@@ -656,8 +673,42 @@ export class ClaudeAdapter implements ProviderAdapter {
     });
   }
 
+  /**
+   * /clear inside the running CLI, as its TUI does: no process stop (up to 2.5 s) and no
+   * respawn (about 1 s). A CLI that doesn't answer in time, or has stopped, is restarted instead.
+   */
   async newSession(): Promise<void> {
-    await this.restart(null);
+    const p = this.proc;
+    if (!p || p.exited) return this.restart(null);
+    try {
+      await this.clearInProcess(p);
+    } catch {
+      await this.restart(null);
+    }
+  }
+
+  private clearInProcess(p: ClaudeProcess): Promise<void> {
+    this.costBase += this.mapper.totalCost;
+    const old = this.mapper;
+    const m = new ClaudeMapper();
+    m.permissionMode = old.permissionMode;
+    m.initModel = old.initModel;
+    m.terminalCommands = old.terminalCommands;
+    m.sawStates = old.sawStates;
+    m.sessionId = old.sessionId;
+    this.mapper = m;
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.clearWaiter === w) this.clearWaiter = null;
+        reject(new Error("Claude Code did not finish /clear"));
+      }, 15_000);
+      const w = {
+        resolve: () => (clearTimeout(timer), resolve()),
+        reject: (e: Error) => (clearTimeout(timer), reject(e)),
+      };
+      this.clearWaiter = w;
+      p.write({ type: "user", message: { role: "user", content: "/clear" }, parent_tool_use_id: null, uuid: randomUUID(), priority: "next" });
+    });
   }
 
   /** Claude Code would refuse it (`claude -p --resume` exits 1), and only once this chat's own agent had stopped. */
