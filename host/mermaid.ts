@@ -167,8 +167,8 @@ export function renderMermaid(source: string, theme: Theme): MermaidResult {
     error = e instanceof Error ? e.message : String(e);
   }
   try {
-    if (source.length > MAX_SOURCE) throw new Error(error);
-    const art = lib!.renderMermaidASCII(source, { colorMode: "ansi16" });
+    if (!lib || source.length > MAX_SOURCE) throw new Error(error);
+    const art = lib.renderMermaidASCII(source, { colorMode: "ansi16" });
     return { ascii: art.split("\n").map((l) => toSpans(l)), error };
   } catch {
     return { ascii: source.split("\n").map((l) => (l ? [{ text: l }] : [])), error };

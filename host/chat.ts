@@ -541,6 +541,7 @@ export class Chat {
     if (gen !== this.generation) return;
     await this.warm; // history and live items are rendered from here on
     if (gen !== this.generation) return;
+    for (const it of this.timeline.items) if (this.render.renderedCold(it)) this.timeline.touch(it.id); // re-sent highlighted
     for (const t of this.startupTimers) clearTimeout(t);
     if (this.stalledPrefixes().some((p) => this.state.error?.startsWith(p))) this.set({ error: null });
     // A startup dialog with a timeout: the agent resolved it itself, which is how it got past startup.
