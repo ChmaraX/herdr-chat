@@ -331,7 +331,7 @@ export class AgyAdapter implements ProviderAdapter {
       });
     };
 
-    const init = await p.request<Rec>("initialize", {
+    const init = await p.request("initialize", {
       protocolVersion: 1,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
       clientInfo: { name: CLIENT_NAME, version: CLIENT_VERSION },
@@ -353,7 +353,7 @@ export class AgyAdapter implements ProviderAdapter {
     this.resetRunState();
     this.loadedHistory = [];
     this.contextUsed = 0;
-    const res = await p.request<Rec>("session/new", { cwd: this.opts.cwd, mcpServers: [] }, 30_000);
+    const res = await p.request("session/new", { cwd: this.opts.cwd, mcpServers: [] }, 30_000);
     const sid = str(res?.sessionId);
     if (!sid) throw new AgentError("Antigravity did not return a sessionId");
     this.sessionId = sid;
@@ -401,7 +401,7 @@ export class AgyAdapter implements ProviderAdapter {
     this.replayBuffer = [];
     this.loadedHistory = [];
     try {
-      const res = await p.request<Rec>("session/load", { sessionId, cwd: this.opts.cwd, mcpServers: [] }, 30_000);
+      const res = await p.request("session/load", { sessionId, cwd: this.opts.cwd, mcpServers: [] }, 30_000);
       const sid = str(res?.sessionId) ?? sessionId;
       this.sessionId = sid;
       const tail = this.mapper.finishTurn({ stopReason: "stop", model: this.modelRef() });
@@ -562,7 +562,7 @@ export class AgyAdapter implements ProviderAdapter {
       this.fresh = false;
       this.emit({ type: "session", file: agySessionPath(sessionId) });
     }
-    proc.request<Rec>("session/prompt", { sessionId, prompt: blocks }, 0).then(
+    proc.request("session/prompt", { sessionId, prompt: blocks }, 0).then(
       (res) => this.settle(proc, gen, { stopReason: mapStopReason(res?.stopReason), usage: mapUsage(res?.usage) }),
       (err) => {
         if (err instanceof AgyRpcError && err.agentExited) return; // reported as `exited`: no run to settle
@@ -616,7 +616,7 @@ export class AgyAdapter implements ProviderAdapter {
     list: async (scope: SessionScope): Promise<SessionInfo[]> => {
       const proc = this.require();
       const params: Rec = scope === "cwd" ? { cwd: this.opts.cwd } : {};
-      const res = await proc.request<Rec>("session/list", params, 15_000);
+      const res = await proc.request("session/list", params, 15_000);
       const raw = Array.isArray(res?.sessions) ? (res.sessions as Rec[]) : [];
       return raw
         .filter((s) => typeof s?.sessionId === "string")
@@ -681,7 +681,7 @@ export class AgyAdapter implements ProviderAdapter {
     const sessionId = this.requireSession();
     const opt = this.configOpt("model");
     if (opt && Array.isArray(opt.options) && opt.options.some((o: Rec) => o?.value === id)) {
-      const res = await proc.request<Rec>("session/set_config_option", { sessionId, configId: "model", value: id }, 15_000);
+      const res = await proc.request("session/set_config_option", { sessionId, configId: "model", value: id }, 15_000);
       if (Array.isArray(res?.configOptions)) {
         this.configOptions = res.configOptions;
         this.emitConfigState();
@@ -696,7 +696,7 @@ export class AgyAdapter implements ProviderAdapter {
   async setThinking(level: string): Promise<void> {
     const proc = this.require();
     const sessionId = this.requireSession();
-    const res = await proc.request<Rec>("session/set_config_option", { sessionId, configId: "thought_level", value: level }, 15_000);
+    const res = await proc.request("session/set_config_option", { sessionId, configId: "thought_level", value: level }, 15_000);
     if (Array.isArray(res?.configOptions)) {
       this.configOptions = res.configOptions;
       this.emitConfigState();

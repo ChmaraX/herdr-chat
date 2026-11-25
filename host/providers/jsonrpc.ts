@@ -171,7 +171,7 @@ export class JsonRpcProcess {
   }
 
   /** A request with a correlated reply. `timeoutMs: 0` waits forever. */
-  request<T = any>(method: string, params: Rec = {}, timeoutMs = 30_000): Promise<T> {
+  request(method: string, params: Rec = {}, timeoutMs = 30_000): Promise<any> {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       if (this.exited) {
