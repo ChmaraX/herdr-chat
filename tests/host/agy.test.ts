@@ -1,266 +1,171 @@
-import test from "node:test";
+// Antigravity (`agy acp`) through the real host and a real client, on tests/fake-agy. Its HOME is
+// the test's own temp dir: the conversation "files" (and the chat's locks beside them) live under
+// $HOME/.gemini/antigravity-cli/conversations/, never in the runner's home.
+import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { AgyAdapter, agySessionPath } from "../../host/providers/agy/adapter.ts";
-import { AGY_TOOLS } from "../../host/providers/agy/tools.ts";
-import { AgyMapper } from "../../host/providers/agy/mapper.ts";
-import { presentTool, applyResult } from "../../host/tools.ts";
-import type { AdapterHost, NormalizedEvent } from "../../host/providers/types.ts";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { Host, idle, sleep, ROOT } from "./harness.ts";
+import type { HostOptions } from "./harness.ts";
+import { lockPath } from "../../host/registry.ts";
 
-const FAKE_AGY = resolve(fileURLToPath(new URL("../fake-agy/fake-agy.mjs", import.meta.url)));
+const FAKE_AGY = join(ROOT, "tests", "fake-agy", "fake-agy.mjs");
 chmodSync(FAKE_AGY, 0o755);
 
-function makeHost(): { host: AdapterHost; events: NormalizedEvent[]; waitFor: (pred: (ev: NormalizedEvent) => boolean, ms?: number) => Promise<NormalizedEvent> } {
-  const events: NormalizedEvent[] = [];
-  const waiters: { pred: (ev: NormalizedEvent) => boolean; resolve: (ev: NormalizedEvent) => void; timer: NodeJS.Timeout }[] = [];
-  const host: AdapterHost = {
-    emit(ev) {
-      events.push(ev);
-      for (let i = waiters.length - 1; i >= 0; i--) {
-        const w = waiters[i]!;
-        if (w.pred(ev)) {
-          clearTimeout(w.timer);
-          waiters.splice(i, 1);
-          w.resolve(ev);
-        }
-      }
-    },
-    log() {},
-    get running() { return false; },
-    get working() { return false; },
-  };
-  const waitFor = (pred: (ev: NormalizedEvent) => boolean, ms = 5000): Promise<NormalizedEvent> => {
-    const existing = events.find(pred);
-    if (existing) return Promise.resolve(existing);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`Timed out waiting for event (saw: ${events.map((e) => e.type).join(", ")})`)), ms);
-      waiters.push({ pred, resolve, timer });
-    });
-  };
-  return { host, events, waitFor };
+const running = (x: any) => x.items.some((i: any) => i.kind === "tool" && i.status === "running");
+const answered = (re: RegExp) => (x: any) => idle(x) && x.items.some((i: any) => i.kind === "assistant" && re.test(i.text) && !i.streaming);
+const users = (c: any) => c.items.filter((i: any) => i.kind === "user").map((i: any) => `${i.source}:${i.text}`);
+const errors = (c: any) => c.items.filter((i: any) => i.kind === "notice" && i.level === "error").map((i: any) => i.text);
+
+/** The host on fake-agy, HOME (and agy's settings.json: default model and mode) in its own temp dir. */
+async function start(name: string, settings?: object, more: Partial<HostOptions> = {}): Promise<Host> {
+  const h = new Host({ name, provider: "agy", agent: FAKE_AGY, ...more });
+  const home = join(h.dir, "home");
+  const agyDir = join(home, ".gemini", "antigravity-cli");
+  mkdirSync(agyDir, { recursive: true });
+  if (settings) writeFileSync(join(agyDir, "settings.json"), JSON.stringify(settings));
+  h.opts.env = { HOME: home, AGY_SETTINGS_PATH: join(agyDir, "settings.json"), ...(more.env ?? {}) };
+  await h.start();
+  await h.client.waitFor(idle, 10_000);
+  return h;
 }
 
-test("AGY_TOOLS classifies Antigravity tools and exit codes", () => {
-  const bash = presentTool(AGY_TOOLS, "run_command", { CommandLine: "echo hi" }, "/repo");
-  assert.equal(bash.title, "$ echo hi");
-  assert.equal(bash.detail.type, "bash");
-  const bashDone = applyResult(AGY_TOOLS, "run_command", bash.detail, { exit_code: 2 }, true, "fail", "/repo");
-  assert.equal(bashDone.type, "bash");
-  if (bashDone.type === "bash") assert.equal(bashDone.exitCode, 2);
-
-  const read = presentTool(AGY_TOOLS, "read_file", { Path: "/repo/a.ts", StartLine: 10, EndLine: 20 }, "/repo");
-  assert.equal(read.title, "Read a.ts:10-20");
-
-  const edit = presentTool(AGY_TOOLS, "edit_file", { Path: "/repo/a.ts", Target: "old", Replacement: "new" }, "/repo");
-  assert.equal(edit.title, "Edit a.ts");
-  assert.equal(edit.detail.type, "edit");
-  if (edit.detail.type === "edit") assert.match(edit.detail.diff ?? "", /-old\n\+new/);
-
-  const search = presentTool(AGY_TOOLS, "grep_search", { Query: "foo", SearchPath: "/repo/src" }, "/repo");
-  assert.equal(search.title, "Grep foo in src");
-
-  const mcp = presentTool(AGY_TOOLS, "call_mcp_tool", { ServerName: "revu", ToolName: "revu_review" }, "/repo");
-  assert.equal(mcp.title, "mcp revu · revu_review");
-});
-
-test("AgyMapper maps thinking, tool calls, text, and replay turns", () => {
-  const m = new AgyMapper();
-  const ev1 = m.onUpdate({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "hmm" } });
-  assert.deepEqual(ev1.map((e) => e.type), ["assistant_start", "assistant_block_start", "assistant_delta"]);
-
-  const ev2 = m.onUpdate({ sessionUpdate: "tool_call", toolCallId: "c1", name: "run_command", args: { CommandLine: "ls" }, status: "in_progress" });
-  assert.deepEqual(ev2.map((e) => e.type), ["assistant_block_end", "tool_call", "tool_started"]);
-
-  const ev3 = m.onUpdate({ sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed", content: [{ type: "content", content: { type: "text", text: "a.txt" } }] });
-  assert.equal(ev3[0]?.type, "tool_ended");
-
-  const ev4 = m.onUpdate({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Done." } });
-  assert.deepEqual(ev4.map((e) => e.type), ["assistant_block_start", "assistant_delta"]);
-
-  const end = m.finishTurn({ stopReason: "stop" });
-  assert.deepEqual(end.map((e) => e.type), ["assistant_block_end", "assistant_end"]);
-});
-
-test("AgyAdapter full lifecycle: start, prompt, model/effort/mode, permissions, resume, and abort", async () => {
-  const prevSettings = process.env.AGY_SETTINGS_PATH;
-  process.env.AGY_SETTINGS_PATH = join(tmpdir(), `herdr-chat-nonexistent-${Date.now()}.json`);
-  const { host, events, waitFor } = makeHost();
-  const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
+test("agy: a turn streams, its tool card ends, and the conversation becomes resumable (file, lock) only at its first turn", async () => {
+  const h = await start("agy-turn", { model: "Orchestrator (Neon)", agentMode: "accept-edits" });
   try {
-    const started = await adapter.start(null, host);
-    assert.deepEqual(started, { streaming: false, hasHistory: false });
-    assert.equal(adapter.alive, true);
-    assert.ok(events.some((e) => e.type === "version" && e.version === "1.5.14-test"));
-    assert.ok(events.some((e) => e.type === "session" && e.id === "sess-new-1" && e.file === agySessionPath("sess-new-1")));
-    assert.ok(events.some((e) => e.type === "model" && e.model.id === "gemini-4-neon"));
-    assert.ok(events.some((e) => e.type === "thinking" && e.level === "high"));
-    assert.deepEqual(adapter.tuiCommand(agySessionPath("sess-new-1")), [FAKE_AGY, "--conversation", "sess-new-1"]);
-
-    // Wait briefly for available_commands_update notification
-    await new Promise((r) => setTimeout(r, 50));
-    const cmds = await adapter.commands();
-    assert.ok(cmds.some((c) => c.name === "plan"));
-
-    // 1. Prompt with thinking + tool + text + usage
-    const disp = await adapter.prompt({ id: "m1", text: "Say hello", images: [], mode: "auto", busy: false });
-    assert.equal(disp.disposition, "started");
-    await waitFor((e) => e.type === "run_settled");
-    assert.ok(events.some((e) => e.type === "user_message" && e.clientId === "m1"));
-    assert.ok(events.some((e) => e.type === "tool_ended" && e.callId === "call_1" && e.output.includes("hi")));
-    assert.ok(events.some((e) => e.type === "assistant_end" && e.stopReason === "stop"));
-    const usage = await adapter.usage();
-    assert.equal(usage.contextTokens, 1500);
-    assert.equal(usage.contextWindow, 1048576);
-
-    // 2. Settings: model, thinking, mode
-    const models = await adapter.listModels();
-    assert.ok(models.some((m) => m.id === "gemini-3.8-flash"));
-    await adapter.setModel("antigravity", "gemini-3.8-flash");
-    await adapter.setThinking("medium");
-    await adapter.setPermissionMode("plan");
-    assert.ok(events.some((e) => e.type === "model" && e.model.id === "gemini-3.8-flash"));
-    assert.ok(events.some((e) => e.type === "thinking" && e.level === "medium"));
-    assert.ok(events.some((e) => e.type === "permission_mode" && e.mode === "plan"));
-
-    // 3. Interactive permission request
-    events.length = 0;
-    await adapter.prompt({ id: "m2", text: "ASK_PERM", images: [], mode: "auto", busy: false });
-    const askEv = await waitFor((e) => e.type === "ask");
-    assert.equal(askEv.type, "ask");
-    assert.equal(askEv.ask.kind, "permission");
-    adapter.answer(askEv.ask.id, { choice: "allow_once" });
-    await waitFor((e) => e.type === "run_settled");
-    assert.ok(events.some((e) => e.type === "tool_ended" && e.callId === "call_perm_1" && !e.isError && !e.declined));
-
-    // 4. Session list + switchSession + history replay
-    assert.equal(adapter.sessions.kind, "agent");
-    const list = await adapter.sessions.list("cwd");
-    assert.equal(list.length, 1);
-    assert.equal(list[0]!.path, agySessionPath("sess-old-1"));
-    await adapter.switchSession(list[0]!.path);
-    const hist = await adapter.history();
-    assert.ok(hist.some((e) => e.type === "user_message" && e.text === "Old question"));
-    assert.ok(hist.some((e) => e.type === "tool_ended" && e.callId === "call_hist_1"));
-    assert.ok(hist.some((e) => e.type === "assistant_end"));
-
-    // 5. Abort mid-turn
-    events.length = 0;
-    await adapter.prompt({ id: "m3", text: "HANG", images: [], mode: "auto", busy: false });
-    await waitFor((e) => e.type === "assistant_delta");
-    adapter.abort();
-    const settled = await waitFor((e) => e.type === "run_settled");
-    assert.equal(settled.type, "run_settled");
-    assert.equal(settled.aborted, true);
+    const c = h.client;
+    assert.equal(c.state.provider, "agy");
+    assert.equal(c.state.capabilities.steer, false);
+    // agy's own defaults, applied before turn 1 (agy acp ignores its settings.json).
+    assert.equal(c.state.model?.id, "gemini-pro-orchestrator-neon");
+    assert.equal(c.state.permissionMode, "accept-edits");
+    assert.equal(c.state.sessionFile, null, "no conversation file before the first turn: a restart now starts a new one");
+    await c.req("send", { text: "check the repo" });
+    await c.waitFor(answered(/Hello world!/), 10_000, "answered");
+    const home = h.opts.env!.HOME!;
+    const file = join(home, ".gemini", "antigravity-cli", "conversations", "sess-new-1.db");
+    assert.equal(c.state.sessionFile, file, "the file is announced at the first turn");
+    assert.ok(existsSync(lockPath(file)), "the chat's lock is in the test's HOME");
+    const tool = c.items.find((i: any) => i.kind === "tool");
+    assert.equal(tool?.status, "done");
+    assert.deepEqual(users(c), ["composer:check the repo"]);
+    assert.equal(c.state.permissionMode, "accept-edits", "a config update after the turn keeps the mode");
+    assert.deepEqual(errors(c), []);
+    h.artifact("agy-turn");
   } finally {
-    await adapter.dispose();
-    assert.equal(adapter.alive, false);
-    if (prevSettings === undefined) delete process.env.AGY_SETTINGS_PATH;
-    else process.env.AGY_SETTINGS_PATH = prevSettings;
+    await h.stop();
   }
 });
 
-test("AgyAdapter applies default model and agentMode from settings.json on new sessions", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "herdr-chat-agy-settings-"));
-  const settingsFile = join(dir, "settings.json");
-  const prevSettings = process.env.AGY_SETTINGS_PATH;
-  process.env.AGY_SETTINGS_PATH = settingsFile;
-
+test("agy: the mode set from the chip survives a later model change (agy's config update)", async () => {
+  const h = await start("agy-mode");
   try {
-    // 1. Config option label + agentMode
-    writeFileSync(settingsFile, JSON.stringify({ model: "Orchestrator (Neon)", agentMode: "accept-edits" }));
-    {
-      const { host, events } = makeHost();
-      const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
-      try {
-        await adapter.start(null, host);
-        const lastModel = [...events].reverse().find((e) => e.type === "model");
-        const lastMode = [...events].reverse().find((e) => e.type === "permission_mode");
-        assert.equal(lastModel?.type, "model");
-        if (lastModel?.type === "model") assert.equal(lastModel.model.id, "gemini-pro-orchestrator-neon");
-        assert.equal(lastMode?.type, "permission_mode");
-        if (lastMode?.type === "permission_mode") assert.equal(lastMode.mode, "accept-edits");
-      } finally {
-        await adapter.dispose();
-      }
-    }
-
-    // 2. availableModels label with effort (calls session/set_model + emits config_option_update)
-    writeFileSync(settingsFile, JSON.stringify({ model: "Gemini 3.8 Flash (Low)" }));
-    {
-      const { host, events, waitFor } = makeHost();
-      const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
-      try {
-        await adapter.start(null, host);
-        await waitFor((e) => e.type === "model" && e.model.id === "gemini-3.8-flash");
-        await waitFor((e) => e.type === "thinking" && e.level === "low");
-        const lastModel = [...events].reverse().find((e) => e.type === "model");
-        assert.equal(lastModel?.type, "model");
-        if (lastModel?.type === "model") assert.equal(lastModel.model.id, "gemini-3.8-flash");
-      } finally {
-        await adapter.dispose();
-      }
-    }
-
-    // 3. Unknown/stale model is ignored cleanly without failing session start
-    writeFileSync(settingsFile, JSON.stringify({ model: "Nonexistent Model 99" }));
-    {
-      const { host, events } = makeHost();
-      const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
-      try {
-        await adapter.start(null, host);
-        const lastModel = [...events].reverse().find((e) => e.type === "model");
-        assert.equal(lastModel?.type, "model");
-        if (lastModel?.type === "model") assert.equal(lastModel.model.id, "gemini-4-neon");
-      } finally {
-        await adapter.dispose();
-      }
-    }
+    const c = h.client;
+    await c.req("set_permission_mode", { mode: "plan" });
+    await c.waitFor((x) => x.state.permissionMode === "plan", 3000, "plan");
+    await c.req("set_model", { model: "antigravity/gemini-3.8-flash" });
+    await c.waitFor((x) => x.state.model?.id === "gemini-3.8-flash", 3000, "model changed");
+    await sleep(200);
+    assert.equal(c.state.permissionMode, "plan", "the model change didn't put the old mode back");
+    h.artifact("agy-mode");
   } finally {
-    if (prevSettings === undefined) delete process.env.AGY_SETTINGS_PATH;
-    else process.env.AGY_SETTINGS_PATH = prevSettings;
-    rmSync(dir, { recursive: true, force: true });
+    await h.stop();
   }
 });
 
-test("AgyAdapter flushes mid-stream text steer at the usage_update -> next chunk boundary", async () => {
-  const prevSettings = process.env.AGY_SETTINGS_PATH;
-  process.env.AGY_SETTINGS_PATH = join(tmpdir(), `herdr-chat-nonexistent-stream-${Date.now()}.json`);
-  const { host, events, waitFor } = makeHost();
-  const adapter = new AgyAdapter({ cwd: "/tmp", command: FAKE_AGY, args: [], log() {} });
+test("agy: Enter while it works is held as a follow-up (agy takes no steers), sent after the run, below the reply before it", async () => {
+  const h = await start("agy-hold");
   try {
-    await adapter.start(null, host);
-    events.length = 0;
-    const d1 = await adapter.prompt({ id: "p1", text: "STREAM_SLOW", images: [], mode: "auto", busy: false });
-    assert.equal(d1.disposition, "started");
-    await waitFor((e) => e.type === "assistant_delta");
-
-    const d2 = await adapter.prompt({ id: "s1", text: "add pineapple", images: [], mode: "auto", busy: true });
-    assert.equal(d2.disposition, "queued");
-    assert.ok(events.some((e) => e.type === "queue_changed" && e.steering[0] === "add pineapple"));
-
-    await waitFor((e) => e.type === "run_settled");
-    const settledCount = events.filter((e) => e.type === "run_settled").length;
-    assert.equal(settledCount, 1, "only one run_settled for steered turn");
-
-    const seq = events
-      .filter((e) => e.type === "assistant_end" || e.type === "user_message" || e.type === "run_settled")
-      .map((e) => (e.type === "user_message" ? `user:${e.clientId}` : e.type === "assistant_end" ? `assistant:${e.content.map((b) => (b && b.type === "text" ? b.text : "")).join("")}` : "settled"));
-    assert.deepEqual(seq, [
-      "user:p1",
-      "assistant:Part 1. Part 1 done.",
-      "user:s1",
-      "assistant:Steered reply: add pineapple",
-      "settled",
-    ]);
-    const lastQueue = [...events].reverse().find((e) => e.type === "queue_changed");
-    assert.equal(lastQueue?.type, "queue_changed");
-    if (lastQueue?.type === "queue_changed") assert.deepEqual(lastQueue.steering, []);
+    const c = h.client;
+    await c.req("send", { text: "SLOW first" });
+    await c.waitFor(running, 5000, "tool running");
+    assert.equal((await c.req("send", { text: "ECHO: second" })).disposition, "queued");
+    await c.waitFor((x) => x.state.queue.followUp.length === 1, 2000, "held");
+    assert.deepEqual(c.state.queue.steering, []);
+    assert.deepEqual(c.state.queue.followUpRemovable, [true], "the chat holds it: it can still be taken back");
+    await assert.rejects(c.req("queue_move", { message: c.state.queue.followUpIds[0], to: "steer" }), /takes no steers/);
+    assert.deepEqual(c.state.queue.followUp, ["ECHO: second"], "a refused move leaves it held");
+    await c.waitFor(answered(/^ok: second/), 10_000, "the held one answered after the run");
+    const seen = c.items.filter((i: any) => i.kind === "user" || i.kind === "assistant").map((i: any) => `${i.kind}:${i.text}`);
+    assert.deepEqual(seen, ["user:SLOW first", "assistant:ok: SLOW first", "user:ECHO: second", "assistant:ok: second"]);
+    assert.deepEqual(errors(c), [], "no prompt sent while one ran (fake-agy refuses a second one)");
+    h.artifact("agy-hold");
   } finally {
-    await adapter.dispose();
-    if (prevSettings === undefined) delete process.env.AGY_SETTINGS_PATH;
-    else process.env.AGY_SETTINGS_PATH = prevSettings;
+    await h.stop();
+  }
+});
+
+test("agy: Esc with a held message gives it back unsent, and the run ends aborted", async () => {
+  const h = await start("agy-abort");
+  try {
+    const c = h.client;
+    await c.req("send", { text: "HANG" });
+    await c.waitFor((x) => x.state.phase === "working" && x.items.some((i: any) => i.kind === "thinking"), 5000, "thinking");
+    await c.req("send", { text: "after the hang" });
+    await c.waitFor((x) => x.state.queue.followUp.length === 1, 2000, "held");
+    const { restored } = await c.req("abort");
+    assert.deepEqual(restored, ["after the hang"]);
+    await c.waitFor(idle, 5000, "idle after abort");
+    await sleep(300);
+    assert.deepEqual(users(c), ["composer:HANG"], "never sent");
+    assert.deepEqual(c.state.queue, { steering: [], followUp: [] });
+    assert.equal(c.items.filter((i: any) => i.kind === "assistant").at(-1)?.stopReason, "aborted");
+    assert.deepEqual(errors(c), []);
+    h.artifact("agy-abort");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("agy: a permission card answered, then the run settles", async () => {
+  const h = await start("agy-perm");
+  try {
+    const c = h.client;
+    await c.req("send", { text: "ASK_PERM" });
+    await c.waitFor((x) => x.state.dialog?.method === "permission", 5000, "card");
+    await c.req("dialog_answer", { dialog: c.state.dialog.id, choice: "allow_once" });
+    await c.waitFor(answered(/Allowed and ran/), 5000, "ran");
+    assert.equal(c.items.find((i: any) => i.kind === "tool")?.status, "done");
+    h.artifact("agy-perm");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("agy: agy exits mid-turn: the run closes with the exit, a held message comes back, the next send restarts it", async () => {
+  const h = await start("agy-crash");
+  try {
+    const c = h.client;
+    await c.req("send", { text: "CRASH now" });
+    await c.waitFor((x) => x.state.phase === "exited", 8000, "exited");
+    assert.match(c.state.error ?? "", /crashing mid-turn|exited/);
+    assert.ok(c.items.every((i: any) => !i.streaming), "nothing left streaming");
+    const r = await c.req("send", { text: "ECHO: back" });
+    assert.ok(["started", "pending"].includes(r.disposition));
+    await c.waitFor(answered(/^ok: back/), 10_000, "answered after the restart");
+    h.artifact("agy-crash");
+  } finally {
+    await h.stop();
+  }
+});
+
+test("agy: /resume replays a conversation's history and names the chat with its title", async () => {
+  const h = await start("agy-resume");
+  try {
+    const c = h.client;
+    let list = await c.req("sessions", { scope: "cwd" });
+    for (let i = 0; list.loading && i < 50; i++) {
+      await sleep(50);
+      list = await c.req("sessions", { scope: "cwd" });
+    }
+    const s = list.sessions.find((x: any) => /sess-old-1\.db$/.test(x.path));
+    assert.ok(s, `listed: ${JSON.stringify(list).slice(0, 300)}`);
+    await c.req("switch_session", { path: s.path });
+    await c.waitFor((x) => x.items.some((i: any) => i.kind === "user" && i.text === "Old question"), 5000, "history");
+    assert.equal(c.state.sessionName, "Previous Session");
+    assert.ok(c.items.some((i: any) => i.kind === "assistant" && /Old answer/.test(i.text)));
+    h.artifact("agy-resume");
+  } finally {
+    await h.stop();
   }
 });

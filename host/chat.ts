@@ -1111,7 +1111,9 @@ export class Chat {
     const imagePaths = Array.isArray(args.images) ? args.images.map(String) : [];
     if (!text.trim() && !imagePaths.length) throw new Error("Nothing to send");
     // A follow-up while working: the host holds it (a command too: it runs after the run) and sends it when the run settles.
-    if (args.mode === "followUp" && this.busy && this.adapter.alive) {
+    // An agent that takes no steers (capabilities.steer false) gets every message sent mid-run that way.
+    const holds = args.mode === "followUp" || !this.state.capabilities.steer;
+    if (holds && this.busy && this.adapter.alive) {
       this.held.push({ id: randomUUID(), text, images: imagePaths, ...(args.from ? { from: args.from } : {}) });
       this.publishQueue();
       return { disposition: "queued" };
@@ -1297,6 +1299,7 @@ export class Chat {
     if (to !== "steer" && to !== "followUp") throw new Error("queue_move needs `to`: \"steer\" or \"followUp\"");
     const inLane = to === "steer" ? this.agentQueue.steeringIds?.includes(id) : this.held.some((h) => h.id === id) || this.agentQueue.followUpIds?.includes(id);
     if (inLane) return {};
+    if (to === "steer" && !this.state.capabilities.steer) throw new Error(`${this.agent} takes no steers: it gets this after the run.`);
     const m = await this.takeQueued(id);
     const args = { text: m.text, images: m.images, ...(m.from ? { from: m.from } : {}) };
     // It has left its lane: rejected, it goes back to the composer, as a held follow-up does (drainHeld).
@@ -1606,7 +1609,7 @@ export class Chat {
     const program = argv[i];
     if (!token || !program) return Promise.resolve(null);
     const base = (p: string) => p.replace(/^.*\//, "").replace(/\.[mc]?[jt]s$/, "");
-    const names = new Set(["pi", "claude", "codex", "agy", base(program)]);
+    const names = new Set(["pi", "claude", "codex", base(program)]);
     return new Promise((resolve) => {
       execFile("ps", ["-Ao", "pid=,args="], { timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
         if (err) return resolve(null);

@@ -25,7 +25,7 @@ release is built (below).
 ## Tests
 
 ```sh
-npm test                    # the host end to end: the real host, real TCP and WebSocket clients, fake Pi/Claude/Codex
+npm test                    # the host end to end: the real host, real TCP and WebSocket clients, fake Pi/Claude/Codex/Antigravity
 npx tsc --noEmit -p .       # typecheck the host (npm run typecheck)
 tests/e2e/run.sh            # the mods in a private Herdr app (macOS)
 tests/box/box run <item>    # the same flows in the test box: Linux, Docker, offline
@@ -33,7 +33,7 @@ tests/box/box run <item>    # the same flows in the test box: Linux, Docker, off
 
 - **`npm test`** runs `tests/host/*.test.ts`: the real `herdr-chat-host`
   process against the fake agents (`tests/fake-pi/`, `tests/fake-claude/`,
-  `tests/fake-codex/`) and recorded real sessions (`tests/fixtures/`).
+  `tests/fake-codex/`, `tests/fake-agy/`) and recorded real sessions (`tests/fixtures/`).
   `LIVE=1 npm test` adds one run on real Pi.
 - **`tests/e2e/run.sh [artifacts dir] [flows…]`** starts a private Herdr app
   with its own app home and its own herdr-core session, installs the mods

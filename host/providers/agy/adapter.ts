@@ -9,6 +9,7 @@ import { AgyProcess, AgyRpcError, type RequestId } from "./rpc.ts";
 import { AgyMapper, mapStopReason, mapUsage } from "./mapper.ts";
 import { AGY_TOOLS } from "./tools.ts";
 import { agentEnv } from "../env.ts";
+import { num, str } from "../../tools.ts";
 import { AgentError } from "../types.ts";
 import type {
   AdapterHost,
@@ -29,8 +30,9 @@ import type {
   SessionInfo,
   SessionScope,
   SessionSource,
-  SkillLead,
   StartInfo,
+  StopReason,
+  Usage,
   UsageInfo,
 } from "../types.ts";
 
@@ -47,14 +49,6 @@ export const AGY_PERMISSION_MODES: PermissionMode[] = [
 ];
 
 type PendingAsk = { rpcId: RequestId; optionIds: Set<string> };
-type QueuedSteer = {
-  id: string;
-  text: string;
-  lead?: SkillLead;
-  images: ImageBlock[];
-  dispatched: boolean;
-  sawUsage: boolean;
-};
 
 export function agySessionPath(sessionId: string): string {
   return join(homedir(), ".gemini", "antigravity-cli", "conversations", `${sessionId}.db`);
@@ -80,12 +74,6 @@ export function readAgyUserSettings(settingsPath?: string): { model?: string; ag
   }
 }
 
-function str(v: unknown): string | undefined {
-  return typeof v === "string" ? v : undefined;
-}
-function num(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-}
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -108,8 +96,9 @@ export class AgyAdapter implements ProviderAdapter {
   readonly id = "agy";
   readonly name = "Antigravity";
   readonly tools = AGY_TOOLS;
+  // No steers: ACP runs one prompt per session at a time, so the host holds what is sent mid-run until it settles.
   readonly capabilities: Capabilities = {
-    steer: true,
+    steer: false,
     followUp: true,
     thinkingLevels: ["low", "medium", "high", "xhigh"],
     permissions: true,
@@ -141,13 +130,16 @@ export class AgyAdapter implements ProviderAdapter {
   private contextWindow: number | null = null;
 
   private activePrompt = false;
-  private activePromptGen = 0;
-  private inFlightPrompts = new Set<number>();
-  private steering: QueuedSteer[] = [];
+  /** Bumped by every reset: a session/prompt reply from before it is ignored. */
+  private promptGen = 0;
   private aborting = false;
+  /** A new session's conversation exists once its first turn starts: until then it has no file to resume or lock. */
+  private fresh = false;
   private replayBuffer: NormalizedEvent[] | null = null;
   private loadedHistory: NormalizedEvent[] = [];
   private asks = new Map<string, PendingAsk>();
+  /** Each conversation's title, from the last session/list (/resume names the chat with it). */
+  private titles = new Map<string, string | null>();
 
   constructor(opts: AdapterOptions) {
     this.opts = opts;
@@ -266,26 +258,11 @@ export class AgyAdapter implements ProviderAdapter {
     }
   }
 
-  private resetRunState(emitClearedQueue = false): void {
+  private resetRunState(): void {
     this.activePrompt = false;
-    this.activePromptGen++;
-    this.inFlightPrompts.clear();
+    this.promptGen++;
     this.aborting = false;
     this.asks.clear();
-    if (this.steering.length) {
-      this.steering = [];
-      if (emitClearedQueue) this.emitQueue();
-    }
-  }
-
-  private emitQueue(): void {
-    this.emit({
-      type: "queue_changed",
-      steering: this.steering.map((s) => s.text),
-      followUp: [],
-      steeringIds: this.steering.map((s) => s.id),
-      followUpIds: [],
-    });
   }
 
   private promptBlocks(p: { text: string; images: ImageBlock[] }): Rec[] {
@@ -297,51 +274,12 @@ export class AgyAdapter implements ProviderAdapter {
     return blocks;
   }
 
-  private flushSteers(pred: (s: QueuedSteer) => boolean, opts: { closeTurn: boolean }): void {
-    const flushed: QueuedSteer[] = [];
-    const kept: QueuedSteer[] = [];
-    for (const s of this.steering) {
-      if (pred(s)) flushed.push(s);
-      else kept.push(s);
-    }
-    if (!flushed.length) return;
-    this.steering = kept;
-    if (opts.closeTurn) {
-      this.emitAll(this.mapper.finishTurn({ stopReason: "stop", model: this.modelRef() }));
-      this.emit({ type: "turn_end" });
-    }
-    for (const s of flushed) {
-      this.emit({
-        type: "user_message",
-        text: s.lead ? s.lead.rest : s.text,
-        images: s.images.length,
-        ...(s.images.length ? { imageBlocks: s.images } : {}),
-        ...(s.lead?.skills.length ? { skills: s.lead.skills } : {}),
-        clientId: s.id,
-      });
-    }
-    this.emitQueue();
-  }
-
-  private dispatchDeferredSteers(): void {
-    const proc = this.proc;
-    const sessionId = this.sessionId;
-    if (!proc || proc.exited || !sessionId || !this.activePrompt || this.aborting || this.asks.size > 0) return;
-    const pending = this.steering.filter((s) => !s.dispatched);
-    if (!pending.length) return;
-    for (const s of pending) s.dispatched = true;
-    this.emitQueue();
-    for (const s of pending) {
-      this.sendPromptRpc(proc, sessionId, this.promptBlocks(s), s.id);
-    }
-  }
-
   // ---------------------------------------------------------------- lifecycle
 
   async start(session: string | null, host: AdapterHost): Promise<StartInfo> {
     this.host = host;
     this.mapper.reset();
-    this.resetRunState(false);
+    this.resetRunState();
     this.loadedHistory = [];
     this.replayBuffer = null;
 
@@ -382,7 +320,7 @@ export class AgyAdapter implements ProviderAdapter {
     p.onExit = (info) => {
       if (this.proc !== p) return;
       this.proc = null;
-      this.resetRunState(false);
+      this.resetRunState();
       host.emit({
         type: "exited",
         code: info.code,
@@ -412,14 +350,16 @@ export class AgyAdapter implements ProviderAdapter {
 
   private async openNewSession(p: AgyProcess): Promise<void> {
     this.mapper.reset();
-    this.resetRunState(true);
+    this.resetRunState();
     this.loadedHistory = [];
     this.contextUsed = 0;
     const res = await p.request<Rec>("session/new", { cwd: this.opts.cwd, mcpServers: [] }, 30_000);
     const sid = str(res?.sessionId);
     if (!sid) throw new AgentError("Antigravity did not return a sessionId");
     this.sessionId = sid;
-    this.emit({ type: "session", id: sid, file: agySessionPath(sid), name: null });
+    this.fresh = true;
+    // No file yet: agy writes the conversation at its first turn (prompt), so a restart before then starts a new one.
+    this.emit({ type: "session", id: sid, file: null, name: null });
     this.applySessionMeta(res);
     await this.applyUserDefaults();
   }
@@ -453,10 +393,11 @@ export class AgyAdapter implements ProviderAdapter {
 
   private async openExistingSession(p: AgyProcess, sessionRef: string): Promise<boolean> {
     const sessionId = agySessionIdOf(sessionRef);
+    const name = this.titles.get(sessionId) ?? null;
     const prevSessionId = this.sessionId;
     this.sessionId = sessionId;
     this.mapper.reset();
-    this.resetRunState(true);
+    this.resetRunState();
     this.replayBuffer = [];
     this.loadedHistory = [];
     try {
@@ -467,7 +408,8 @@ export class AgyAdapter implements ProviderAdapter {
       const buffered = [...(this.replayBuffer ?? []), ...tail];
       this.replayBuffer = null;
       this.loadedHistory = buffered;
-      this.emit({ type: "session", id: sid, file: agySessionPath(sid) });
+      this.fresh = false;
+      this.emit({ type: "session", id: sid, file: agySessionPath(sid), name });
       this.applySessionMeta(res);
       return this.loadedHistory.length > 0;
     } catch (e) {
@@ -480,7 +422,7 @@ export class AgyAdapter implements ProviderAdapter {
   async dispose(): Promise<void> {
     const p = this.proc;
     this.proc = null;
-    this.resetRunState(false);
+    this.resetRunState();
     if (!p) return;
     await p.stop();
   }
@@ -488,7 +430,7 @@ export class AgyAdapter implements ProviderAdapter {
   kill(): void {
     const p = this.proc;
     this.proc = null;
-    this.resetRunState(false);
+    this.resetRunState();
     p?.killNow();
   }
 
@@ -522,9 +464,6 @@ export class AgyAdapter implements ProviderAdapter {
       const size = num(u.size);
       if (used !== undefined) this.contextUsed = used;
       if (size !== undefined && size > 0) this.contextWindow = size;
-      if (this.replayBuffer === null && !this.aborting && this.mapper.openToolCount === 0) {
-        for (const s of this.steering) if (s.dispatched) s.sawUsage = true;
-      }
       return;
     }
     if (kind === "config_option_update") {
@@ -535,15 +474,8 @@ export class AgyAdapter implements ProviderAdapter {
       return;
     }
 
+    if (kind === "current_mode_update") this.setModeCache(str(u.currentModeId));
     const replay = this.replayBuffer !== null;
-    const prevOpenTools = this.mapper.openToolCount;
-    if (!replay) {
-      if (kind === "tool_call") {
-        for (const s of this.steering) if (s.dispatched) s.sawUsage = false;
-      } else if (!this.aborting && (kind === "agent_thought_chunk" || kind === "agent_message_chunk") && prevOpenTools === 0) {
-        this.flushSteers((s) => s.dispatched && s.sawUsage, { closeTurn: true });
-      }
-    }
     const evs = this.mapper.onUpdate(u, { replay, model: this.modelRef() });
     if (replay) {
       for (const ev of evs) {
@@ -552,9 +484,6 @@ export class AgyAdapter implements ProviderAdapter {
       }
     } else {
       this.emitAll(evs);
-      if (!this.aborting && prevOpenTools > 0 && this.mapper.openToolCount === 0) {
-        this.flushSteers((s) => s.dispatched, { closeTurn: true });
-      }
     }
   }
 
@@ -603,125 +532,22 @@ export class AgyAdapter implements ProviderAdapter {
     } else {
       this.proc?.respond(open.rpcId, { outcome: { outcome: "cancelled" } });
     }
-    this.dispatchDeferredSteers();
   }
 
   // ---------------------------------------------------------------- turns
-
-  private sendPromptRpc(proc: AgyProcess, sessionId: string, blocks: Rec[], steerId?: string): void {
-    const gen = ++this.activePromptGen;
-    this.inFlightPrompts.add(gen);
-
-    void proc.request<Rec>("session/prompt", { sessionId, prompt: blocks }, 0).then(
-      (res) => {
-        if (this.proc !== proc) return;
-        this.inFlightPrompts.delete(gen);
-        if (gen !== this.activePromptGen) {
-          if (!this.aborting && res?.usage && this.mapper.openToolCount === 0) {
-            for (const s of this.steering) if (s.dispatched) s.sawUsage = true;
-          }
-          return;
-        }
-        const wasAborting = this.aborting;
-        this.aborting = false;
-        const stopReason = wasAborting ? "aborted" : mapStopReason(res?.stopReason);
-        const usage = mapUsage(res?.usage);
-        if (stopReason === "aborted") {
-          if (this.steering.length) {
-            this.steering = [];
-            this.emitQueue();
-          }
-        } else {
-          this.dispatchDeferredSteers();
-          if (this.activePromptGen !== gen) return;
-        }
-        this.emitAll(this.mapper.finishTurn({ stopReason, model: this.modelRef(), usage }));
-        this.emit({ type: "turn_end" });
-        if (stopReason !== "aborted") {
-          this.flushSteers((s) => s.dispatched, { closeTurn: false });
-        }
-        this.activePrompt = false;
-        this.emit({ type: "run_settled", aborted: stopReason === "aborted" });
-      },
-      (err) => {
-        if (this.proc !== proc) return;
-        this.inFlightPrompts.delete(gen);
-        const exited = err instanceof AgyRpcError && err.agentExited;
-        if (steerId && !exited && this.inFlightPrompts.size > 0) {
-          if (gen === this.activePromptGen) {
-            this.activePromptGen = Math.max(...this.inFlightPrompts);
-          }
-          const idx = this.steering.findIndex((s) => s.id === steerId);
-          if (idx >= 0) {
-            this.steering.splice(idx, 1);
-            this.emitQueue();
-          }
-          this.emit({
-            type: "notice",
-            level: "error",
-            source: "queue",
-            text: `Antigravity rejected the steer: ${errText(err)}`,
-          });
-          return;
-        }
-        if (gen !== this.activePromptGen) return;
-        this.activePrompt = false;
-        const aborted = this.aborting;
-        this.aborting = false;
-        if (this.steering.length) {
-          this.steering = [];
-          this.emitQueue();
-        }
-        if (!exited) {
-          this.emitAll(this.mapper.finishTurn({
-            stopReason: aborted ? "aborted" : "error",
-            ...(aborted ? {} : { error: errText(err) }),
-            model: this.modelRef(),
-          }));
-          this.emit({ type: "turn_end" });
-          this.emit({ type: "run_settled", aborted });
-        }
-      },
-    );
-  }
 
   async prompt(p: Prompt): Promise<{ disposition: Disposition }> {
     const proc = this.require();
     const sessionId = this.requireSession();
     const blocks = this.promptBlocks(p);
     if (!blocks.length) throw new AgentError("Nothing to send");
-
-    if (this.activePrompt || p.busy) {
-      if (!this.activePrompt) {
-        this.activePrompt = true;
-        this.aborting = false;
-        this.mapper.reset();
-        this.emit({ type: "run_started" });
-      }
-      const item: QueuedSteer = {
-        id: p.id,
-        text: p.text,
-        ...(p.lead ? { lead: p.lead } : {}),
-        images: p.images,
-        dispatched: false,
-        sawUsage: false,
-      };
-      this.steering.push(item);
-      if (this.asks.size === 0) {
-        item.dispatched = true;
-        this.emitQueue();
-        this.sendPromptRpc(proc, sessionId, blocks, p.id);
-      } else {
-        this.emitQueue();
-      }
-      return { disposition: "queued" };
-    }
+    // One prompt at a time: capabilities.steer is false, so the host holds what is sent mid-run.
+    if (this.activePrompt) throw new AgentError("Antigravity is still working: send it after this run, or press Esc to stop.");
 
     this.activePrompt = true;
     this.aborting = false;
     this.mapper.reset();
-
-    // Confirm the user message and mark the run active right away so Chat.send resolves immediately.
+    const gen = this.promptGen;
     this.emit({
       type: "user_message",
       text: p.lead ? p.lead.rest : p.text,
@@ -731,27 +557,41 @@ export class AgyAdapter implements ProviderAdapter {
       clientId: p.id,
     });
     this.emit({ type: "run_started" });
-    this.sendPromptRpc(proc, sessionId, blocks);
+    if (this.fresh) {
+      // The conversation exists from its first turn on: now it can be resumed and locked.
+      this.fresh = false;
+      this.emit({ type: "session", file: agySessionPath(sessionId) });
+    }
+    proc.request<Rec>("session/prompt", { sessionId, prompt: blocks }, 0).then(
+      (res) => this.settle(proc, gen, { stopReason: mapStopReason(res?.stopReason), usage: mapUsage(res?.usage) }),
+      (err) => {
+        if (err instanceof AgyRpcError && err.agentExited) return; // reported as `exited`: no run to settle
+        this.settle(proc, gen, { stopReason: "error", error: errText(err) });
+      },
+    );
     return { disposition: "started" };
   }
 
-  canRemoveQueued(id: string): boolean {
-    return this.steering.some((s) => s.id === id && !s.dispatched);
+  /** The run's prompt answered (or failed): its turn ends and it settles. An abort wins over what agy said. */
+  private settle(proc: AgyProcess, gen: number, end: { stopReason: StopReason; usage?: Usage; error?: string }): void {
+    if (this.proc !== proc || gen !== this.promptGen) return;
+    const aborted = this.aborting;
+    this.activePrompt = false;
+    this.aborting = false;
+    const stopReason: StopReason = aborted ? "aborted" : end.stopReason;
+    this.emitAll(this.mapper.finishTurn({
+      stopReason,
+      model: this.modelRef(),
+      ...(end.usage ? { usage: end.usage } : {}),
+      ...(!aborted && end.error ? { error: end.error } : {}),
+    }));
+    this.emit({ type: "turn_end" });
+    this.emit({ type: "run_settled", aborted });
   }
 
-  async removeQueued(id: string): Promise<boolean> {
-    const i = this.steering.findIndex((s) => s.id === id && !s.dispatched);
-    if (i < 0) return false;
-    this.steering.splice(i, 1);
-    this.emitQueue();
-    return true;
-  }
-
+  /** Nothing to drop: the host holds every message sent mid-run (capabilities.steer is false). */
   async clearQueue(): Promise<string[]> {
-    const texts = this.steering.map((s) => s.text);
-    this.steering = [];
-    if (texts.length) this.emitQueue();
-    return texts;
+    return [];
   }
 
   abort(): void {
@@ -784,6 +624,7 @@ export class AgyAdapter implements ProviderAdapter {
           const updatedAt = str(s.updatedAt);
           const modified = updatedAt ? Date.parse(updatedAt) || 0 : 0;
           const title = str(s.title) ?? null;
+          this.titles.set(s.sessionId, title);
           return {
             path: agySessionPath(s.sessionId),
             name: title,
@@ -868,12 +709,20 @@ export class AgyAdapter implements ProviderAdapter {
     const proc = this.require();
     const sessionId = this.requireSession();
     await proc.request("session/set_mode", { sessionId, modeId: mode }, 15_000);
-    this.currentModeId = mode;
+    this.setModeCache(mode);
     this.emit({ type: "permission_mode", mode });
   }
 
+  /** The mode agy runs in now, in the cached `mode` config option too (emitConfigState reads that first). */
+  private setModeCache(mode: string | undefined): void {
+    if (!mode) return;
+    this.currentModeId = mode;
+    const opt = this.configOpt("mode");
+    if (opt) opt.currentValue = mode;
+  }
+
   async compact(): Promise<void> {
-    throw new AgentError("Use /compact directly in the chat composer for Antigravity.");
+    throw new AgentError("Antigravity can't compact from the chat.");
   }
 
   async newSession(): Promise<void> {

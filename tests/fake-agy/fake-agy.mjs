@@ -13,8 +13,6 @@ let activeSessionId = null;
 let activeToolCallId = null;
 let activeTimer = null;
 let pendingPermission = null;
-let steeredTexts = [];
-let lastPromptParams = null;
 
 function configOptions() {
   const opts = [
@@ -113,10 +111,7 @@ rl.on("line", (line) => {
         rawOutput: allowed ? { output: "ok\n", exit_code: 0 } : { output: "denied", exit_code: 1 },
         content: [{ type: "content", content: { type: "text", text: allowed ? "ok\n" : "denied" } }],
       });
-      const replyText = allowed
-        ? (steeredTexts.length ? `Allowed. Steers: ${steeredTexts.join(", ")}` : "Allowed and ran.")
-        : "Permission denied.";
-      steeredTexts = [];
+      const replyText = allowed ? "Allowed and ran." : "Permission denied.";
       update(sessionId, {
         sessionUpdate: "agent_message_chunk",
         content: { type: "text", text: replyText },
@@ -242,7 +237,6 @@ rl.on("line", (line) => {
         });
         activeToolCallId = null;
       }
-      steeredTexts = [];
       pendingPermission = null;
       if (activePromptId !== null) {
         const pid = activePromptId;
@@ -255,28 +249,13 @@ rl.on("line", (line) => {
     case "session/prompt": {
       const sid = msg.params?.sessionId;
       const text = (msg.params?.prompt ?? []).find((b) => b.type === "text")?.text ?? "";
+      // One prompt per session at a time (ACP): a second one while a turn runs is refused.
       if (activePromptId !== null) {
-        if (pendingPermission) {
-          send({
-            jsonrpc: "2.0",
-            id: msg.id,
-            error: {
-              code: -32000,
-              message: "the running prompt is waiting for a permission or question answer; answer it or send session/cancel, then send this prompt again",
-            },
-          });
-          break;
-        }
-        steeredTexts.push(text);
-        const prevId = activePromptId;
-        activePromptId = msg.id;
-        send({ jsonrpc: "2.0", id: prevId, result: { stopReason: "end_turn" } });
+        send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: "a prompt is already running for this session" } });
         break;
       }
       activeSessionId = sid;
       activeToolCallId = null;
-      steeredTexts = [];
-      lastPromptParams = msg.params;
       activePromptId = msg.id;
 
       if (text.includes("SLOW") && !text.includes("ASK_PERM")) {
@@ -287,11 +266,6 @@ rl.on("line", (line) => {
             if (activePromptId === null) return;
             update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: " Part 1 done." } });
             update(sid, { sessionUpdate: "usage_update", used: 2000, size: 1048576 });
-            if (steeredTexts.length) {
-              update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `Steered reply: ${steeredTexts.join(", ")}` } });
-              update(sid, { sessionUpdate: "usage_update", used: 2400, size: 1048576 });
-            }
-            steeredTexts = [];
             const pid = activePromptId;
             activePromptId = null;
             send({ jsonrpc: "2.0", id: pid, result: { stopReason: "end_turn", usage: { inputTokens: 200, outputTokens: 30 } } });
@@ -319,13 +293,19 @@ rl.on("line", (line) => {
             rawOutput: { output: "done\n", exit_code: 0 },
             content: [{ type: "content", content: { type: "text", text: "done\n" } }],
           });
-          const reply = steeredTexts.length ? `ok: ${text} | steers: ${steeredTexts.join(", ")}` : `ok: ${text}`;
-          steeredTexts = [];
-          update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: reply } });
+          update(sid, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: `ok: ${text}` } });
           const pid = activePromptId;
           activePromptId = null;
           send({ jsonrpc: "2.0", id: pid, result: { stopReason: "end_turn", usage: { inputTokens: 100, outputTokens: 20 } } });
         }, 400);
+        break;
+      }
+
+      if (text.includes("CRASH")) {
+        // Dies mid-turn: a thought streamed, the prompt never answered.
+        update(sid, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "About to fall over." } });
+        process.stderr.write("fake-agy: crashing mid-turn\n");
+        setTimeout(() => process.exit(3), 50);
         break;
       }
 

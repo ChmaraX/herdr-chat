@@ -8,16 +8,9 @@ import type {
   StopReason,
   Usage,
 } from "../types.ts";
+import { num, str } from "../../tools.ts";
 
 type Rec = Record<string, any>;
-
-function str(v: unknown): string | undefined {
-  return typeof v === "string" ? v : undefined;
-}
-
-function num(v: unknown): number | undefined {
-  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
-}
 
 /** Extract text and image blocks from ACP tool_call_update `content` and `rawOutput`. */
 export function extractToolOutput(u: Rec): { output: string; images: ImageBlock[] } {
@@ -86,6 +79,22 @@ export function mapUsage(raw: unknown): Usage | undefined {
   return { input, output, cacheRead, cacheWrite, cost: null };
 }
 
+/** A finished tool call (`status` completed, failed or cancelled = declined), from a tool_call or its update. */
+function toolEnded(u: Rec, status: string, callId: string, name: string, args: unknown, out: { output: string; images: ImageBlock[] }): NormalizedEvent {
+  const exitCode = typeof u.rawOutput?.exit_code === "number" ? u.rawOutput.exit_code : undefined;
+  return {
+    type: "tool_ended",
+    callId,
+    name,
+    args,
+    isError: status === "failed" || (exitCode !== undefined && exitCode !== 0),
+    ...(status === "cancelled" ? { declined: true } : {}),
+    output: out.output,
+    ...(out.images.length ? { images: out.images } : {}),
+    ...(u.rawOutput !== undefined ? { result: u.rawOutput } : {}),
+  };
+}
+
 function mapPlanStatus(status: unknown): PlanStep["status"] {
   if (status === "completed" || status === "done") return "completed";
   if (status === "in_progress" || status === "active") return "in_progress";
@@ -100,13 +109,6 @@ export class AgyMapper {
   private toolsSeen = new Map<string, { name: string; args: unknown; ended: boolean }>();
   private pendingUser: { text: string; images: ImageBlock[] } | null = null;
   private turnStartAt: number | null = null;
-
-  /** Number of tool calls currently in progress (not yet ended). */
-  get openToolCount(): number {
-    let n = 0;
-    for (const t of this.toolsSeen.values()) if (!t.ended) n++;
-    return n;
-  }
 
   reset(): void {
     this.inAssistant = false;
@@ -248,22 +250,8 @@ export class AgyMapper {
         out.push({ type: "tool_started", callId, name, args });
         const status = str(u.status);
         if (status === "completed" || status === "failed" || status === "cancelled") {
-          const { output, images } = extractToolOutput(u);
-          const exitCode = typeof u.rawOutput?.exit_code === "number" ? u.rawOutput.exit_code : undefined;
-          const isError = status === "failed" || (exitCode !== undefined && exitCode !== 0);
-          const declined = status === "cancelled";
           this.toolsSeen.get(callId)!.ended = true;
-          out.push({
-            type: "tool_ended",
-            callId,
-            name,
-            args,
-            isError,
-            ...(declined ? { declined: true } : {}),
-            output,
-            ...(images.length ? { images } : {}),
-            ...(u.rawOutput !== undefined ? { result: u.rawOutput } : {}),
-          });
+          out.push(toolEnded(u, status, callId, name, args, extractToolOutput(u)));
         }
         break;
       }
@@ -289,20 +277,7 @@ export class AgyMapper {
           const entry = this.toolsSeen.get(callId)!;
           if (entry.ended) break;
           entry.ended = true;
-          const exitCode = typeof u.rawOutput?.exit_code === "number" ? u.rawOutput.exit_code : undefined;
-          const isError = status === "failed" || (exitCode !== undefined && exitCode !== 0);
-          const declined = status === "cancelled";
-          out.push({
-            type: "tool_ended",
-            callId,
-            name,
-            args,
-            isError,
-            ...(declined ? { declined: true } : {}),
-            output,
-            ...(images.length ? { images } : {}),
-            ...(u.rawOutput !== undefined ? { result: u.rawOutput } : {}),
-          });
+          out.push(toolEnded(u, status, callId, name, args, { output, images }));
         } else if (output) {
           out.push({ type: "tool_progress", callId, name, args, output });
         }
