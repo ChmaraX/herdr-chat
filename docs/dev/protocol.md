@@ -368,6 +368,7 @@ commands, prompt templates and `skill:` commands.
 | assistant/thinking text per item | 256 KiB (head kept, then a truncation marker) |
 | snapshot items | 200 |
 | record size, both directions | 8 MiB; larger records are dropped and logged |
+| an agent's reply to a request (host ← agent: `get_messages`, a thread's pages) | 64 MiB; a larger one fails only that request |
 | code block highlighting | 2000 lines per block, 60k spans per item |
 | `diffLines` | 256 KiB of diff |
 | mermaid source | 32 KiB |
@@ -711,3 +712,16 @@ The mod shows the plan as a strip above the composer (`2/5`, a progress bar, the
 - Not additive for an old mod: a message with several skills shows only its first there. Mod and host ship together (the installer updates both), so this lasts only while an old mod still runs against a newer host, until the app reloads it.
 - `send` takes any number of leading skill commands (`/a /b text`). The core splits them once, by the chat's `skill` commands, and the adapter gets that split with the message (`Prompt.lead`, providers/types.ts): what the timeline shows and what the agent runs are the same skills. A skill named twice runs once.
 - How each agent gets them is under **Skills** in "Item (timeline)". A Pi skill whose file Pi doesn't give or can't be read refuses the message (`send` fails, the item goes): it is never sent without it.
+
+## v3.9: a restart keeps the conversation (additive)
+
+### ChatState
+
+```ts
+historyPending: boolean;   // the agent is starting on a session whose history isn't in the timeline yet
+```
+
+- **The host.** `true` from the moment the host starts (a client can connect before it has the session) until the history is in: the snapshot that carries the history also carries `false`, so a client never sees it end ahead of the history. It ends without a history too: a new chat with no session, a failed `get_messages` (the warning says why), a conflict, an agent that exits or fails to start.
+- **The mod.** A snapshot with `historyPending` while the chat already shows a conversation (a restarted host: an update's restart, `healHost`, `/reload` on an outdated host) keeps the items on screen and takes only the state (`Store.held`). Patches meanwhile change only the state: the new host's item ids are its own. The next snapshot without it replaces the items. A chat that shows nothing yet takes the empty timeline as before.
+- **Large sessions.** Pi's `get_messages` answers the whole session on one line, which for a long one is over the 8 MiB record cap. The host frames Pi's output up to 64 MiB (`MAX_REPLY_BYTES`, framing.ts, as for Codex and Antigravity). An event over 8 MiB is still dropped as before.
+- **Pins.** A chat is in Herdr's agents list as its host's terminal, and a pin ends with its terminal. The mod remembers whether its host was pinned and pins the next host it gets (`keepPin`, main.js), however the old one ended.

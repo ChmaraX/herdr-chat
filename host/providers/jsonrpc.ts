@@ -2,16 +2,10 @@
 // JSONL. Spawned in its own process group; correlates our requests, routes the server's
 // requests and notifications, keeps a stderr tail, tears down checked.
 import type { ChildProcess } from "node:child_process";
-import { LineFramer } from "../framing.ts";
+import { LineFramer, MAX_REPLY_BYTES } from "../framing.ts";
 import { groupAlive, killGroup, spawnResolved } from "../process.ts";
 import type { Oversized } from "../framing.ts";
 import { AgentError } from "./types.ts";
-
-/**
- * Replies can be large (a long thread's pages, a session's replay); the framer drops lines
- * over this and fails only the request they answered.
- */
-export const RPC_MAX_LINE = 64 * 1024 * 1024;
 
 type Rec = Record<string, any>;
 
@@ -61,7 +55,7 @@ export class JsonRpcProcess {
     this.envelope = opts.jsonrpc ? { jsonrpc: "2.0" } : {};
     this.child = spawnResolved(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], ownGroup: true });
     this.pid = this.child.pid;
-    const framer = new LineFramer(RPC_MAX_LINE);
+    const framer = new LineFramer(MAX_REPLY_BYTES);
     framer.onLine = (line) => this.route(line);
     framer.onOversized = (o) => this.oversized(o);
     this.child.stdout!.on("data", (d: Buffer) => framer.push(d));

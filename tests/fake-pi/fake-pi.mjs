@@ -646,7 +646,12 @@ function runScenario() {
       respond(rec.id, "clear_queue", data);
     },
     get_state(rec) { respond(rec.id, "get_state", getState()); },
-    get_messages(rec) { respond(rec.id, "get_messages", { messages: S.messages }); },
+    // historyDelayMs: Pi reading a long session before it answers (a large one takes seconds).
+    get_messages(rec) {
+      const answer = () => respond(rec.id, "get_messages", { messages: S.messages });
+      if (scenario.historyDelayMs) setTimeout(answer, scenario.historyDelayMs);
+      else answer();
+    },
     get_commands(rec) { respond(rec.id, "get_commands", { commands: scenario.commands ?? DEFAULT_COMMANDS }); },
     get_available_models(rec) { respond(rec.id, "get_available_models", { models }); },
     set_model(rec) {

@@ -1,7 +1,7 @@
 // The Pi child process: spawn in its own process group, LF framing with a size
 // cap, request correlation, stderr tail, checked teardown.
 import type { ChildProcess } from "node:child_process";
-import { LineFramer } from "../../framing.ts";
+import { LineFramer, MAX_RECORD_BYTES, MAX_REPLY_BYTES } from "../../framing.ts";
 import { groupAlive, killGroup, spawnResolved } from "../../process.ts";
 import type { Oversized } from "../../framing.ts";
 import { AgentError } from "../types.ts";
@@ -46,8 +46,14 @@ export class PiProcess {
   constructor(opts: SpawnOptions) {
     this.child = spawnResolved(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], ownGroup: true });
     this.pid = this.child.pid;
-    const framer = new LineFramer();
-    framer.onLine = (line) => this.route(line);
+    // Replies frame up to MAX_REPLY_BYTES (get_messages carries a whole session); events keep
+    // the record cap, as a larger one couldn't be shown anyway.
+    const framer = new LineFramer(MAX_REPLY_BYTES);
+    framer.onLine = (line) => {
+      const size = line.length > MAX_RECORD_BYTES / 4 ? Buffer.byteLength(line) : 0;
+      if (size > MAX_RECORD_BYTES && !line.startsWith('{"id":"h')) this.oversized({ size, head: line.slice(0, 4096) });
+      else this.route(line);
+    };
     framer.onOversized = (o) => this.oversized(o);
     this.child.stdout!.on("data", (d: Buffer) => framer.push(d));
     let stdoutEnded = false;
