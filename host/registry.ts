@@ -1,8 +1,8 @@
 // The chat registry (<stateDir>/chats/<chat>.json) and the session lock
 // (<sessionFile>.herdr-chat.lock).
-import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync, renameSync, readFileSync, unlinkSync, chmodSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { commandLine, startStamp } from "./process.ts";
 
 export type RegistryEntry = {
   v: 1;
@@ -71,11 +71,12 @@ export function pidAlive(pid: number): boolean {
  * process. null: `ps` couldn't say (it didn't run).
  */
 export function processStamp(pid: number): string | "gone" | null {
-  const r = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 5000, env: { ...process.env, LC_ALL: "C", TZ: "UTC" } });
-  if (r.error || r.status === null) return null;
-  const out = r.stdout.trim();
-  return out || (r.status !== 0 ? "gone" : null);
+  // This process's never changes: read once (claim.ts reads it at start; setLock again on a session's first turn,
+  // where Windows' PowerShell query would stall the host for most of a second).
+  if (pid === process.pid) return (ownStamp ??= startStamp(pid));
+  return startStamp(pid);
 }
+let ownStamp: string | "gone" | null | undefined;
 
 /**
  * Whether the process `pid` that recorded `stamp` (its processStamp then) still runs: the pid is
@@ -90,9 +91,9 @@ export function processRuns(pid: number, stamp: string | null | undefined): bool
 
 /** Whether `pid` runs `herdr-chat-host serve` for `chat` (its command line); false when `ps` can't say. */
 export function servesChat(pid: number, chat: string): boolean {
-  const r = spawnSync("ps", ["-o", "args=", "-p", String(pid)], { encoding: "utf8", timeout: 5000 });
-  const args = r.status === 0 ? r.stdout : "";
-  return / serve /.test(args) && ` ${args.trim()} `.includes(` --chat ${chat} `);
+  const args = commandLine(pid) ?? [];
+  const at = args.indexOf("--chat");
+  return args.includes("serve") && at >= 0 && args[at + 1] === chat;
 }
 
 export function readLock(sessionFile: string): LockInfo | null {

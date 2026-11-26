@@ -5,7 +5,8 @@
 import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { openFiles, processStart, processTree, type TuiQuery, type TuiSession } from "../tui.ts";
+import { openFiles, processStart, processTree } from "../../process.ts";
+import type { TuiQuery, TuiSession } from "../tui.ts";
 
 const home = () => process.env.CODEX_HOME || join(homedir(), ".codex");
 const real = (p: string) => {

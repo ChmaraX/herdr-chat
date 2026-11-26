@@ -5,9 +5,13 @@ import { diffFromChanges, firstLine, num, relPath, str, type Presented, type Rel
 
 type Rec = Record<string, any>;
 
-/** `/bin/zsh -lc 'ls -la'` → `ls -la` (Codex wraps every command in a login shell). */
+/**
+ * `/bin/zsh -lc 'ls -la'` → `ls -la` (Codex wraps every command in a login shell); on Windows
+ * `"C:\Program Files\PowerShell\7\pwsh.exe" -Command 'Get-ChildItem'` → `Get-ChildItem`.
+ */
 function unwrapShell(command: string): string {
-  const m = /^(?:\/\S*\/)?(?:ba|z|fi)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/.exec(command);
+  const m = /^(?:\/\S*\/)?(?:ba|z|fi)?sh\s+-l?c\s+(['"])([\s\S]*)\1\s*$/.exec(command)
+    ?? /^"?(?:[^"]*[\\/])?(?:pwsh|powershell)(?:\.exe)?"?(?:\s+-(?:NoProfile|NoLogo|NonInteractive))*\s+-Command\s+(['"])([\s\S]*)\1\s*$/i.exec(command);
   return m ? m[2]! : command;
 }
 

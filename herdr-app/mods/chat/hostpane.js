@@ -7,7 +7,10 @@
 // with the version read; docs/dev/research/split-glitch.md §2–§3).
 
 import { exec, panes, spaces } from "herdr";
-import { randomBytes } from "crypto";
+import * as fs from "fs/promises";
+import { readConfig, stateDir } from "./connection.js";
+import { PLATFORM } from "./platform.js";
+import { hexId } from "./util.js";
 
 const HELLO = '{"jsonrpc":"2.0","id":1,"method":"hello","params":{"generation":1}}';
 const q = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
@@ -17,12 +20,28 @@ const q = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 async function rpc(method, params, at = null) {
   const req = JSON.stringify({ jsonrpc: "2.0", id: 2, method, params });
   const wait = at ? `perl -MTime::HiRes=time,sleep -e '$d = $ARGV[0] - time; sleep($d) if $d > 0' ${(at / 1000).toFixed(3)}; ` : "";
-  const r = await exec("/bin/sh", ["-c", `{ printf '%s\\n' ${q(HELLO)}; ${wait}printf '%s\\n' ${q(req)}; } | hc connect`]);
+  const r = PLATFORM.win ? await winRpc(req, at) : await exec("/bin/sh", ["-c", `{ printf '%s\\n' ${q(HELLO)}; ${wait}printf '%s\\n' ${q(req)}; } | hc connect`]);
   if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim() || `hc connect: exit ${r.code}`);
   const res = r.stdout.trim().split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).find((x) => x?.id === 2);
   if (!res) throw new Error(`${method}: no answer`);
   if (res.error) throw Object.assign(new Error(res.error.message ?? `${method} failed`), { kind: res.error.data?.kind ?? null });
   return res.result;
+}
+
+// Windows: no sh to pipe into hc connect, and the document can outgrow a command line (32 767 characters):
+// the lines go in a file, which the host's core-rpc (bin/herdr-chat-host.mjs) sends and then deletes. A node that
+// never started leaves it: deleted here then (hideHost retries).
+async function winRpc(req, at) {
+  const cfg = await readConfig();
+  const dir = `${stateDir()}/rpc`;
+  await fs.mkdir(dir, { recursive: true });
+  const file = `${dir}/${hexId(16)}.jsonl`;
+  await fs.writeFile(file, `${HELLO}\n${req}\n`);
+  try {
+    return await exec(cfg.node || "node", [cfg.host, ...(cfg.hc ? [`HERDR_CHAT_HC=${cfg.hc}`] : []), "core-rpc", "--lines-file", file, ...(at ? ["--at", String(Math.round(at))] : [])]);
+  } finally {
+    await fs.unlink(file).catch(() => {});
+  }
 }
 
 // The layout document and its version: {value, version}.
@@ -67,9 +86,9 @@ export function hideIn(doc, tab, terminal) {
   }
   const t = (doc?.spaces ?? []).flatMap((s) => s.tabs ?? []).find((x) => x.id === tab);
   if (!t?.root) return null;
-  const block = { id: `p${randomBytes(16).toString("hex")}`, type: "block", hidden: true, content: { terminal } };
+  const block = { id: `p${hexId(32)}`, type: "block", hidden: true, content: { terminal } };
   // A tab's root is a container; a lone block (another client's shape) is wrapped in a row.
-  if (!t.root.children) t.root = { id: `s${randomBytes(16).toString("hex")}`, type: "row", children: [t.root] };
+  if (!t.root.children) t.root = { id: `s${hexId(32)}`, type: "row", children: [t.root] };
   t.root.children.push(block);
   return { did: "added", pane: block.id };
 }

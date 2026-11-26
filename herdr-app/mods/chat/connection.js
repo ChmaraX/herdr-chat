@@ -51,6 +51,13 @@ export async function readRegistry(chat) {
 // herdr-core restarts, it brings a kept terminal back as a login shell with
 // the same labels: that shell is no host.
 const HOST_BIN = /herdr-chat-(host|subagent)\b/;
+
+// The host's argv with NAME=value env first: /usr/bin/env and the sh shim on macOS and Linux;
+// on Windows (no sh) the install names bin/herdr-chat-host.mjs, which node runs and which
+// takes the NAME=value arguments itself.
+export function hostArgv(cfg, host, env = []) {
+  return /\.mjs$/.test(host) ? [cfg.node || "node", host, ...env] : ["/usr/bin/env", ...env, host];
+}
 export function runsHost(t) {
   return !Array.isArray(t.argv) || t.argv.some((a) => HOST_BIN.test(a));
 }
@@ -282,8 +289,7 @@ export class Connection {
       // keepHostHidden). --keep: the core keeps it, as adoption would.
       "run", "--bg", "--json", "--keep", "--no-parent", "--cwd", this.o.cwd,
       "--label", `herdr-chat.chat=${this.o.chat}`, "--label", "herdr-chat.role=host",
-      "--", "/usr/bin/env", ...Object.entries(env).map(([k, v]) => `${k}=${v}`),
-      host, "serve", "--chat", this.o.chat, "--cwd", this.o.cwd, "--state-dir", stateDir(), "--app-home", appHome(), "--provider", provider,
+      "--", ...hostArgv(cfg, host, Object.entries(env).map(([k, v]) => `${k}=${v}`)), "serve", "--chat", this.o.chat, "--cwd", this.o.cwd, "--state-dir", stateDir(), "--app-home", appHome(), "--provider", provider,
       ...(session ? ["--session", session] : []),
       // A Pi TUI this chat takes over: the host waits for its pid, then uses its model and
       // thinking (only while that pid lives: a later restart of the chat ignores them).

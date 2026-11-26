@@ -8,7 +8,7 @@ a model without levels) says so in the hint line under the composer.
 
 The defaults below are macOS's (`keys.default.json`).
 
-**On Linux** `keys.default.linux.json` replaces the chords that differ there:
+**On Linux and Windows** `keys.default.linux.json` replaces the chords that differ there:
 Ctrl where macOS has ⌘ (Super belongs to the desktop), on chords that Herdr's
 own Linux keys, the desktop and the chat's text fields leave free:
 
@@ -97,7 +97,7 @@ part of the same file, then run `./install.sh` again (it puts them in Herdr's
 
 `open` is the launcher (`mod.open:new-chat`), `pi`/`claude`/`codex` open that
 agent's chat at once (`new-chat.pi`…). Left out: the default (⌘I for `open`,
-⌘J A when ⌘I is taken; on Linux Ctrl+Alt+Shift+P; the others unbound). A chord you choose replaces what
+⌘J A when ⌘I is taken; on Linux and Windows Ctrl+Alt+Shift+P; the others unbound). A chord you choose replaces what
 had it, and uninstall puts that back. In the launcher, P, C and X pick.
 
 macOS turns ⌘. into Esc before an app sees it, so `stop` uses ⌃C.

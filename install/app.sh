@@ -55,6 +55,13 @@
 #     for Continue as chat)
 set -euo pipefail
 
+# Windows (Git Bash): no sh for the chat mod to run, so config.json names bin/herdr-chat-host.mjs,
+# which node runs, and every path it records is a Windows one (C:/...), not Git Bash's /c/...
+WIN=; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) WIN=1 ;; esac
+native() { if [ -n "$WIN" ] && [ -n "$1" ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
+HOST_ENTRY=herdr-chat-host SUB_ENTRY=herdr-chat-subagent
+[ -z "$WIN" ] || HOST_ENTRY=herdr-chat-host.mjs SUB_ENTRY=herdr-chat-subagent.mjs
+
 # ROOT: the tree to install from (a clone, or an unpacked release). LINK: the path
 # the chat's config and the templates name for it: for a release, the "current"
 # link, so the next update's host is the one new chats start.
@@ -74,6 +81,8 @@ die() { printf 'herdr-chat: %s\n' "$*" >&2; exit 1; }
 
 UNINSTALL=0 LAYOUT=1 SUBAGENTS=1 TAKE=()
 TPL_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/herdr-core/templates"
+# Windows: herdr-core keeps its config in %APPDATA%/herdr-core (hc templates reads that folder).
+[ -z "$WIN" ] || [ -n "${XDG_CONFIG_HOME:-}" ] || TPL_DIR="$(cygpath -u "$APPDATA")/herdr-core/templates"
 TPL_MARK="installed-by: herdr-chat"
 PROVIDERS="pi claude codex agy"
 while [ $# -gt 0 ]; do
@@ -127,7 +136,8 @@ VERSION=$("$NODE" -e 'process.stdout.write(require(process.argv[1]).version)' "$
 # The agents on PATH (any of them will do), recorded for chats: a core terminal lacks the login PATH.
 AGENTS_FOUND=()
 for p in $PROVIDERS; do
-  path="$(command -v "$p" || true)"
+  # Windows: the program, or npm's .cmd shim (the host runs its script); never npm's sh shim of the same name.
+  if [ -n "$WIN" ]; then path="$(command -v "$p.exe" || command -v "$p.cmd" || true)"; else path="$(command -v "$p" || true)"; fi
   printf -v "BIN_$p" '%s' "$path"
   [ -z "$path" ] || AGENTS_FOUND+=("$p")
 done
@@ -175,10 +185,11 @@ BUILD=$("$NODE" "$ROOT/host/main.$EXT" build | "$NODE" -e 'process.stdout.write(
 # clone: anything else (./install.sh in a checkout, an unpacked release run in place).
 CHANNEL=$([ -n "${HERDR_CHAT_INSTALL_CMD:-}" ] && [ "$EXT" = js ] && echo release || echo clone)
 # installedAt: a chat whose host started before it, on another build, runs older code.
-"$NODE" -e 'const [path, host, node, hc, version, build, channel, update, pi, claude, codex, agy] = process.argv.slice(1);
+# shell (Windows only): Git Bash's bash, which runs the update command (new-chat/update.js): there's no /bin/sh.
+"$NODE" -e 'const [path, host, node, hc, version, build, channel, update, pi, claude, codex, agy, shell] = process.argv.slice(1);
 const agents = Object.fromEntries(Object.entries({ pi, claude, codex, agy }).filter(([, v]) => v));
-require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, build, installedAt: Date.now(), channel, update, ...agents }, null, 2) + "\n")' \
-  "$STAGE/chat/config.json" "$LINK/bin/herdr-chat-host" "$NODE" "$HC" "$VERSION" "$BUILD" "$CHANNEL" "$INSTALL_CMD" "$BIN_pi" "$BIN_claude" "$BIN_codex" "$BIN_agy"
+require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, build, installedAt: Date.now(), channel, update, ...agents, ...(shell ? { shell } : {}) }, null, 2) + "\n")' \
+  "$STAGE/chat/config.json" "$(native "$LINK/bin/$HOST_ENTRY")" "$(native "$NODE")" "$(native "$HC")" "$VERSION" "$BUILD" "$CHANNEL" "$INSTALL_CMD" "$(native "$BIN_pi")" "$(native "$BIN_claude")" "$(native "$BIN_codex")" "$(native "$BIN_agy")" "${WIN:+$(native "$(command -v bash)")}"
 for m in "${MODS[@]}"; do
   "$APP" check "$STAGE/$m" >/dev/null 2>&1 || { "$APP" check "$STAGE/$m" || true; die "mods/$m failed herdr-app check; nothing installed"; }
 done
@@ -227,7 +238,7 @@ if [ "$SUBAGENTS" = 1 ]; then
     cat >"$f" <<TPL
 ---
 description: $name as a sub-agent the person can open as a chat in Herdr (its row in the agents list). Give it the task in hc run.
-command: '$LINK/bin/herdr-chat-subagent' --provider $p
+command: ${WIN:+'$(native "$NODE")' }'$(native "$LINK/bin/$SUB_ENTRY")' --provider $p
 $TPL_MARK
 ---
 You are a sub-agent: another agent started you with hc run and gave you the task below. Stay within it. The person may also write to you here.

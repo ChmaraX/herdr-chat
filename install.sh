@@ -32,6 +32,27 @@ uninstall= version= from= rest=
 die() { echo "herdr-chat: $*" >&2; exit 1; }
 say() { echo "herdr-chat: $*"; }
 
+# Windows (Git Bash): `current` is a directory junction, which needs no admin rights, where a
+# symlink does (Git Bash's ln -s copies the folder instead). It goes with cmd's rmdir, which
+# takes the junction and leaves its target: rm -rf could follow it.
+win=; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) win=1 ;; esac
+# cmd's arguments as given (no MSYS path conversion, so /c and /J stay switches), and no stdin: under
+# `curl | sh` the script itself is stdin, which an interactive cmd would read.
+wcmd() { MSYS2_ARG_CONV_EXCL='*' cmd /d /c "$@" </dev/null >/dev/null; }
+link_current() { # <version>: point $base/current at $base/<version>
+  if [ -n "$win" ]; then
+    unlink_current
+    wcmd mklink /J "$(cygpath -w "$base/current")" "$(cygpath -w "$base/$1")" && [ -d "$base/current" ]
+  else ln -sfn "$1" "$base/current"; fi
+}
+unlink_current() {
+  # -L too: a junction whose version folder is gone isn't -e, and still blocks mklink.
+  if [ -n "$win" ]; then
+    if [ -e "$base/current" ] || [ -L "$base/current" ]; then wcmd rmdir "$(cygpath -w "$base/current")"; fi
+  else rm -f "$base/current"; fi
+}
+current_version() { r=$(readlink "$base/current" 2>/dev/null) && basename "$r"; }
+
 # Our own flags out; the installer's kept in "$@", in order.
 n=$#
 while [ "$n" -gt 0 ]; do
@@ -52,6 +73,8 @@ while [ "$n" -gt 0 ]; do
   esac
 done
 
+[ -z "$win" ] || say "Windows support is experimental: please report problems at https://github.com/$repo/issues"
+
 # --- a clone (or an unpacked release run in place) ------------------------------------
 here=$(dirname "$0")
 case $0 in *install.sh) local_tree=1 ;; *) local_tree= ;; esac
@@ -67,6 +90,7 @@ if [ -n "$uninstall" ]; then
     die "no release install in $base (installed from a clone? run ./install.sh --uninstall there)"
   HERDR_CHAT_ROOT="$base/current" HERDR_CHAT_LINK="$base/current" HERDR_CHAT_INSTALL_CMD="$one_liner" \
     bash "$base/current/install/app.sh" --uninstall "$@"
+  unlink_current
   rm -rf "$base"
   say "removed $base"
   exit 0
@@ -135,18 +159,18 @@ tree=$work/herdr-chat-$version
 [ -f "$tree/install/app.sh" ] && [ -f "$tree/host/main.js" ] || die "$name has no herdr-chat-$version/ with install/app.sh and host/main.js"
 grep -q "\"version\": \"$version\"" "$tree/package.json" || die "$name's package.json isn't version $version"
 
-prev=$(readlink "$base/current" 2>/dev/null || true)
+prev=$(current_version || true)
 dest=$base/$version
 old=
 if [ -e "$dest" ]; then old=$work/.old; mv "$dest" "$old"; fi
 mv "$tree" "$dest"
-ln -sfn "$version" "$base/current"
+link_current "$version"
 if ! HERDR_CHAT_ROOT="$dest" HERDR_CHAT_LINK="$base/current" HERDR_CHAT_INSTALL_CMD="$one_liner" \
   bash "$dest/install/app.sh" "$@"; then
   # Nothing of this version stays: the link and the folder go back to what they were.
   rm -rf "$dest"
   if [ -n "$old" ]; then mv "$old" "$dest"; fi
-  if [ -n "$prev" ]; then ln -sfn "$prev" "$base/current"; else rm -f "$base/current"; fi
+  if [ -n "$prev" ]; then link_current "$prev"; else unlink_current; fi
   die "herdr-chat $version not installed (see above)"
 fi
 

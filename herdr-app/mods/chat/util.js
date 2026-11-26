@@ -3,6 +3,7 @@
 import { div, image, svg } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { appHome, settings } from "herdr";
+import { randomBytes, randomUUID } from "crypto";
 
 export const MOD = "chat"; // the folder: mods/chat (also the pane title)
 export const icon = (name, size = 14) => svg(`mods/${MOD}/icons/${name}.svg`).size(size).flex_none();
@@ -166,10 +167,38 @@ export function absTime(ts) {
 
 export const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 
+// Paths with either separator (Windows writes \, and C:/… works there too) compared as /-paths;
+// with a drive letter, case aside, as Windows does.
+const slashed = (p) => String(p ?? "").replace(/\\/g, "/");
+const fold = (p) => (/^[A-Za-z]:\//.test(p) ? p.toLowerCase() : p);
+/** Whether `p` is `dir` or under it, and the rest after it ("" for `dir` itself), else null; both with either separator. */
+function under(p, dir) {
+  const a = slashed(p), d = slashed(dir).replace(/\/+$/, "");
+  if (!d) return null;
+  if (fold(a) === fold(d)) return "";
+  return fold(a).startsWith(fold(d) + "/") ? a.slice(d.length + 1) : null;
+}
+/** A path's last part, with either separator. */
+export const baseName = (p) => slashed(p).split("/").pop();
+
+// `n` random hex digits. Buffer.toString("hex") comes back empty in the app's runtime on Windows (Herdr 0.1.18):
+// randomUUID there, else Math.random (ids, not secrets).
+export function hexId(n) {
+  let s = "";
+  try {
+    s = randomBytes(Math.ceil(n / 2)).toString("hex");
+  } catch {}
+  if (s.length < n) try {
+    s = randomUUID().replace(/-/g, "");
+  } catch {}
+  while (s.length < n) s += Math.random().toString(16).slice(2);
+  return s.slice(0, n);
+}
+
 // A path under the app home, relative to it (what image() takes), else null.
 export function homeRel(p, appHomeDir) {
-  const home = appHomeDir.replace(/\/$/, "") + "/";
-  return p?.startsWith(home) ? p.slice(home.length) : null;
+  const rel = p ? under(p, appHomeDir) : null;
+  return rel ? rel : null;
 }
 
 // An image file as a w×h thumbnail that enlarges on click (`c`: the render context), or null when
@@ -192,16 +221,16 @@ export function fileChip(id, label, t) {
 
 // A folder for a list row: under home as ~/…, a long one as …/its last two parts.
 export function tildePath(p, homeDir) {
-  const h = homeDir?.replace(/\/$/, "");
-  const t = h && (p === h || p.startsWith(h + "/")) ? "~" + p.slice(h.length) : p;
+  const rest = homeDir ? under(p, homeDir) : null;
+  const t = rest === null ? p : rest ? `~/${rest}` : "~";
   if (t.length <= 36) return t;
-  return "…/" + t.split("/").filter(Boolean).slice(-2).join("/");
+  return "…/" + slashed(t).split("/").filter(Boolean).slice(-2).join("/");
 }
 
 export function shortPath(p, cwd) {
   if (!p) return "";
-  if (cwd && p.startsWith(cwd + "/")) return p.slice(cwd.length + 1);
-  return p;
+  const rest = cwd ? under(p, cwd) : null;
+  return rest ? rest : p;
 }
 
 // `<hc from="t7 name">text</hc>` → {from, text} (hc send's envelope).

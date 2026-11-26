@@ -90,7 +90,7 @@ test("claude: resume from the transcript shows the same timeline as live (tools,
     assert.equal(c.state.sessionFile, file);
     assert.equal(c.state.provider, "claude");
     const start = again.inputs().filter((r) => r.type === "_start").at(-1);
-    assert.equal(start.argv[start.argv.indexOf("--resume") + 1], file.replace(/^.*\//, "").replace(/\.jsonl$/, ""));
+    assert.equal(start.argv[start.argv.indexOf("--resume") + 1], file.replace(/^.*[\\/]/, "").replace(/\.jsonl$/, ""));
     assert.deepEqual(seen(c.items), seen(liveItems));
     assert.equal(c.state.plan, null, "the history clears the finished plan at the next message too");
     again.artifact("claude-resume-history", { liveItems: seen(liveItems) });
@@ -360,7 +360,7 @@ test("claude: /compact, an image prompt, sessions + switch + new, and the TUI ha
 
     const { argv, sessionFile } = await c.req("handoff");
     assert.equal(sessionFile, first);
-    const id = first.replace(/^.*\//, "").replace(/\.jsonl$/, "");
+    const id = first.replace(/^.*[\\/]/, "").replace(/\.jsonl$/, "");
     assert.deepEqual(argv.slice(1), ["--resume", id]);
     assert.match(argv[0], /fake-claude\.mjs$/);
     assert.equal(c.state.phase, "handoff");

@@ -56,7 +56,8 @@ function clipboardTool(dir: string, name: "wl-paste" | "xclip"): { offer: (types
 const linuxHost = (name: string, env: Record<string, string>) => startHost({ name, env: { HERDR_CHAT_PLATFORM: "linux", ...env } });
 const attachments = (stateDir: string) => readdirSync(join(stateDir, "attachments", "c-test"));
 
-test("Linux clipboard on Wayland: a PNG becomes an attachment; text only, a fake PNG or a failing wl-paste is no image", async () => {
+const POSIX_ONLY = process.platform === "win32" && "POSIX only: fake tools on PATH are symlinks to node, which Windows allows only to admins";
+test("Linux clipboard on Wayland: a PNG becomes an attachment; text only, a fake PNG or a failing wl-paste is no image", { skip: POSIX_ONLY }, async () => {
   const bin = binDir();
   const wl = clipboardTool(bin, "wl-paste");
   // xclip is there too, and DISPLAY is not: Wayland's tool is the one asked.
@@ -86,7 +87,7 @@ test("Linux clipboard on Wayland: a PNG becomes an attachment; text only, a fake
   }
 });
 
-test("Linux clipboard on X11, or Wayland without wl-paste: xclip reads it; with neither tool, or no display, the answer says why", async () => {
+test("Linux clipboard on X11, or Wayland without wl-paste: xclip reads it; with neither tool, or no display, the answer says why", { skip: POSIX_ONLY }, async () => {
   const bin = binDir();
   const x = clipboardTool(bin, "xclip");
   const h = await linuxHost("clipboard-x11", { PATH: bin, WAYLAND_DISPLAY: "wayland-test", DISPLAY: ":9" });
@@ -123,7 +124,7 @@ const sentImage = async (h: Awaited<ReturnType<typeof startHost>>, file: string)
   return Buffer.from(h.piCommands().filter((x) => x.type === "prompt").at(-1).images[0].data, "base64");
 };
 
-test("Linux shrink: ImageMagick's magick, else convert; when both fail or write a bad file, the original is sent", async () => {
+test("Linux shrink: ImageMagick's magick, else convert; when both fail or write a bad file, the original is sent", { skip: POSIX_ONLY }, async () => {
   const bin = binDir();
   const h = await linuxHost("shrink-linux", { PATH: bin });
   try {
@@ -154,7 +155,7 @@ test("Linux shrink: ImageMagick's magick, else convert; when both fail or write 
 
 const magick = spawnSync("sh", ["-c", "command -v magick"], { encoding: "utf8" }).stdout.trim();
 
-test("Linux shrink with the real ImageMagick: 2000 px on the long edge, aspect kept", { skip: magick ? false : "magick isn't installed here" }, async () => {
+test("Linux shrink with the real ImageMagick: 2000 px on the long edge, aspect kept", { skip: POSIX_ONLY || (magick ? false : "magick isn't installed here") }, async () => {
   const bin = binDir();
   symlinkSync(magick, join(bin, "magick"));
   const h = await linuxHost("shrink-imagemagick", { PATH: bin });

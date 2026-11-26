@@ -122,7 +122,7 @@ test("pi: three skills in one message reach the model as Pi's own blocks, in ord
   const commands = Object.entries(files).map(([n, path]) => ({ name: `skill:${n}`, description: `The ${n} skill`, source: "skill", sourceInfo: { path, source: "local", scope: "user", origin: "top-level" } }));
   // Pi expands only the leading /skill:name, written out here as real Pi 0.80's `_expandSkillCommand` does
   // (its args follow its block); the host must write the others the same way, so they read back alike.
-  const block = (n: string) => `<skill name="${n}" location="${files[n]}">\nReferences are relative to ${files[n]!.replace(/\/SKILL\.md$/, "")}.\n\n# ${n}\n\nDo the ${n} steps.\n</skill>`;
+  const block = (n: string) => `<skill name="${n}" location="${files[n]}">\nReferences are relative to ${files[n]!.replace(/[\\/]SKILL\.md$/, "")}.\n\n# ${n}\n\nDo the ${n} steps.\n</skill>`;
   const scenario = { commands, expandPrompts: { "^/skill:tdd ([\\s\\S]*)$": `${block("tdd")}\n\n$1` }, default: [{ assistant: { text: "on it" } }] };
   const h = await startHost({ name: "skills-pi-three", speed: 1, scenario });
   const want = [["tdd", files.tdd], ["diagnose", files.diagnose], ["review", files.review]];
@@ -256,7 +256,7 @@ test("codex: several skills go as $mentions, each with its skill input; the pill
     const u = users(c)[0];
     assert.equal(u.text, REST, "no $mentions left in the text");
     assert.equal(cmds(u), "greet tdd audit");
-    assert.ok(u.skills.every((s: any) => s.path?.endsWith(`skills/${s.name}/SKILL.md`)), "each pill has its file");
+    assert.ok(u.skills.every((s: any) => s.path?.replace(/\\/g, "/").endsWith(`skills/${s.name}/SKILL.md`)), "each pill has its file");
     const points = await c.req("fork_points", {});
     assert.equal(points.points[0].text, `/greet /tdd /audit ${REST}`, "as typed");
     h.artifact("skills-codex-three");

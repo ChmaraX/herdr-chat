@@ -4,7 +4,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { codeModeSession, configDir, sessionPath } from "./sessions.ts";
-import { processTree, type TuiQuery, type TuiSession } from "../tui.ts";
+import { processTree } from "../../process.ts";
+import type { TuiQuery, TuiSession } from "../tui.ts";
 
 export function claudeTuiSession(q: TuiQuery): TuiSession {
   for (const pid of processTree(q.pid)) {

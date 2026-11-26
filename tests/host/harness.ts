@@ -223,6 +223,14 @@ export class Host {
   }
 
   async stop(): Promise<void> {
+    // Windows has no SIGTERM to catch (kill ends the process at once): the host's own shutdown op, as a closed tab's.
+    if (process.platform === "win32" && this.exitCode === null) {
+      const c = this.clients.find((x) => !x.closed);
+      if (c) {
+        await c.req("shutdown").catch(() => {});
+        await Promise.race([this.exited, sleep(5000)]);
+      }
+    }
     for (const c of this.clients) if (!c.closed) c.close();
     if (this.exitCode === null) {
       this.proc.kill("SIGTERM");

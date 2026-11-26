@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { startHost, idle, sleep, ROOT, FAKE_PI } from "./harness.ts";
 import type { Host } from "./harness.ts";
 import { readLock } from "../../host/registry.ts";
+import { unwrapEnv } from "../../host/process.ts";
 
 const FAKE_HC = join(ROOT, "tests", "fake-hc", "hc.mjs");
 
@@ -32,18 +33,24 @@ function setTerminal(hc: string, address: string, state: "live" | "finished" | n
   else rmSync(f, { force: true });
 }
 
-/** Runs the hand-off argv (fake-pi standing in for Pi's TUI, `env K=V` prefix honoured) and drives it over RPC. */
-function runTui(h: Host, argv: string[], opts: { reportSession?: boolean } = {}): { proc: ChildProcess; send: (cmd: object) => void; settled: (n: number) => Promise<void> } {
-  const env: Record<string, string> = { ...(process.env as Record<string, string>), FAKE_PI_SPEED: "4" };
+/**
+ * The hand-off argv's env and program, past its env wrapper (`env K=V …`, or node's on Windows) and the node
+ * that runs a script there (process.ts withEnv, resolveCommand).
+ */
+function tuiLaunch(argv: string[]): { env: Record<string, string>; prog: string; args: string[] } {
+  const { env, argv: run } = unwrapEnv(argv);
+  const [prog, ...args] = run[0] === process.execPath && run[1] ? run.slice(1) : run;
+  return { env, prog: prog!, args };
+}
+
+/** Runs the hand-off argv (fake-pi standing in for Pi's TUI, its env honoured) and drives it over RPC. */
+function runTui(h: Host, given: string[], opts: { reportSession?: boolean } = {}): { proc: ChildProcess; send: (cmd: object) => void; settled: (n: number) => Promise<void> } {
+  const launch = tuiLaunch(given);
+  const env: Record<string, string> = { ...(process.env as Record<string, string>), FAKE_PI_SPEED: "4", ...(opts.reportSession !== false ? launch.env : {}) };
   delete env.HERDR_CHAT_HOST;
-  let i = 0;
-  if (argv[0] === "env") for (i = 1; argv[i]!.includes("="); i++) {
-    const [k, ...v] = argv[i]!.split("=");
-    if (opts.reportSession !== false) env[k!] = v.join("=");
-  }
-  const [prog, ...args] = argv.slice(i);
-  assert.equal(prog, FAKE_PI);
-  const proc = spawn(prog!, ["--mode", "rpc", ...args, "--session-dir", join(h.dir, "sessions")], { stdio: ["pipe", "pipe", "inherit"], env, cwd: h.cwd });
+  assert.equal(launch.prog, FAKE_PI);
+  // The script through node, as the env wrapper's resolved command runs it on Windows.
+  const proc = spawn(process.execPath, [launch.prog, "--mode", "rpc", ...launch.args, "--session-dir", join(h.dir, "sessions")], { stdio: ["pipe", "pipe", "inherit"], env, cwd: h.cwd });
   let out = "";
   proc.stdout!.on("data", (d) => (out += d));
   return {
@@ -73,7 +80,8 @@ test("hand-off: the TUI forks and exits; the host resumes by itself on the sessi
 
     const { argv } = await c.req("handoff");
     const report = join(h.stateDir, "handoff", "c-test.json");
-    assert.deepEqual(argv, ["env", `HERDR_CHAT_HANDOFF=${report}`, FAKE_PI, "--session", original]);
+    assert.deepEqual(tuiLaunch(argv), { env: { HERDR_CHAT_HANDOFF: report }, prog: FAKE_PI, args: ["--session", original] });
+    if (process.platform !== "win32") assert.deepEqual(argv, ["env", `HERDR_CHAT_HANDOFF=${report}`, FAKE_PI, "--session", original], "env runs it on macOS and Linux");
     assert.equal(c.state.phase, "handoff");
     assert.equal(readLock(original), null, "lock released for the TUI");
     assert.deepEqual({ ...c.state.handoff, since: typeof c.state.handoff.since }, { argv, terminal: null, since: "number" });

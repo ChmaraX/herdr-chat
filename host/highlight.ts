@@ -102,7 +102,7 @@ const NAME_LANG: Record<string, string> = { dockerfile: "dockerfile", makefile: 
 
 /** The language for a file path, by extension (or a well-known file name). */
 export function langForPath(path: string): string | null {
-  const base = path.split("/").pop()?.toLowerCase() ?? "";
+  const base = path.split(/[\\/]/).pop()?.toLowerCase() ?? "";
   if (NAME_LANG[base]) return NAME_LANG[base]!;
   const ext = /\.([a-z0-9+_-]+)$/.exec(base)?.[1];
   if (!ext) return null;

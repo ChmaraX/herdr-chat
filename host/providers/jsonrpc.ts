@@ -1,9 +1,9 @@
 // An agent's stdio server child (`codex app-server`, `agy acp`): JSON-RPC over LF-framed
 // JSONL. Spawned in its own process group; correlates our requests, routes the server's
 // requests and notifications, keeps a stderr tail, tears down checked.
-import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { LineFramer } from "../framing.ts";
+import { groupAlive, killGroup, spawnResolved } from "../process.ts";
 import type { Oversized } from "../framing.ts";
 import { AgentError } from "./types.ts";
 
@@ -59,12 +59,7 @@ export class JsonRpcProcess {
   constructor(opts: SpawnOptions) {
     this.label = opts.label;
     this.envelope = opts.jsonrpc ? { jsonrpc: "2.0" } : {};
-    this.child = spawn(opts.command, opts.args, {
-      cwd: opts.cwd,
-      env: opts.env,
-      stdio: ["pipe", "pipe", "pipe"],
-      detached: process.platform !== "win32",
-    });
+    this.child = spawnResolved(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], ownGroup: true });
     this.pid = this.child.pid;
     const framer = new LineFramer(RPC_MAX_LINE);
     framer.onLine = (line) => this.route(line);
@@ -213,20 +208,11 @@ export class JsonRpcProcess {
   }
 
   private groupAlive(): boolean {
-    if (this.pid === undefined) return false;
-    try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
+    return this.pid !== undefined && groupAlive(this.pid);
   }
 
   private signal(sig: NodeJS.Signals): void {
-    if (this.pid === undefined) return;
-    try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, sig);
-    } catch {}
+    if (this.pid !== undefined) killGroup(this.pid, sig);
   }
 
   /** Close stdin (the server exits on EOF), then SIGTERM, then SIGKILL the group. */

@@ -11,12 +11,12 @@
 // - its own labels, so the agents list and the menu can open it as a chat
 //   (`herdr-chat.chat`) and no chat view takes it for an orphan
 //   (`herdr-chat.role=subagent`, never `host`).
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
 import type { Args } from "./args.ts";
 import { DEFAULT_PROVIDER, providerNames } from "./providers/index.ts";
 import type { ChatConfig } from "./settings.ts";
+import { execFileSyncResolved } from "./process.ts";
 
 export type SubagentPlan = {
   chat: string;
@@ -77,7 +77,7 @@ export function planSubagent(o: { args: Args; env: NodeJS.ProcessEnv; cwd: strin
 export function labelSelf(plan: SubagentPlan): string | null {
   if (!plan.terminal) return "not in a herdr-core terminal (no HC_TERMINAL_ID): no labels, the agents list shows its TUI peek";
   try {
-    execFileSync(plan.hc, ["label", plan.terminal, ...plan.labels], { timeout: 5000, stdio: ["ignore", "ignore", "pipe"] });
+    execFileSyncResolved(plan.hc, ["label", plan.terminal, ...plan.labels], { timeout: 5000, stdio: ["ignore", "ignore", "pipe"] });
     return null;
   } catch (e) {
     const err = e as { stderr?: Buffer; message?: string };

@@ -80,7 +80,7 @@ test("claude: fork resumes at the answer before that prompt (--fork-session); a 
     await c.waitFor(idle, 10_000, "started");
     await chat(c, ["first", "second"]);
     const before = c.state.sessionFile;
-    const oldId = before.replace(/^.*\//, "").replace(/\.jsonl$/, "");
+    const oldId = before.replace(/^.*[\\/]/, "").replace(/\.jsonl$/, "");
     const original = readFileSync(before, "utf8");
     const firstAnswer = original.split("\n").filter(Boolean).map((l) => JSON.parse(l)).find((r) => r.type === "assistant").uuid;
     const { points } = await c.req("fork_points", {});

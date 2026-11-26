@@ -2,9 +2,9 @@
 // events and `get_messages` history into normalized events, and carries out
 // the core's commands. The settle fallback (a `get_state` probe after a quiet
 // spell) lives here because it is Pi's.
-import { execFile } from "node:child_process";
 import { basename, dirname } from "node:path";
 import { PiProcess } from "./rpc.ts";
+import { execFileResolved, resolveCommand, withEnv } from "../../process.ts";
 import type { PiRecord, Oversized } from "./rpc.ts";
 import { contentText, echoText, countImages, imageBlocks, resultText, resultImages } from "./content.ts";
 import { describeSession, sessionDirs, readSettings } from "./sessions.ts";
@@ -226,7 +226,7 @@ export class PiAdapter implements ProviderAdapter {
   }
 
   private probeVersion(host: AdapterHost): void {
-    execFile(this.opts.command, ["--version"], { timeout: 10_000, env: { ...process.env, HERDR_CHAT_HOST: "1" } }, (err, stdout) => {
+    execFileResolved(this.opts.command, ["--version"], { timeout: 10_000, env: { ...process.env, HERDR_CHAT_HOST: "1" } }, (err, stdout) => {
       const v = err ? null : (/\d+\.\d+\.\d+[\w.-]*/.exec(stdout)?.[0] ?? null);
       host.emit({ type: "version", version: v });
       if (v && /^(0\.|1\.[0-4]\.)/.test(v)) host.emit({ type: "notice", level: "warning", source: "host", text: `Pi ${v} is older than 1.5; the chat needs Pi 1.5 or newer.` });
@@ -658,8 +658,8 @@ export class PiAdapter implements ProviderAdapter {
 
   tuiCommand(session: string, ctx?: { handoffFile?: string | null }): string[] {
     // The lock extension writes the session the TUI ends on to HERDR_CHAT_HANDOFF (a fork, a /resume).
-    const env = ctx?.handoffFile ? ["env", `HERDR_CHAT_HANDOFF=${ctx.handoffFile}`] : [];
-    return [...env, this.opts.command, "--session", session];
+    const run = resolveCommand(this.opts.command, ["--session", session]);
+    return withEnv(ctx?.handoffFile ? { HERDR_CHAT_HANDOFF: ctx.handoffFile } : {}, run.command, run.args);
   }
 
   /** Pi's built-in commands its RPC mode doesn't run and the chat has no way of its own for (Pi's BUILTIN_SLASH_COMMANDS). */

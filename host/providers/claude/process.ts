@@ -1,9 +1,9 @@
 // The `claude -p` stream-json child: its own process group, LF framing with
 // the 8 MiB cap, outbound control requests correlated by request_id, a 4 KiB
 // stderr tail (always drained), and a checked teardown of the whole tree.
-import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { LineFramer } from "../../framing.ts";
+import { groupAlive, killGroup, spawnResolved } from "../../process.ts";
 import type { Oversized } from "../../framing.ts";
 import { AgentError } from "../types.ts";
 
@@ -27,7 +27,7 @@ export class ClaudeProcess {
   onBadLine: (line: string) => void = () => {};
 
   constructor(opts: { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv }) {
-    this.child = spawn(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32" });
+    this.child = spawnResolved(opts.command, opts.args, { cwd: opts.cwd, env: opts.env, stdio: ["pipe", "pipe", "pipe"], ownGroup: true });
     this.pid = this.child.pid;
     const framer = new LineFramer();
     framer.onLine = (line) => this.route(line);
@@ -133,20 +133,11 @@ export class ClaudeProcess {
   }
 
   private groupAlive(): boolean {
-    if (this.pid === undefined) return false;
-    try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
+    return this.pid !== undefined && groupAlive(this.pid);
   }
 
   private signal(sig: NodeJS.Signals): void {
-    if (this.pid === undefined) return;
-    try {
-      process.kill(process.platform === "win32" ? this.pid : -this.pid, sig);
-    } catch {}
+    if (this.pid !== undefined) killGroup(this.pid, sig);
   }
 
   /** Close stdin, then SIGTERM the group, then SIGKILL; liveness is checked before each signal. */

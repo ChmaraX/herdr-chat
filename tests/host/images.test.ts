@@ -10,7 +10,8 @@ import { startHost, idle, Host } from "./harness.ts";
 // The host shrinks with sips on macOS, and elsewhere with ImageMagick when this machine has it.
 // clipboard-linux.test.ts checks the ImageMagick path on any machine.
 const onPath = (cmd: string) => spawnSync("sh", ["-c", `command -v ${cmd}`]).status === 0;
-const SHRINKS = process.platform === "darwin" || (process.platform !== "win32" && (onPath("magick") || onPath("convert")));
+// Windows: magick when installed, else System.Drawing (built in), so it always shrinks.
+const SHRINKS = process.platform === "darwin" || process.platform === "win32" || onPath("magick") || onPath("convert");
 
 /** A w×h grayscale PNG, no dependencies. */
 function makePng(w: number, h: number): Buffer {

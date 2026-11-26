@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { idle } from "./harness.ts";
+import { join } from "node:path";
 import { startClaude } from "../fake-claude/host.ts";
 
 const editResult = {
@@ -46,7 +47,7 @@ test("claude: bash (exit codes, live output), read, edit, write, web, MCP and su
       ["$ ls src", "done"],
       ["$ make test", "error"],
       ["$ for i in 1 2 3; do echo tick$i; sleep 1; done", "done"],
-      [`Read ${h.cwd}/src/app.ts:1-2`.replace(`${h.cwd}/`, ""), "done"],
+      [`Read ${join("src", "app.ts")}:1-2`, "done"], // relative to the cwd, with the platform's separator
       ["Edit /w/src/app.ts", "done"],
       ["Write /w/NOTES.md", "done"],
       ["Search the web for pelican pouch volume", "done"],

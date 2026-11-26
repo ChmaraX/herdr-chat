@@ -76,7 +76,10 @@ function labelSession(file: string | undefined) {
   const hc = process.env.HERDR_CHAT_HC || "hc";
   labelling = labelling.then(() => new Promise<void>((done) => {
     try {
-      execFile(hc, ["label", terminal, `herdr-chat.session=${file}`], { timeout: 5000 }, () => done());
+      const args = ["label", terminal, `herdr-chat.session=${file}`];
+      // Windows doesn't run a script as a program: node runs it (hc itself is hc.exe there).
+      if (process.platform === "win32" && /\.[mc]?js$/i.test(hc)) execFile(process.execPath, [hc, ...args], { timeout: 5000 }, () => done());
+      else execFile(hc, args, { timeout: 5000 }, () => done());
     } catch {
       done(); // no hc: nothing to label
     }

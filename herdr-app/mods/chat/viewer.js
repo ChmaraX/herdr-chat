@@ -32,7 +32,7 @@ import { h_flex, v_flex } from "gpui-base";
 import { appHome, closeOverlay, nextCommand, props, readTextFile, theme } from "herdr";
 import { stateDir } from "./connection.js";
 import { Debug } from "./debug.js";
-import { homeRel, uiScale } from "./util.js";
+import { baseName, homeRel, uiScale } from "./util.js";
 import { PLATFORM } from "./platform.js";
 
 const MIN = 0.1;
@@ -242,7 +242,7 @@ export class Viewer {
         const out = scaledSvg(text, this.natural, b);
         if (!out) throw new Error("no <svg> root to scale");
         const dir = `${stateDir()}/zoom`;
-        const file = `${dir}/${hash(this.abs)}-${this.abs.split("/").pop().replace(/\.svg$/i, "")}@${b}x.svg`;
+        const file = `${dir}/${hash(this.abs)}-${baseName(this.abs).replace(/\.svg$/i, "")}@${b}x.svg`;
         await fs.mkdir(dir, { recursive: true });
         await fs.writeFile(file, out);
         const rel = homeRel(file, appHome());
@@ -323,7 +323,7 @@ export class Viewer {
       .on_mouse_up("left", (_e, cx) => { if (this.drag) { this.dragEnd(); cx.notify(); } })
       .on_hover((h, cx) => { if (!h && this.drag) { this.dragEnd(); cx.notify(); } })
       .child(h_flex().gap(4).items_center()
-        .child(div().flex_none().max_w(260).truncate().text_size(12).text_color(t.dim).child(this.path.split("/").pop()))
+        .child(div().flex_none().max_w(260).truncate().text_size(12).text_color(t.dim).child(baseName(this.path)))
         .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).pl(8).child(`${PLATFORM.zoomScroll} to zoom · drag to pan · 0 fit`))
         .child(btn("viewer-out", "−", "Zoom out (-)", () => this.zoomTo(this.z / STEP)))
         .child(btn("viewer-pct", `${pct} %`, "Fit (0)", () => this.refit()).min_w(52))

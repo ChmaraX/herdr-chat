@@ -3,7 +3,8 @@
 // only through host/providers/types.ts.
 import { mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
+import { commandLines, execFileResolved, unwrapEnv } from "./process.ts";
+import { programName } from "./providers/tui.ts";
 import { randomUUID } from "node:crypto";
 import { Timeline, toWire } from "./timeline.ts";
 import type { Item, WireItem, UserSource, ImageBlock, ToolDetail, NoticeItem, Plan } from "./timeline.ts";
@@ -38,6 +39,8 @@ const SEND_REPLY_WAIT_MS = 1500;
 const STARTUP_DIALOG_HINT_MS = 10_000;
 const STARTUP_TIMEOUT_MS = 45_000;
 const COMMAND_HINT_MS = 10_000;
+// A chat host's own command line (bin/herdr-chat-host or its .mjs, or host/main.ts/.js run by node): not a TUI.
+const CHAT_HOST = /herdr-chat-(host|subagent)(\.mjs)?$|host[\\/]main\.[jt]s$/;
 
 export type Phase = "starting" | "idle" | "working" | "compacting" | "handoff" | "conflict" | "exited" | "error";
 /** The session is in the agent's TUI: `argv` runs it, `terminal` is the TUI's terminal once the client reports it. */
@@ -1578,7 +1581,7 @@ export class Chat {
   /** `hc get <terminal>`: "live", "gone" (finished or no such terminal), or "unknown" (hc failed). */
   private tuiTerminal(address: string): Promise<"live" | "gone" | "unknown"> {
     return new Promise((resolve) => {
-      execFile(this.opts.hcCommand ?? "hc", ["get", address, "--json"], { timeout: 5000 }, (err, stdout, stderr) => {
+      execFileResolved(this.opts.hcCommand ?? "hc", ["get", address, "--json"], { timeout: 5000 }, (err, stdout, stderr) => {
         for (const text of [stdout, stderr]) {
           let r: Rec;
           try {
@@ -1609,27 +1612,19 @@ export class Chat {
   /** A process whose argv names the TUI's session (its last argument) and the agent's program. */
   private processHolder(argv: string[]): Promise<number | null> {
     const token = argv.at(-1);
-    let i = 0;
-    if (argv[0] === "env") for (i = 1; argv[i]?.includes("="); i++);
-    const program = argv[i];
+    // The TUI's own program: past its env (process.ts withEnv), and past node before a script (Windows).
+    const run = unwrapEnv(argv).argv;
+    const program = programName(run[0] ?? "") === "node" && run[1] ? run[1] : run[0];
     if (!token || !program) return Promise.resolve(null);
-    const base = (p: string) => p.replace(/^.*\//, "").replace(/\.[mc]?[jt]s$/, "");
-    const names = new Set(["pi", "claude", "codex", base(program)]);
-    return new Promise((resolve) => {
-      execFile("ps", ["-Ao", "pid=,args="], { timeout: 5000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
-        if (err) return resolve(null);
-        for (const line of String(stdout).split("\n")) {
-          const m = /^\s*(\d+)\s+(.*)$/.exec(line);
-          if (!m) continue;
-          const pid = Number(m[1]);
-          const args = m[2]!.split(/\s+/);
-          if (pid === process.pid || !args.includes(token)) continue;
-          if (args.some((a) => /herdr-chat-host$|host\/main\.ts$/.test(a))) continue; // a chat host, not a TUI
-          if (args.slice(0, 3).some((a) => names.has(base(a)))) return resolve(pid);
-        }
-        resolve(null);
-      });
-    });
+    const names = new Set(["pi", "claude", "codex", programName(program)]);
+    return commandLines().then((procs) => {
+      for (const { pid, args } of procs) {
+        if (pid === process.pid || !args.includes(token)) continue;
+        if (args.some((a) => CHAT_HOST.test(a))) continue; // a chat host, not a TUI
+        if (args.slice(0, 3).some((a) => names.has(programName(a)))) return pid;
+      }
+      return null;
+    }, () => null);
   }
 
   /** handoff_started: the client reports the TUI's terminal; the host watches it from now on. */

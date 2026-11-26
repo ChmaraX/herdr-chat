@@ -12,7 +12,9 @@
 // by design) and a host that never saw its chat's pane (the mod's
 // sweepOrphans covers that one).
 
-import { spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { IS_WIN } from "./platform.ts";
+import { spawnResolved } from "./process.ts";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { createConnection } from "node:net";
 import { join } from "node:path";
@@ -43,8 +45,22 @@ export function where(doc: Doc, chat: string, terminal: string): Where {
   return { chat: seen, host };
 }
 
+function appDoCli(command: string, args: object, timeoutMs: number): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    execFile(process.env.HERDR_APP_BIN || "herdr-app", ["do", command, JSON.stringify(args)], { timeout: timeoutMs + 2000 }, (err, stdout) => {
+      let r: Record<string, unknown> | null = null;
+      try { r = JSON.parse(String(stdout).trim() || "{}"); } catch {}
+      if (r?.error) return reject(new Error(`${command}: ${String(r.error)}`));
+      if (err && !r) return reject(err);
+      resolve(r ?? {});
+    });
+  });
+}
+
 // One command to the app (`herdr-app do`, over its socket): its reply, or throws.
 export function appDo(appHome: string, command: string, args: object, timeoutMs = 3000): Promise<Record<string, unknown>> {
+  // Windows: the app's socket is an AF_UNIX one, which Node can't open there; its CLI can.
+  if (IS_WIN) return appDoCli(command, args, timeoutMs);
   return new Promise((resolve, reject) => {
     const sock = createConnection(join(appHome, "herdr-app.sock"));
     let buf = "";
@@ -104,7 +120,7 @@ export class PaneWatch {
 
   start(): void {
     if (this.off || this.events) return;
-    const p = spawn(this.o.hc, ["connect"], { stdio: ["pipe", "pipe", "pipe"] });
+    const p = spawnResolved(this.o.hc, ["connect"], { stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
     this.events = p;
     let buf = "";
     p.stdout.on("data", (d) => {
@@ -157,7 +173,7 @@ export class PaneWatch {
   // One request on a second connection (a subscribed one carries only notifications).
   private call(method: string, params: object): Promise<unknown> {
     if (!this.calls) {
-      const p = spawn(this.o.hc, ["connect"], { stdio: ["pipe", "pipe", "pipe"] });
+      const p = spawnResolved(this.o.hc, ["connect"], { stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessWithoutNullStreams;
       this.calls = p;
       let buf = "";
       p.stdout.on("data", (d) => {
