@@ -210,6 +210,8 @@ export function queueChips(v, s, t) {
     const rows = texts.map((x, i) => {
       const id = ids?.[i] ?? null;
       const can = Boolean(id && removable?.[i]);
+      // ⇄ to the steering lane only for an agent that takes steers.
+      const movable = can && (kind === "steer" || s.capabilities?.steer !== false);
       const env = unwrapHc(x);
       const who = from?.[i] ?? env.from;
       const text = (env.from ? env.text : x).trim();
@@ -223,9 +225,9 @@ export function queueChips(v, s, t) {
           .on_click((_e, cx) => v.control(`queue:edit:${id}`, cx)))
         .when(Boolean(who), (e) => e.child(div().flex_none().text_color(t.dim).child(`Report from ${who}`)))
         .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(text))
-        .when(can, (e) => e
-          .child(btn("move", kind === "steer" ? "Move to the follow-ups (after this run)" : "Steer with it now (next turn)", "move"))
-          .child(btn("remove", "Remove from the queue", "remove")));
+        .when(movable, (e) => e.child(btn("move",
+          kind === "steer" ? "Move to the follow-ups (after this run)" : "Steer with it now (next turn)", "move")))
+        .when(can, (e) => e.child(btn("remove", "Remove from the queue", "remove")));
     });
     return v_flex().w_full().rounded(10).border_1().border_color(alpha(color, 0.35)).bg(alpha(color, 0.07)).overflow_hidden()
       .child(h_flex().h(22).px(10).gap(6).items_center().text_size(11).text_color(color)

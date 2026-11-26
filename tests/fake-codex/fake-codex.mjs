@@ -568,6 +568,7 @@ async function handle(msg) {
     case "initialize":
       return { userAgent: `herdr_chat/${VERSION} (fake) fake-codex (herdr_chat; 0.1.0)`, codexHome: HOME, platformFamily: "unix", platformOs: "macos" };
     case "model/list":
+      if (scenario.modelListDelayMs) await new Promise((r) => setTimeout(r, scenario.modelListDelayMs)); // a slow model list (the chat must not wait on it)
       return { data: p.includeHidden ? MODELS : MODELS.filter((m) => !m.hidden), nextCursor: null };
     case "collaborationMode/list":
       return { data: [{ name: "Plan", mode: "plan", model: null, reasoning_effort: "medium" }, { name: "Default", mode: "default", model: null, reasoning_effort: null }] };

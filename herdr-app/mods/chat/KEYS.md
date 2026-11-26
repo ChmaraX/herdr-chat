@@ -37,7 +37,7 @@ Konsole's Ctrl+Alt+T).
 | `model` | ⇧⌘M (`cmd-shift-m`) | Opens the model picker. Press it again to close the picker. |
 | `effort` | ⇧⌘T (`cmd-shift-t`) | Opens the thinking-level (effort) picker. |
 | `cycleEffort` | none | Switches to the next thinking level the model allows, wrapping around, and says it in the hint line ("Thinking: high"). It works only in the composer, and not while a menu is open. |
-| `mode` | ⇧⌘A (`cmd-shift-a`) | Opens the permission-mode picker (Claude Code, Codex). |
+| `mode` | ⇧⌘A (`cmd-shift-a`) | Opens the permission-mode picker (Claude Code, Codex, Antigravity). |
 | `cycleMode` | ⇧⇥ (`shift-tab`) | Switches to the next permission mode. For an agent with no permission modes (Pi), it switches to the next thinking level. It works only in the composer, and not while a menu is open. |
 | `stop` | ⌃C (`ctrl-c`) | Stops the agent's run. Esc stops it too. |
 | `tui` | ⌥⌘T (`cmd-alt-t`) | Continues the chat in the agent's own terminal UI (`/tui`). |
@@ -82,7 +82,8 @@ Esc while the agent works stops it, and both lanes come back into the composer.
 
 A steer that the agent already has can't always be taken back. Pi and Claude
 Code let it go until the agent takes it. Codex has no way back, so its steer
-rows have no ×, ⇄ or click. Follow-ups always do: the chat holds them, not
+rows have no ×, ⇄ or click. Antigravity takes no steers: Enter while it
+works queues a follow-up too. Follow-ups always do: the chat holds them, not
 the agent.
 
 The keys that open a chat (the launcher, ⌘I by default, and one per agent)

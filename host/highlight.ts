@@ -1,14 +1,25 @@
 // Syntax highlighting: highlight.js HTML → Span[][] with `syn:<token>` colors (protocol.md "Span").
-import hljs from "highlight.js";
+import type { HLJSApi } from "highlight.js";
 import type { Span } from "./ansi.ts";
 
 export const MAX_LINES = 2000;
 const AUTO_MAX_BYTES = 2048;
 /** Auto-detection only tries these: faster, and fewer wrong guesses than all ~190 grammars (makefile and ini claim any `x = 1`). */
-const AUTO_SUBSET = [
+const AUTO_LANGS = [
   "typescript", "javascript", "python", "bash", "shell", "json", "yaml", "rust", "go", "java", "c", "cpp", "csharp",
   "ruby", "php", "swift", "kotlin", "sql", "xml", "css", "scss", "markdown", "diff", "lua",
-].filter((l) => hljs.getLanguage(l));
+];
+let AUTO_SUBSET: string[] = [];
+
+// highlight.js is ~100 ms to load: not at the host's start but by warmHighlight(), which the chat
+// runs while the agent starts. Until it has, nothing is highlighted (plain lines).
+let hljs: HLJSApi | null = null;
+export async function warmHighlight(): Promise<void> {
+  if (hljs) return;
+  const lib = (await import("highlight.js")).default;
+  AUTO_SUBSET = AUTO_LANGS.filter((l) => lib.getLanguage(l));
+  hljs = lib;
+}
 
 const TOKENS = new Set([
   "keyword", "string", "number", "literal", "function", "title", "type", "class", "comment", "variable", "attr", "property",
@@ -83,7 +94,7 @@ export function resolveLang(name: string | null | undefined): string | null {
   if (!name) return null;
   const n = name.trim().toLowerCase().replace(/^\{?\.?/, "").replace(/[}\s].*$/, "");
   if (!n) return null;
-  return hljs.getLanguage(n) ? n : null; // getLanguage knows the aliases (ts, sh, py, …)
+  return hljs?.getLanguage(n) ? n : null; // getLanguage knows the aliases (ts, sh, py, …)
 }
 
 const EXT_LANG: Record<string, string> = { mjs: "javascript", cjs: "javascript", mts: "typescript", cts: "typescript", jsonl: "json", h: "c", hpp: "cpp", zsh: "bash", fish: "bash", toml: "ini", lock: "json" };
@@ -112,8 +123,8 @@ export function highlight(code: string, lang: string | null, auto = true): { lin
   const src = all.length > MAX_LINES ? all.slice(0, MAX_LINES).join("\n") : code;
   const language = resolveLang(lang);
   try {
-    if (language) return { lines: htmlToLines(hljs.highlight(src, { language, ignoreIllegals: true }).value), lang: language };
-    if (auto && Buffer.byteLength(src) < AUTO_MAX_BYTES && src.trim()) {
+    if (hljs && language) return { lines: htmlToLines(hljs.highlight(src, { language, ignoreIllegals: true }).value), lang: language };
+    if (hljs && auto && Buffer.byteLength(src) < AUTO_MAX_BYTES && src.trim()) {
       const r = hljs.highlightAuto(src, AUTO_SUBSET);
       if (r.language && r.relevance >= 3) return { lines: htmlToLines(r.value), lang: r.language };
     }

@@ -84,7 +84,7 @@ TPL_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/herdr-core/templates"
 # Windows: herdr-core keeps its config in %APPDATA%/herdr-core (hc templates reads that folder).
 [ -z "$WIN" ] || [ -n "${XDG_CONFIG_HOME:-}" ] || TPL_DIR="$(cygpath -u "$APPDATA")/herdr-core/templates"
 TPL_MARK="installed-by: herdr-chat"
-PROVIDERS="pi claude codex"
+PROVIDERS="pi claude codex agy"
 while [ $# -gt 0 ]; do
   case "$1" in
     --uninstall) UNINSTALL=1 ;;
@@ -141,7 +141,7 @@ for p in $PROVIDERS; do
   printf -v "BIN_$p" '%s' "$path"
   [ -z "$path" ] || AGENTS_FOUND+=("$p")
 done
-[ "${#AGENTS_FOUND[@]}" -gt 0 ] || die "no agent on PATH: install Pi (pi), Claude Code (claude) or Codex (codex) first"
+[ "${#AGENTS_FOUND[@]}" -gt 0 ] || die "no agent on PATH: install Pi (pi), Claude Code (claude), Codex (codex) or Antigravity (agy) first"
 APP="${HERDR_APP_BIN:-$(command -v herdr-app || true)}"
 [ -n "$APP" ] || for c in /Applications/*.app/Contents/MacOS/Herdr; do [ -x "$c" ] && APP="$c" && break; done
 [ -n "$APP" ] || die "herdr-app not found (set HERDR_APP_BIN)"
@@ -186,10 +186,10 @@ BUILD=$("$NODE" "$ROOT/host/main.$EXT" build | "$NODE" -e 'process.stdout.write(
 CHANNEL=$([ -n "${HERDR_CHAT_INSTALL_CMD:-}" ] && [ "$EXT" = js ] && echo release || echo clone)
 # installedAt: a chat whose host started before it, on another build, runs older code.
 # shell (Windows only): Git Bash's bash, which runs the update command (new-chat/update.js): there's no /bin/sh.
-"$NODE" -e 'const [path, host, node, hc, version, build, channel, update, pi, claude, codex, shell] = process.argv.slice(1);
-const agents = Object.fromEntries(Object.entries({ pi, claude, codex }).filter(([, v]) => v));
+"$NODE" -e 'const [path, host, node, hc, version, build, channel, update, pi, claude, codex, agy, shell] = process.argv.slice(1);
+const agents = Object.fromEntries(Object.entries({ pi, claude, codex, agy }).filter(([, v]) => v));
 require("fs").writeFileSync(path, JSON.stringify({ host, node, hc, version, build, installedAt: Date.now(), channel, update, ...agents, ...(shell ? { shell } : {}) }, null, 2) + "\n")' \
-  "$STAGE/chat/config.json" "$(native "$LINK/bin/$HOST_ENTRY")" "$(native "$NODE")" "$(native "$HC")" "$VERSION" "$BUILD" "$CHANNEL" "$INSTALL_CMD" "$(native "$BIN_pi")" "$(native "$BIN_claude")" "$(native "$BIN_codex")" "${WIN:+$(native "$(command -v bash)")}"
+  "$STAGE/chat/config.json" "$(native "$LINK/bin/$HOST_ENTRY")" "$(native "$NODE")" "$(native "$HC")" "$VERSION" "$BUILD" "$CHANNEL" "$INSTALL_CMD" "$(native "$BIN_pi")" "$(native "$BIN_claude")" "$(native "$BIN_codex")" "$(native "$BIN_agy")" "${WIN:+$(native "$(command -v bash)")}"
 for m in "${MODS[@]}"; do
   "$APP" check "$STAGE/$m" >/dev/null 2>&1 || { "$APP" check "$STAGE/$m" || true; die "mods/$m failed herdr-app check; nothing installed"; }
 done
@@ -234,7 +234,7 @@ if [ "$SUBAGENTS" = 1 ]; then
     f="$TPL_DIR/$p-chat.md"
     if [ -f "$f" ] && ! grep -qx "$TPL_MARK" "$f"; then say "$f exists and isn't herdr-chat's; not touching it"; continue; fi
     wrote+=("$p-chat")
-    case "$p" in pi) name="Pi" ;; claude) name="Claude Code" ;; codex) name="Codex" ;; esac
+    case "$p" in pi) name="Pi" ;; claude) name="Claude Code" ;; codex) name="Codex" ;; agy) name="Antigravity" ;; esac
     cat >"$f" <<TPL
 ---
 description: $name as a sub-agent the person can open as a chat in Herdr (its row in the agents list). Give it the task in hc run.

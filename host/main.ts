@@ -12,7 +12,7 @@ import { writeRegistry, readRegistry, pidAlive } from "./registry.ts";
 import { claimChat } from "./claim.ts";
 import type { RegistryEntry } from "./registry.ts";
 import { ChatClient, parseWait } from "./client.ts";
-import { createAdapter, DEFAULT_PROVIDER, findTui, providerNames, tuiSession } from "./providers/index.ts";
+import { createAdapter, DEFAULT_PROVIDER, findTui, herdrApp, providerNames, tuiSession } from "./providers/index.ts";
 import { parseTuiGroup, terminalView, tuiBusy } from "./providers/tui.ts";
 import { processTable } from "./process.ts";
 import { parseArgs } from "./args.ts";
@@ -25,7 +25,7 @@ import { hostBuild } from "./build.ts";
 const USAGE = `herdr-chat-host serve   --chat <id> --cwd <dir> --state-dir <dir> [--provider pi] [--session <file>] [--after-pid <pid> [--model <provider/id>] [--thinking <level>]] [--app-home <dir>] [--<provider> <cmd>] [-- <agent args>]
   (--app-home: the Herdr app's home, whose app it asks to close its hidden pane once its chat's pane is gone; default $HERDR_APP_HOME, else ~/.config/herdr-app)
   (--provider defaults to the chat's registered provider, else pi; --pi <cmd> or HERDR_CHAT_PI picks the pi binary)
-herdr-chat-host run     [--provider pi|claude|codex] [--session <file>] [--cwd <dir>] [-- <agent args>]
+herdr-chat-host run     [--provider pi|claude|codex|agy] [--session <file>] [--cwd <dir>] [-- <agent args>]
   (a sub-agent chat, for \`hc run\`: a fresh chat id, the app's state dir and the chat mod's config.json, labels its own terminal)
 herdr-chat-host tui-session --provider <id> --terminal <json> --cwd <dir> [--label <session>]
   (Continue as chat: the TUI's process and the session it has open, as JSON {pid, group, session, model, thinking, args}; exit 2 with why not.
@@ -125,7 +125,7 @@ async function serve(a: Args, extra: { hint?: string; warning?: string | null } 
   let shuttingDown = false;
   let registryCheck: NodeJS.Timeout | undefined;
   const attachments = new Attachments(join(stateDir, "attachments", chatId));
-  const term = new Terminal(process.stdout, process.stdin, provider);
+  const term = new Terminal(process.stdout, process.stdin, herdrApp(provider));
   const chat = new Chat({
     chat: chatId, cwd, session, adapter, terminal: terminalId, log,
     afterPid: handOver ? afterPid : null,

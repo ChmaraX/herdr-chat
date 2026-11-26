@@ -24,7 +24,7 @@ import type { SessionList } from "./sessions.ts";
 import { loadImages } from "./clipboard.ts";
 import type { Attachments } from "./attachments.ts";
 import type { ImageFile } from "./imagesize.ts";
-import { Renderer, diffLines } from "./render.ts";
+import { Renderer, diffLines, warmRender } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
 import type {
@@ -172,6 +172,7 @@ export class Chat {
   state: ChatState;
   timeline: Timeline;
   render: Renderer;
+  private warm: Promise<unknown> = Promise.resolve();
   sinks: Sink[] = [];
 
   private dirtyState = new Set<keyof ChatState>();
@@ -401,6 +402,7 @@ export class Chat {
       return;
     }
     this.set({ phase: "starting", error: null, sessionFile, conflict: null });
+    this.warm = warmRender().catch((e) => this.opts.log(`render warm-up failed: ${errText(e)}`)); // while the agent starts
     void this.boot(gen, sessionFile);
   }
 
@@ -540,6 +542,9 @@ export class Chat {
       return;
     }
     if (gen !== this.generation) return;
+    await this.warm; // history and live items are rendered from here on
+    if (gen !== this.generation) return;
+    for (const it of this.timeline.items) if (this.render.renderedCold(it)) this.timeline.touch(it.id); // re-sent highlighted
     for (const t of this.startupTimers) clearTimeout(t);
     if (this.stalledPrefixes().some((p) => this.state.error?.startsWith(p))) this.set({ error: null });
     // A startup dialog with a timeout: the agent resolved it itself, which is how it got past startup.
@@ -1114,7 +1119,9 @@ export class Chat {
     const imagePaths = Array.isArray(args.images) ? args.images.map(String) : [];
     if (!text.trim() && !imagePaths.length) throw new Error("Nothing to send");
     // A follow-up while working: the host holds it (a command too: it runs after the run) and sends it when the run settles.
-    if (args.mode === "followUp" && this.busy && this.adapter.alive) {
+    // An agent that takes no steers (capabilities.steer false) gets every message sent mid-run that way.
+    const holds = args.mode === "followUp" || !this.state.capabilities.steer;
+    if (holds && this.busy && this.adapter.alive) {
       this.held.push({ id: randomUUID(), text, images: imagePaths, ...(args.from ? { from: args.from } : {}) });
       this.publishQueue();
       return { disposition: "queued" };
@@ -1300,6 +1307,7 @@ export class Chat {
     if (to !== "steer" && to !== "followUp") throw new Error("queue_move needs `to`: \"steer\" or \"followUp\"");
     const inLane = to === "steer" ? this.agentQueue.steeringIds?.includes(id) : this.held.some((h) => h.id === id) || this.agentQueue.followUpIds?.includes(id);
     if (inLane) return {};
+    if (to === "steer" && !this.state.capabilities.steer) throw new Error(`${this.agent} takes no steers: it gets this after the run.`);
     const m = await this.takeQueued(id);
     const args = { text: m.text, images: m.images, ...(m.from ? { from: m.from } : {}) };
     // It has left its lane: rejected, it goes back to the composer, as a held follow-up does (drainHeld).
