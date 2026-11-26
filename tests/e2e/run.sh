@@ -110,11 +110,13 @@ open_launcher() {
 # The launcher's chooser, then choose with a key ($1: enter, or a digit), else (a dropped key) by its
 # command, and the next check is a SKIP (by_command).
 launch_pick() {
-  open_launcher "the launcher shows its chooser (Pi / Claude Code / Codex)"
+  open_launcher "the launcher shows its chooser (Pi / Claude Code / Codex / Terminal)"
   if [ "$1" = enter ]; then keys enter; else keys "text:$1"; fi
   until_ '! overlay_open new-chat' 3 || { by_command "the chooser didn't take $1"; do_ new-chat.enter; }
   expect '! overlay_open new-chat' "the chooser took $1 (it closes)" 3
 }
+# knownAgents' answer as the launcher keeps it (shared new-chat.installed) for agent $1: true, false, none (not yet).
+cached_installed() { python3 -c 'import json,sys; print(str((json.load(open(sys.argv[1])).get("new-chat.installed") or {}).get(sys.argv[2])).lower())' "$HERDR_APP_HOME/shared.json" "$1" 2>/dev/null; }
 # The newest chat id the launcher made (from the debug dumps).
 newest_chat() { ls -t "$STATE/debug/" 2>/dev/null | grep -E '^c-[0-9a-f]{8}\.json$' | head -1 | sed 's/\.json$//'; }
 d() { dbg "$CHAT" "$1"; }
