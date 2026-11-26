@@ -318,3 +318,14 @@ test("codex: MCP servers that fail at startup make one notice, once, after the s
     await h.stop();
   }
 });
+
+test("codex: the chat is ready without waiting for a slow model/list", async () => {
+  const t0 = Date.now();
+  const h = await codexHost({ name: "cx-slow-models", scenario: { modelListDelayMs: 4000, prompts: [] } });
+  try {
+    await h.client.waitFor(idle, 10_000);
+    assert.ok(Date.now() - t0 < 3500, `ready after ${Date.now() - t0} ms: it waited on the 4 s model list`);
+  } finally {
+    await h.stop();
+  }
+});

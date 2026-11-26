@@ -297,8 +297,7 @@ export class CodexAdapter implements ProviderAdapter {
       })
       .catch((e) => host.log(`model/list failed: ${errText(e)}`));
     const resumed = await this.openThread(session);
-    await Promise.race([this.modelsLoaded, new Promise((r) => setTimeout(r, 5000))]);
-    this.emitModel();
+    this.emitModel(); // the model list's reply emits it again
     this.startWatchdog();
     return { streaming: false, hasHistory: resumed };
   }
