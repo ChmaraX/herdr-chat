@@ -1,7 +1,7 @@
 # Multiple agents, one chat UI
 
-Goal: the same chat UI (mod `chat`) for **Pi, Claude Code and Codex**, then
-others. The rule: nothing provider-specific is hard-coded outside an adapter
+Goal: the same chat UI (mod `chat`) for **Pi, Claude Code, Codex and
+Antigravity**, then others. The rule: nothing provider-specific is hard-coded outside an adapter
 (`host/providers/<agent>/`); the core and the mod read capabilities and the
 adapter's answers. The ids and names are listed once on each side:
 `host/providers/index.ts` (the host) and `herdr-app/mods/chat/util.js` (the mod; a mod
@@ -18,7 +18,8 @@ host core (provider-neutral)
    │  ProviderAdapter interface (host/providers/types.ts)
    ├── host/providers/pi/       pi --mode rpc           (today's pi-rpc.ts + the Pi half of chat.ts/timeline.ts)
    ├── host/providers/claude/   Claude Code, structured mode (see research)
-   └── host/providers/codex/    Codex app-server JSON-RPC (see research)
+   ├── host/providers/codex/    Codex app-server JSON-RPC (see research)
+   └── host/providers/agy/      Antigravity `agy acp` (ACP, JSON-RPC 2.0; host/providers/jsonrpc.ts, shared with Codex)
 ```
 
 An **adapter** owns:
@@ -97,12 +98,13 @@ What else differs, from each agent's own mechanism, not from the chat:
   restarts and the update question all act on that one. Its orphan sweep ends
   a chat's other host terminals (a second host from before the claim).
 - **Launcher:** ⌘I opens `new-chat`, which offers each agent install found.
-- The provider is a chat prop: `{chat, cwd, provider}`. The host gets it as `serve --provider pi|claude|codex`.
+- The provider is a chat prop: `{chat, cwd, provider}`. The host gets it as `serve --provider pi|claude|codex|agy`.
 - The registry records it, so reopening uses the same provider.
-- The Herdr agent status (OSC 7501) reports `app=pi|claude|codex`, so Herdr shows the right icon.
+- The Herdr agent status (OSC 7501) reports `app=pi|claude|codex|antigravity` (the registry's `herdrApp`, else the id), so Herdr shows the right icon.
 
 ## Adding an agent
 
 1. `host/providers/<id>/`: the adapter (`ProviderAdapter`), its `tools.ts` (ToolMap), a fake agent under `tests/fake-<id>/`, host tests.
-2. Register it in `host/providers/index.ts`, and its name and icon in `herdr-app/mods/chat/util.js` (`PROVIDER_NAMES`, `icons/providers/<id>.svg`).
-3. The launcher's entry (`herdr-app/mods/new-chat/main.js` `CHOICES`), its key name (`install/keys.ts`), its instruction file (`install/instructions.ts`) and `PROVIDERS` in `install/app.sh`.
+2. Register it in `host/providers/index.ts` (with `herdrApp` when Herdr names it differently), and its name and icon in `herdr-app/mods/chat/util.js` (`PROVIDER_NAMES`, `icons/providers/<id>.svg`).
+3. The launcher's entry (`herdr-app/mods/new-chat/main.js` `CHOICES`, and `KNOWN_AGENTS` for Herdr's name of it; `HERDR_AGENTS` there and in chat-menu only when Continue as chat works for it), its key name (`install/keys.ts`), its template in the sub-agents note and, if it reads one, its instruction file (`install/instructions.ts`), `PROVIDERS` in `install/app.sh`, and `updateArgv` in `herdr-app/mods/new-chat/update.js`.
+4. An agent that can't take a message mid-run says `capabilities.steer: false`: the host then holds every such message as a follow-up (protocol.md v3.2).

@@ -16,9 +16,9 @@ export const spinner = (size = 12, color) => {
 };
 // An agent's mark: Herdr's program icons (copied into icons/providers/).
 // Pi's is one color (tinted like text); the others keep their colors.
-const FULL_COLOR = new Set(["claude", "codex"]);
+const FULL_COLOR = new Set(["claude", "codex", "agy"]);
 // The agents a chat can run (host/providers/index.ts has the same ids): name and icon.
-export const PROVIDER_NAMES = { pi: "Pi", claude: "Claude Code", codex: "Codex" }; // until the host says (state.providerName)
+export const PROVIDER_NAMES = { pi: "Pi", claude: "Claude Code", codex: "Codex", agy: "Antigravity" }; // until the host says (state.providerName)
 export const PROVIDERS = Object.keys(PROVIDER_NAMES);
 // A chat opened with no agent named (a layout block `{mod: "chat"}`) and no registry entry.
 export const DEFAULT_PROVIDER = "pi";

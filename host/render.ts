@@ -7,12 +7,20 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { splitBlocks } from "./blocks.ts";
-import { highlight, langForPath, plainLines, MAX_LINES } from "./highlight.ts";
-import { renderMermaid, DEFAULT_THEME } from "./mermaid.ts";
+import { highlight, langForPath, plainLines, warmHighlight, MAX_LINES } from "./highlight.ts";
+import { renderMermaid, warmMermaid, DEFAULT_THEME } from "./mermaid.ts";
 import type { Theme } from "./mermaid.ts";
 import { toSpans } from "./ansi.ts";
 import type { Span } from "./ansi.ts";
 import type { Item, AssistantItem, ToolItem, Block, DiffLine } from "./timeline.ts";
+
+/** Whether warmRender has loaded highlight.js and the mermaid renderer. Until then code is plain and diagrams ASCII, and nothing is cached. */
+let warm = false;
+/** Loads highlight.js and the mermaid renderer (slow imports kept off the host's start). Items rendered before it resolves must be re-prepared. */
+export async function warmRender(): Promise<void> {
+  await Promise.all([warmHighlight(), warmMermaid()]);
+  warm = true;
+}
 
 const CACHE_MAX = 400;
 /** Highlighted spans per item, past which later code blocks go without `lines` (keeps records far below 8 MiB). */
@@ -186,7 +194,7 @@ export function diffLines(diff: string, path: string): { lines: DiffLine[]; adde
   return { lines, added, removed };
 }
 
-type Seen = { text?: string; streaming?: boolean; theme?: string; output?: string; status?: string; detail?: object; diff?: string | null };
+type Seen = { warm: boolean; text?: string; streaming?: boolean; theme?: string; output?: string; status?: string; detail?: object; diff?: string | null };
 
 export class Renderer {
   theme: Theme = DEFAULT_THEME;
@@ -226,6 +234,11 @@ export class Renderer {
     return item.kind === "assistant" && !!item.blocks?.some((b) => b.type === "mermaid" && !b.open);
   }
 
+  /** True when the item was rendered before warmRender resolved (plain code, ASCII diagrams): prepare redoes it. */
+  renderedCold(item: Item): boolean {
+    return warm && this.seen.get(item)?.warm === false;
+  }
+
   /** Brings an item's rich fields up to date (in place). Cheap when nothing changed. */
   prepare(item: Item): void {
     try {
@@ -238,8 +251,8 @@ export class Renderer {
 
   private prepareAssistant(item: AssistantItem): void {
     const s = this.seen.get(item);
-    if (s && s.text === item.text && s.streaming === item.streaming && s.theme === this.themeKey) return;
-    this.seen.set(item, { text: item.text, streaming: item.streaming, theme: this.themeKey });
+    if (s && s.warm === warm && s.text === item.text && s.streaming === item.streaming && s.theme === this.themeKey) return;
+    this.seen.set(item, { warm, text: item.text, streaming: item.streaming, theme: this.themeKey });
     item.blocks = splitBlocks(item.text, item.streaming).map((b): Block => {
       if (b.type === "markdown") return b;
       if (b.type === "code") {
@@ -248,7 +261,7 @@ export class Renderer {
         let lines = this.code.get(key);
         if (!lines) {
           lines = highlight(b.code, b.lang, true).lines;
-          this.code.set(key, lines);
+          if (warm) this.code.set(key, lines);
         }
         return { ...b, lines };
       }
@@ -281,7 +294,7 @@ export class Renderer {
         }
       } else out = {};
     } else out = { ascii: r.ascii, error: r.error };
-    this.mermaid.set(key, out);
+    if (warm) this.mermaid.set(key, out);
     return out;
   }
 
@@ -289,8 +302,8 @@ export class Renderer {
     const d = item.detail;
     const diff = d.type === "edit" ? d.diff : null;
     const s = this.seen.get(item);
-    if (s && s.output === item.output && s.status === item.status && s.detail === d && s.diff === diff) return;
-    this.seen.set(item, { output: item.output, status: item.status, detail: d, diff });
+    if (s && s.warm === warm && s.output === item.output && s.status === item.status && s.detail === d && s.diff === diff) return;
+    this.seen.set(item, { warm, output: item.output, status: item.status, detail: d, diff });
     if (d.type === "bash") {
       if (!item.output) delete item.outputLines;
       else {

@@ -53,6 +53,7 @@ import { TermBar } from "./termbar.js";
 import { DEFAULT_PROVIDER, MOD, PROVIDERS, PROVIDER_NAMES, alpha, homeRel, icon, message, monoFont, plural, relTime, spansText, skillsOf, uiScale, spinner, tildePath, typedText, unwrapHc } from "./util.js";
 
 const COL_MAX = 800;
+const FAST_MS = 10_000; // how long a new chat or host is polled fast (100 ms) for its place and its host's hiding
 const APP_READ_AFTER_ECHO = 380; // ms from seeing a label echo to just before the app's next read (beforeAppRead)
 let VIEWS = 0;
 
@@ -161,6 +162,16 @@ export default class HerdrChat extends View {
     // Data, not animation: where the host pane is, a TUI that finished, a
     // dialog's countdown. Cheap when nothing changed (no notify).
     cx.timer.every(400, (cx) => this.tick(cx));
+    // A new host's pane is hidden, then labeled, in steps (keepHostHidden): until both are done the
+    // steps are tried every 100 ms, not at the tick's 400, for FAST_MS after the chat opens or a new host
+    // appears (then the tick goes on alone). Its own quiet and app-read waits still hold.
+    this.fastUntil = Date.now() + FAST_MS;
+    cx.timer.every(100, (cx) => {
+      if (this.sub || this.peekMode || Date.now() > this.fastUntil) return;
+      const term = this.conn.hostTerminal();
+      if (!term || (this.hide?.terminal === term.address && this.hide.hidden === true && term.labels?.["herdr.tab"])) return;
+      this.keepHostHidden(this.myPane(), cx);
+    });
     this.composer.focus();
     cx.timer.after(400, () => this.composer.focus());
     // The right-click menu's Open as a chat tab (chat-menu): straight on to the tab.
@@ -202,7 +213,7 @@ export default class HerdrChat extends View {
   // Ask the core's layout document which pane has this chat's props. The
   // document may lag a new tab by a moment: tick() asks again until it knows.
   lookupPlace(cx) {
-    if (this.placeLooking || Date.now() - (this.placeTried ?? 0) < 600) return;
+    if (this.placeLooking || Date.now() - (this.placeTried ?? 0) < (this.place ? 600 : 100)) return;
     if (this.place && this.findPlace()) return;
     this.placeLooking = true;
     this.placeTried = Date.now();
@@ -227,6 +238,8 @@ export default class HerdrChat extends View {
       }
       this.debug.mark();
       cx.notify();
+      // A new tab's pane reaches the layout document a moment late: ask again soon, not at the next 400 ms tick.
+      if (!this.place && !this.findPlace() && Date.now() < this.fastUntil) cx.timer.after(120, (cx) => this.lookupPlace(cx));
     });
   }
 
@@ -473,18 +486,19 @@ export default class HerdrChat extends View {
     let h = this.hide;
     if (h?.terminal !== term.address) {
       h = this.hide = { terminal: term.address, at: Date.now(), pane: null, tab: null, hidden: null, checkedAt: 0, writes: [], errors: 0, stale: true };
+      this.fastUntil = Date.now() + FAST_MS;
       this.debug.mark();
     }
     const sig = panes().filter((p) => p.tab === me.tab).map((p) => p.pane).sort().join(",");
     if (sig !== this.tabSig) { this.tabSig = sig; this.tabSigAt = Date.now(); h.stale = true; }
-    // Quiet: no pane or tab moved in the last second, here or in any tab (see beforeAppRead).
+    // Quiet: no pane moved in this tab in the last 400 ms, and no pane or tab anywhere in the last second (see beforeAppRead).
     const world = `${spaces().flatMap((s) => s.tabs.map((t) => t.id)).join(",")}|${panes().map((p) => p.pane).join(",")}`;
     if (world !== this.worldSig) { this.worldSig = world; this.worldSigAt = Date.now(); }
     const quiet = Date.now() - (this.tabSigAt ?? 0) > 400 && Date.now() - (this.worldSigAt ?? 0) > 1000;
     // Another client can drop the flag without moving a pane: checked every 5 s while the tab shows.
     const period = focused()?.tab === me.tab ? 5000 : 30000;
     const due = h.stale || h.hidden !== true || Date.now() - h.checkedAt > period;
-    if (h.busy || !quiet || !due || Date.now() - h.checkedAt < 900) return;
+    if (h.busy || !quiet || !due || Date.now() - h.checkedAt < 300) return;
     h.busy = true;
     h.stale = false;
     cx.spawn(async (cx) => {
@@ -505,15 +519,19 @@ export default class HerdrChat extends View {
           const recent = h.writes.filter((t) => Date.now() - t < 20000);
           if (recent.length >= 3) return this.fallbackHide(term, `the hidden flag didn't stick (${recent.length} writes in 20 s)`, cx);
           // The app's own change goes first; after ~20 s of that (a mismatch inStep can't explain), write anyway.
-          const r = await hideHost(this.place.tab, term.address, { force: (h.waiting ?? 0) >= 20, beforeWrite: () => this.beforeAppRead(term.address, cx) });
+          const r = await hideHost(this.place.tab, term.address, { force: Boolean(h.waitingSince) && Date.now() - h.waitingSince >= 20000, beforeWrite: () => this.beforeAppRead(term.address, cx) });
           if (r.did === "waiting") {
             h.waits = (h.waits ?? 0) + 1;
-            h.waiting = (h.waiting ?? 0) + 1;
+            h.waitingSince ??= Date.now();
             h.stale = true;
-            if (h.waiting === 20) this.log(`host ${term.address}: the layout document still differs from the app's tabs: writing anyway`);
+            if (Date.now() - h.waitingSince >= 20000 && !h.forceLogged) {
+              h.forceLogged = true;
+              this.log(`host ${term.address}: the layout document still differs from the app's tabs: writing anyway`);
+            }
             return;
           }
-          h.waiting = 0;
+          h.waitingSince = null;
+          h.forceLogged = false;
           h.writes.push(Date.now());
           h.stale = true; // read it back
           this.log(`host ${term.address}: ${r.did === "added" ? `hidden pane ${r.pane} added` : r.did === "flagged" ? `pane ${r.pane} hidden` : `pane ${r.pane} already hidden`} (layout document)`);

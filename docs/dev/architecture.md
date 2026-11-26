@@ -21,7 +21,7 @@ Herdr tab
 - Runs in a herdr-core terminal, so it keeps running when the window closes,
   and Herdr lists it as an agent: status, notifications, `hc send`, `hc read`.
 - A provider-neutral core (`chat.ts`, `timeline.ts`, `commands.ts`) sits on
-  one adapter per agent (`host/providers/pi|claude|codex/`). An adapter turns
+  one adapter per agent (`host/providers/pi|claude|codex|agy/`). An adapter turns
   its agent's protocol into normalized events; the core turns those into the
   same timeline for every agent. The seam is
   [`host/providers/types.ts`](../../host/providers/types.ts); the design is

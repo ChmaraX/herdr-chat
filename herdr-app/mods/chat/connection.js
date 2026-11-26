@@ -148,7 +148,7 @@ export class Connection {
         }
         this.failPending("disconnected");
         if (this.closed) return;
-        await cx.sleep(BACKOFF[Math.min(this.attempt++, BACKOFF.length - 1)]);
+        await cx.sleep(this.startingUp() ? 100 : BACKOFF[Math.min(this.attempt++, BACKOFF.length - 1)]);
       }
     });
     // Requests nobody answered within their time: fail them, keep the loop.
@@ -161,6 +161,14 @@ export class Connection {
         }
       }
     });
+  }
+
+  // First open of this chat, waiting for its tab or for the host just started to register: poll
+  // fast, the wait is short and the backoff is for a host that is really down.
+  startingUp() {
+    if (this.connects || this.closed) return false;
+    if (this.started) return Date.now() - this.started.at < 4000;
+    return !this.o.attachOnly && this.autoStart && !this.startFailed && !this.o.place?.();
   }
 
   // One connection attempt and, when it works, its whole read loop.

@@ -1,11 +1,11 @@
 // new-chat: the "New chat with…" launcher, and the commands that open chats.
 //
 // As an overlay (`mod.open:new-chat`, the "open" key: cmd-i): the agents that are
-// installed (Pi, Claude Code, Codex: knownAgents; until it answers, its last answer,
-// else every one), then Terminal. A new tab with the chat (mod chat, props {chat, cwd,
-// provider}), or a shell, for the focused terminal's folder (else the space's). Keys:
-// p / c / x / t pick (the launcher has no text field, so letters are always picks),
-// 1–4 the rows as numbered on screen, ↑↓ move, Enter opens the selected one (the last
+// installed (Pi, Claude Code, Codex, Antigravity: knownAgents; until it answers, its last
+// answer, else every one), then Terminal. A new tab with the chat (mod chat, props {chat,
+// cwd, provider}), or a shell, for the focused terminal's folder (else the space's). Keys:
+// p / c / x / a / t pick (the launcher has no text field, so letters are always picks),
+// 1–5 the rows as numbered on screen, ↑↓ move, Enter opens the selected one (the last
 // choice, kept in <appHome>/data/herdr-chat/launcher.json), Esc closes. The dialog
 // fits its rows. Its commands: `new-chat.pick:<id>` (a row on screen), `new-chat.enter`.
 //
@@ -13,7 +13,7 @@
 // install/layout.ts): always on screen at no size, so it takes the commands a
 // key or another mod runs while no launcher is open:
 // - `new-chat.open`: the launcher (as mod.open:new-chat; again: closes it);
-// - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`: that agent's chat, in a new tab
+// - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`, `new-chat.agy`: that agent's chat, in a new tab
 //   (not in another machine's space or terminal: it says so); `new-chat.terminal`: a shell tab;
 // - `new-chat.continue:<terminal>`: chat-menu's Continue as chat (an agent's
 //   TUI handed over to a chat on its session, see continueAsChat);
@@ -36,6 +36,7 @@ const CHOICES = [
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
+  { id: "agy", label: "Antigravity", icon: "agy", letter: "a" },
   { id: "terminal", label: "Terminal", icon: "terminal", tint: true, letter: "t", isTerminal: true },
 ];
 const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
@@ -90,8 +91,11 @@ const term = (addr) => terminals().find((t) => t.address === addr);
 const word = (s) => (typeof s === "string" ? s : s?.state ?? null);
 const NAMES = Object.fromEntries(CHOICES.map((c) => [c.id, c.label]));
 
-// Herdr's names for the agents (its status reports Claude Code as claude-code) → ours.
+// Herdr's names for the agents a TUI can continue as a chat (its status reports Claude Code as claude-code) → ours.
+// Kept the same as chat-menu's copy. Antigravity isn't one: its chat can't take over a running TUI.
 const HERDR_AGENTS = { pi: "pi", claude: "claude", "claude-code": "claude", codex: "codex" };
+// knownAgents() keys → our ids, for the launcher's installed check (every agent of CHOICES).
+const KNOWN_AGENTS = { ...HERDR_AGENTS, agy: "agy", antigravity: "agy" };
 
 /** The agent a terminal runs, as Herdr reports it (an id of CHOICES), else null. */
 export function agentOf(t) {
@@ -332,7 +336,7 @@ export default class NewChat extends View {
       try {
         const known = await knownAgents();
         this.installed = Object.fromEntries(CHOICES.filter((c) => !c.isTerminal)
-          .map((c) => [c.id, known.find((a) => HERDR_AGENTS[a.key] === c.id)?.installed !== false]));
+          .map((c) => [c.id, known.find((a) => KNOWN_AGENTS[a.key] === c.id)?.installed !== false]));
         setShared(INSTALLED_CACHE, this.installed);
       } catch {}
       cx.notify();
