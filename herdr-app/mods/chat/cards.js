@@ -292,6 +292,13 @@ export function tool(it, c) {
     .children(it.images?.length ? [div().px(10).pb(10).child(images(it.images, it.imageSizes, it.id, c))] : []);
 }
 
+// A bash command in full, wrapped: "$ <command>" (a tool card's body, a permission card's command).
+export function commandLine(command, c) {
+  const t = c.t;
+  return h_flex().gap(8).font_family(c.mono).text_size(12.5).line_height("19px")
+    .child(div().flex_none().text_color(t.dim).child("$")).child(div().flex_1().min_w(0).text_color(t.foreground).child(command ?? ""));
+}
+
 function toolBody(it, d, c) {
   const t = c.t;
   const fullText = c.full.get(it.id);
@@ -300,8 +307,7 @@ function toolBody(it, d, c) {
   const box = v_flex().border_t_1().border_color(c.line).px(10).py(8).gap(8).max_w_full();
   const parts = [];
   if (d.type === "bash") {
-    parts.push(h_flex().gap(8).font_family(c.mono).text_size(12.5).line_height("19px")
-      .child(div().flex_none().text_color(t.dim).child("$")).child(div().flex_1().min_w(0).text_color(t.foreground).child(d.command ?? "")));
+    parts.push(commandLine(d.command, c));
   }
   const isDiff = d.type === "edit" && (d.diffLines?.length || d.diff);
   if (d.type === "edit") {

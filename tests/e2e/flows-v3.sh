@@ -98,6 +98,85 @@ if want v3 || want launcher; then
   expect '[ -n "$(chat_of claude)" ] && [ "$(chat_of claude)" != "$FIRST" ]' "Enter opens the default, the last choice: another Claude Code chat" 15
 fi
 
+# --- flow `launcher`: its rows follow what is installed, Terminal opens a shell tab ---------------
+# The rows' height in shot $1: the dialog's left padding column, from the window's middle up and down
+# while it keeps the popover's color (the dialog is 300 wide and centered).
+dialog_h() {
+  python3 -c 'import sys; sys.path.insert(0, sys.argv[2]); import png
+W, H = 1280, 820; g = png.grey(sys.argv[1], W, H); x = W // 2 - 150 + 4; y0 = H // 2; v = g[y0 * W + x]
+same = lambda y: abs(g[y * W + x] - v) <= 3
+top = y0
+while top > 0 and same(top - 1): top -= 1
+bot = y0
+while bot < H - 1 and same(bot + 1): bot += 1
+print(bot - top + 1)' "$1" "$E2E"; }
+new_terms() { comm -13 <(printf '%s\n' $1 | sort) <(term_panes | awk '{print $3}' | sort) || true; }
+last_choice() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("last"))' "$STATE/launcher.json" 2>/dev/null; }
+# Key $1 (a letter, a digit or enter) in the open launcher until it closes (a dropped key: again, primed).
+launcher_key() {
+  local k="text:$1"; [ "$1" != enter ] || k=enter
+  keys "$k"
+  until_ '! overlay_open new-chat' 3 || { note "$1 didn't land: again, primed"; keys 56:shift "$k"; until_ '! overlay_open new-chat' 3; } || true
+  expect '! overlay_open new-chat' "$1 picked a row (the launcher closed)" 3
+}
+
+if want launcher; then
+  step "launcher: the installed agents, then Terminal; t opens a shell tab in the focused folder"
+  open_launcher "the launcher opens"
+  expect '[ "$(cached_installed codex)" != none ]' "knownAgents answered" 15
+  shot launcher-1-all 0.5
+  H4=$(dialog_h "$ART/launcher-1-all.png")
+  BEFORE=$(term_panes | awk '{print $3}')
+  launcher_key t
+  expect '[ -n "$(new_terms "$BEFORE")" ]' "t: a new tab with a terminal" 8
+  T=$(new_terms "$BEFORE" | head -1)
+  expect '[ "$(hc get "$T" --json | python3 -c "import json,sys; print(json.load(sys.stdin)[\"cwd\"])")" = "$PROJ" ]' "the shell runs in the focused terminal's folder" 8
+  [ "$(hc get "$T" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["labels"].get("herdr.space"))')" = "$SPACE" ] && ok "in the focused space" || fail "the shell's tab is in another space"
+  [ "$(last_choice)" = terminal ] && ok "the launcher remembers Terminal" || fail "launcher.json last $(last_choice)"
+  shot launcher-2-shell-tab 0.5
+
+  step "launcher: Enter opens the last choice, Terminal"
+  BEFORE=$(term_panes | awk '{print $3}')
+  open_launcher "the launcher opens again"
+  shot launcher-2b-default-terminal 0.5
+  launcher_key enter
+  expect '[ -n "$(new_terms "$BEFORE")" ]' "Enter: another shell tab" 8
+
+  if [ -z "$AGENT_BIN" ] || [ "$(command -v codex)" != "$AGENT_BIN/codex" ]; then
+    skip "launcher without Codex: Codex here isn't the e2e's stand-in (lib.sh adds them only where no agent is installed)"
+  else
+    step "launcher: Codex uninstalled: its row is gone, x does nothing, 3 is the third row on screen (Terminal), the dialog one row shorter"
+    rm "$AGENT_BIN/codex"
+    restart_app # knownAgents asks at most once a minute
+    open_launcher "the launcher opens"
+    expect '[ "$(cached_installed codex)" = false ]' "knownAgents answered: Codex isn't installed" 15
+    shot launcher-3-no-codex 0.5
+    H3=$(dialog_h "$ART/launcher-3-no-codex.png")
+    D=$((H4 - H3))
+    [ "$D" -ge 34 ] && [ "$D" -le 42 ] && ok "the dialog fits its rows: $H4 px with 4, $H3 px with 3" || fail "the dialog's height: $H4 px with 4 rows, $H3 px with 3"
+    N=$(ls "$STATE/debug/" | grep -cE '^c-[0-9a-f]{8}\.json$' || true)
+    keys "text:x"; sleep 1.5
+    overlay_open new-chat && [ "$(ls "$STATE/debug/" | grep -cE '^c-[0-9a-f]{8}\.json$' || true)" = "$N" ] &&
+      ok "x does nothing: Codex isn't there" || fail "x acted with Codex not installed"
+    BEFORE=$(term_panes | awk '{print $3}')
+    launcher_key 3
+    expect '[ -n "$(new_terms "$BEFORE")" ]' "3: the third row on screen, Terminal (a shell tab)" 8
+    [ "$(chat_of codex)" = "" ] && ok "no Codex chat" || fail "a Codex chat opened"
+
+    step "launcher: Codex installed again, its last answer still cached: once knownAgents answers, Enter opens the last choice, Codex"
+    printf '#!/bin/sh\necho codex\n' >"$AGENT_BIN/codex"; chmod +x "$AGENT_BIN/codex"
+    echo '{"last": "codex"}' >"$STATE/launcher.json"
+    restart_app
+    [ "$(cached_installed codex)" = false ] || note "the cache already says Codex is installed"
+    open_launcher "the launcher opens (Codex hidden until knownAgents answers)"
+    expect '[ "$(cached_installed codex)" = true ]' "knownAgents answered: Codex is installed" 15
+    sleep 0.5
+    shot launcher-4-codex-back 0.3
+    launcher_key enter
+    expect '[ -n "$(chat_of codex)" ]' "Enter opened a Codex chat: the remembered choice, not the first row" 15
+  fi
+fi
+
 # --- Claude Code (real host, fake-claude) ------------------------------------------------
 if want v3 || want claude; then
   step "claude: identity and the footer from its capabilities"
@@ -154,6 +233,33 @@ if want v3 || want claude; then
   send_text "run the tests"
   expect '[ "$(phase)" = idle ] && [ "$(last_tool status)" = done ]' "the third run settles" 15
   [ "$(agent_log claude | grep -c '"can_use_tool"\|control_response' || true)" = "$N" ] && [ "$(d 'd["dialog"]')" = null ] && ok "no card the third time (the rule holds)" || fail "asked again after Always"
+
+  step "claude: a one-line command's card keeps it in the header; a click on it shows it whole"
+  send_text "clean the build"
+  open_dialog permission "a card for rm -rf build"
+  PERM="perm-$(d 'd["dialog"]["id"]')"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = false ]' "collapsed: the header holds the whole command" 5
+  cmd "toggle:$PERM"
+  need '[ "$(d "\"$PERM\" in d[\"expanded\"]")" = true ]' "toggle: the permission's command"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = true ]' "the header's click shows the command under it" 5
+  cmd "toggle:$PERM"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = false ]' "a second click hides it" 5
+  ask_key "text:3" '[ "$(d "d[\"lastAnswer\"][\"choice\"]")" = deny ]' "3 answers Deny"
+  expect '[ "$(phase)" = idle ]' "done" 15
+
+  step "claude: a multi-line command's card opens on the whole command (the header has its first line only)"
+  send_text "install the deps"
+  open_dialog permission "a card for the three-line command"
+  PERM="perm-$(d 'd["dialog"]["id"]')"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = true ]' "open by default: no line is approved unseen" 5
+  shot v3-2-claude-permission-multiline 0.4
+  cmd "toggle:$PERM"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = false ]' "a click on the header closes it" 5
+  cmd "toggle:$PERM"
+  expect '[ "$(d "d[\"dialog\"][\"commandShown\"]")" = true ]' "and opens it again" 5
+  ask_key "text:1" '[ "$(d "d[\"lastAnswer\"][\"choice\"]")" = allow ]' "1 still answers Allow once with the command open"
+  expect 'agent_log claude | grep "control_response" | tail -1 | grep -q "\"behavior\":\"allow\""' "Claude got behavior allow" 5
+  expect '[ "$(phase)" = idle ] && [ "$(last_tool status)" = done ]' "the command ran" 15
 
   step "claude: Deny with a reason (Esc); the card shows declined"
   send_text "clean the build"

@@ -42,6 +42,15 @@ export HERDR_RELEASES_URL=http://127.0.0.1:9 # never update the installed app or
 # settings (the host gives real Pi a temp --session-dir).
 [ -n "${LIVE:-}" ] || export PI_CODING_AGENT_DIR="$BASE/pi"
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:$PATH"
+# The launcher shows only the agents Herdr finds installed (knownAgents: on PATH). A machine with none (the
+# test box) gets stand-ins for all three on PATH (nothing runs them: chats run the fakes by config), so the
+# flows see every row; one that has some (yours, or a replay that installs its own) keeps what it has.
+AGENT_BIN=
+if [ -z "${LIVE:-}" ] && ! command -v pi >/dev/null && ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
+  AGENT_BIN="$BASE/agent-bin"; mkdir -p "$AGENT_BIN"
+  for a in pi claude codex; do printf '#!/bin/sh\necho "%s: an e2e stand-in (installed for the launcher)"\n' "$a" >"$AGENT_BIN/$a"; chmod +x "$AGENT_BIN/$a"; done
+  export PATH="$AGENT_BIN:$PATH"
+fi
 NODE="${NODE:-$(command -v node)}"
 mkdir -p "$HERDR_APP_HOME" "$XDG_STATE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
 echo '{"frame.welcomed": true, "layout": "main"}' >"$HERDR_APP_HOME/shared.json"

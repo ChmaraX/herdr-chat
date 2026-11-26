@@ -1,19 +1,20 @@
 // new-chat: the "New chat with…" launcher, and the commands that open chats.
 //
-// As an overlay (`mod.open:new-chat`, the "open" key: cmd-i): Pi, Claude
-// Code, Codex or Antigravity, then a new tab with the chat (mod chat, props {chat, cwd,
-// provider}) for the focused terminal's folder (else the space's). Keys:
-// p / c / x / a pick (only an agent that is installed; the launcher has no text
-// field, so letters are always picks), 1-4 too, ↑↓ move, Enter opens the
-// selected one (the last choice, kept in <appHome>/data/herdr-chat/launcher.json),
-// Esc closes. Its commands: `new-chat.pick:<provider>`, `new-chat.enter`.
+// As an overlay (`mod.open:new-chat`, the "open" key: cmd-i): the agents that are
+// installed (Pi, Claude Code, Codex, Antigravity: knownAgents; until it answers, its last
+// answer, else every one), then Terminal. A new tab with the chat (mod chat, props {chat,
+// cwd, provider}), or a shell, for the focused terminal's folder (else the space's). Keys:
+// p / c / x / a / t pick (the launcher has no text field, so letters are always picks),
+// 1–5 the rows as numbered on screen, ↑↓ move, Enter opens the selected one (the last
+// choice, kept in <appHome>/data/herdr-chat/launcher.json), Esc closes. The dialog
+// fits its rows. Its commands: `new-chat.pick:<id>` (a row on screen), `new-chat.enter`.
 //
 // As the layout's empty floating block (props {role: "commands"},
 // install/layout.ts): always on screen at no size, so it takes the commands a
 // key or another mod runs while no launcher is open:
 // - `new-chat.open`: the launcher (as mod.open:new-chat; again: closes it);
 // - `new-chat.pi`, `new-chat.claude`, `new-chat.codex`, `new-chat.agy`: that agent's chat, in a new tab
-//   (not in another machine's space or terminal: it says so);
+//   (not in another machine's space or terminal: it says so); `new-chat.terminal`: a shell tab;
 // - `new-chat.continue:<terminal>`: chat-menu's Continue as chat (an agent's
 //   TUI handed over to a chat on its session, see continueAsChat);
 //   `new-chat.continue`: the same on the focused terminal (the "continue" key);
@@ -25,7 +26,7 @@
 
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, spaces, terminals, theme } from "herdr";
+import { appHome, closeOverlay, exec, focused, hc, knownAgents, nextCommand, notify, openOverlay, panes, props, readTextFile, run, setShared, shared, spaces, terminals, theme } from "herdr";
 import * as fs from "fs/promises";
 import { randomBytes, randomUUID } from "crypto";
 import os from "os";
@@ -45,13 +46,34 @@ function hexId(n) {
   return s.slice(0, n);
 }
 
+// Terminal last: 1/2/3 stay Pi/Claude Code/Codex while all three are installed.
 const CHOICES = [
   { id: "pi", label: "Pi", icon: "pi", tint: true, letter: "p" },
   { id: "claude", label: "Claude Code", icon: "claude", letter: "c" },
   { id: "codex", label: "Codex", icon: "codex", letter: "x" },
   { id: "agy", label: "Antigravity", icon: "agy", letter: "a" },
+  { id: "terminal", label: "Terminal", icon: "terminal", tint: true, letter: "t", isTerminal: true },
 ];
 const PREFS = () => `${appHome()}/data/herdr-chat/launcher.json`;
+// knownAgents' last answer (agent id → installed), so a launcher opens with the right rows.
+const INSTALLED_CACHE = "new-chat.installed";
+
+const openChoice = (c) => (c.isTerminal ? openTerminal() : openChat(c.id));
+const failTitle = (c) => (c?.isTerminal ? "New terminal" : "New chat");
+
+async function rememberLast(id) {
+  await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
+  await fs.writeFile(PREFS(), JSON.stringify({ last: id }));
+}
+
+/** A shell in a new tab (the default shell, as Herdr's own new tab), in the focused terminal's folder (else the space's). */
+async function openTerminal() {
+  const f = focused();
+  const space = spaces().find((s) => s.id === f?.space);
+  const folder = f?.cwd || space?.folder || null;
+  run("tab.new", { ...(space ? { space: space.id } : {}), ...(folder ? { folder } : {}) });
+  await rememberLast("terminal");
+}
 
 /** A chat with `provider` in a new tab, in the focused terminal's folder (else the space's). */
 async function openChat(provider) {
@@ -64,8 +86,7 @@ async function openChat(provider) {
   const cwd = f?.cwd || space?.folder || null;
   const chat = `c-${hexId(8)}`;
   run("tab.new", { name: provider, mod: "chat", props: { chat, provider, ...(cwd ? { cwd } : {}) } });
-  await fs.mkdir(`${appHome()}/data/herdr-chat`, { recursive: true });
-  await fs.writeFile(PREFS(), JSON.stringify({ last: provider }));
+  await rememberLast(provider);
 }
 
 // Each toast this mod posts, also as a JSON line in <appHome>/data/herdr-chat/debug/new-chat-toasts.jsonl while
@@ -299,13 +320,14 @@ class Commands {
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
+        const choice = CHOICES.find((x) => x.id === c);
         try {
           if (c === "open") run("mod.open", { name: "new-chat" });
-          else if (CHOICES.some((x) => x.id === c)) await openChat(c);
+          else if (choice) await openChoice(choice);
           else if (c === "continue" || c.startsWith("continue:")) await continueAsChat(c.slice(9), cx);
           else if (c === "update-check") await updates(true);
         } catch (e) {
-          toast({ title: c.startsWith("continue") ? "Continue as chat" : "New chat", body: String(e?.message ?? e), level: "error" });
+          toast({ title: c.startsWith("continue") ? "Continue as chat" : failTitle(choice), body: String(e?.message ?? e), level: "error" });
         }
       }
     });
@@ -330,15 +352,15 @@ export default class NewChat extends View {
       });
       return;
     }
-    this.sel = 0;
+    this.picked = null; // the row the person moved to with ↑↓ (an id), else null
+    this.last = null; // the last choice (launcher.json)
     this.done = false;
-    this.installed = null; // provider id → installed (knownAgents), null until known
+    const cached = shared(INSTALLED_CACHE);
+    this.installed = cached && typeof cached === "object" && !Array.isArray(cached) ? cached : null; // agent id → installed (knownAgents), null until known
     this.handle = cx.focus_handle();
     cx.spawn(async (cx) => {
       try {
-        const last = JSON.parse((await readTextFile(PREFS())) ?? "{}").last;
-        const i = CHOICES.findIndex((c) => c.id === last);
-        if (i >= 0) this.sel = i;
+        this.last = JSON.parse((await readTextFile(PREFS())) ?? "{}").last ?? null;
       } catch {}
       this.handle.focus();
       cx.notify();
@@ -346,7 +368,9 @@ export default class NewChat extends View {
     cx.spawn(async (cx) => {
       try {
         const known = await knownAgents();
-        this.installed = Object.fromEntries(CHOICES.map((c) => [c.id, known.find((a) => KNOWN_AGENTS[a.key] === c.id)?.installed !== false]));
+        this.installed = Object.fromEntries(CHOICES.filter((c) => !c.isTerminal)
+          .map((c) => [c.id, known.find((a) => KNOWN_AGENTS[a.key] === c.id)?.installed !== false]));
+        setShared(INSTALLED_CACHE, this.installed);
       } catch {}
       cx.notify();
     });
@@ -355,28 +379,39 @@ export default class NewChat extends View {
       for (;;) {
         const c = await nextCommand();
         if (c === "focus") this.handle.focus();
-        else if (c.startsWith("pick:")) this.open(CHOICES.findIndex((x) => x.id === c.slice(5)), cx);
-        else if (c === "enter") this.open(this.sel, cx);
+        else if (c.startsWith("pick:")) this.open(this.visible().findIndex((x) => x.id === c.slice(5)), cx);
+        else if (c === "enter") this.open(this.selected(this.visible()), cx);
         cx.notify();
       }
     });
   }
 
-  // An agent knownAgents() says isn't installed (unknown yet: every one is offered).
-  available(c) {
-    return this.installed?.[c.id] !== false;
+  // The rows: every agent knownAgents doesn't report missing (unknown yet: every one), and Terminal.
+  visible() {
+    return CHOICES.filter((c) => c.isTerminal || this.installed?.[c.id] !== false);
+  }
+
+  // The highlighted row of `list`: the one moved to, else the last choice, else the first. By id, so it
+  // stays on its choice when rows appear or go (knownAgents answering).
+  selected(list) {
+    for (const id of [this.picked, this.last]) {
+      const i = list.findIndex((c) => c.id === id);
+      if (i >= 0) return i;
+    }
+    return 0;
   }
 
   open(i, cx) {
-    if (this.done || i < 0 || i >= CHOICES.length) return;
+    const list = this.visible();
+    if (this.done || i < 0 || i >= list.length) return;
     this.done = true;
-    const provider = CHOICES[i].id;
+    const choice = list[i];
     const overlay = props()?.overlay;
     cx.spawn(async () => {
       try {
-        await openChat(provider);
+        await openChoice(choice);
       } catch (e) {
-        toast({ title: "New chat", body: String(e?.message ?? e), level: "error" });
+        toast({ title: failTitle(choice), body: String(e?.message ?? e), level: "error" });
       } finally {
         if (overlay) closeOverlay(overlay);
       }
@@ -385,12 +420,16 @@ export default class NewChat extends View {
 
   key(e, cx) {
     const k = e.keystroke;
-    const letter = CHOICES.findIndex((c) => c.letter === k && this.available(c));
+    const list = this.visible();
+    const letter = list.findIndex((c) => c.letter === k);
     if (letter >= 0) this.open(letter, cx);
-    else if (/^[1-9]$/.test(k)) this.open(Number(k) - 1, cx);
-    else if (k === "up") this.sel = (this.sel + CHOICES.length - 1) % CHOICES.length;
-    else if (k === "down" || k === "tab") this.sel = (this.sel + 1) % CHOICES.length;
-    else if (k === "enter") this.open(this.sel, cx);
+    else if (/^[1-9]$/.test(k)) {
+      const idx = Number(k) - 1;
+      if (list[idx]) this.open(idx, cx);
+    }
+    else if (k === "up") this.picked = list[(this.selected(list) + list.length - 1) % list.length].id;
+    else if (k === "down" || k === "tab") this.picked = list[(this.selected(list) + 1) % list.length].id;
+    else if (k === "enter") this.open(this.selected(list), cx);
     else if (k === "escape") { const o = props()?.overlay; if (o) closeOverlay(o); }
     cx.notify();
   }
@@ -400,19 +439,23 @@ export default class NewChat extends View {
     if (this.update) return this.update.render(this.handle);
     const t = theme();
     const mark = (c) => {
-      const path = `mods/chat/icons/providers/${c.icon}.svg`;
+      const path = c.isTerminal ? `mods/chat/icons/${c.icon}.svg` : `mods/chat/icons/providers/${c.icon}.svg`;
       return (c.tint ? svg(path).text_color(t.foreground) : image(path)).size(18).flex_none();
     };
-    const letters = CHOICES.filter((c) => this.available(c)).map((c) => c.letter.toUpperCase()).join(" ");
-    return v_flex().id("launcher").size_full().p(8).gap(2).bg(t.popover).text_color(t.foreground)
+    const badge = (text) => div().px(5).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.dim).child(text);
+    const list = this.visible();
+    const sel = this.selected(list);
+    const nums = list.map((_c, i) => String(i + 1)).join("/");
+    const letters = list.map((c) => c.letter.toUpperCase()).join(" ");
+    return v_flex().id("launcher").w_full().min_h(0).p(8).gap(2).bg(t.popover).text_color(t.foreground)
       .track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
       .child(div().px(8).pt(4).pb(6).text_size(11.5).text_color(t.dim).child("New chat"))
-      .children(CHOICES.map((c, i) => h_flex().id(`choice-${c.id}`).h(36).px(10).gap(10).items_center().rounded(8).cursor_pointer()
-        .when(i === this.sel, (e) => e.bg(t.selected))
+      .children(list.map((c, i) => h_flex().id(`choice-${c.id}`).h(36).px(10).gap(10).items_center().rounded(8).cursor_pointer()
+        .when(i === sel, (e) => e.bg(t.selected))
         .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.open(i, cx))
         .child(mark(c))
-        .child(div().flex_1().text_size(13).text_color(this.available(c) ? t.foreground : t.dim).child(this.available(c) ? c.label : `${c.label} (not installed)`))
-        .when(this.available(c), (e) => e.child(div().px(5).rounded(4).border_1().border_color(t.border).bg(t.raised).text_size(11).text_color(t.dim).child(c.letter.toUpperCase())))))
-      .child(div().px(8).pt(6).text_size(10.5).text_color(t.dim).child(`${letters} or ↑↓ Enter · Esc`));
+        .child(div().flex_1().text_size(13).text_color(t.foreground).child(c.label))
+        .child(h_flex().gap(4).items_center().child(badge(String(i + 1))).child(badge(c.letter.toUpperCase())))))
+      .child(div().px(8).pt(6).text_size(10.5).text_color(t.dim).child(`${nums}, ${letters} or ↑↓ Enter · Esc`));
   }
 }
