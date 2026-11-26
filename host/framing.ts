@@ -1,6 +1,12 @@
 // LF-only JSONL framing with a size cap, shared by the agent transports and the TCP server.
 
 export const MAX_RECORD_BYTES = 8 * 1024 * 1024;
+/**
+ * An agent's reply to a request can be far larger than a record (a long session's history,
+ * a thread's pages): the agent transports frame up to this, and fail only the request a
+ * larger reply answered.
+ */
+export const MAX_REPLY_BYTES = 64 * 1024 * 1024;
 const HEAD_BYTES = 4096;
 
 export type Oversized = { size: number; head: string };

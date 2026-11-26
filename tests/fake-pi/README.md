@@ -64,6 +64,7 @@ Behaviour that mirrors Pi 1.5:
   "sessions": {"/abs/path.jsonl": {"history": [...], "name": "x"}},  // extra sessions for switch_session
   "startup": [Step, ...],                   // runs at start
   "startupBlocksStdin": false,              // true: stdin is read only after "startup" ends (Pi runs session_start first)
+  "historyDelayMs": 0,                      // get_messages answers after this long (not scaled): a long session being read
   "timers": [{"after": 300, "steps": [Step, ...]}],  // after startup; use {"run": [...]} for an autonomous run
   "prompts": [{"match": "regex", "once": true, "steps": [Step, ...]}],  // the first unused match runs
   "default": [Step, ...],                   // when no prompt matches
@@ -106,6 +107,7 @@ Behaviour that mirrors Pi 1.5:
 | File | What it exercises |
 |---|---|
 | `scenarios/tools.json` | Every kind of tool in one prompt: thinking, a streamed bash with ANSI output and exit code, read with offset/limit, edit with Pi's `details.patch`, write, grep, find, ls, an MCP tool (`mcp__figma__get_file`), a failing bash. Startup sends ANSI statuses, a widget, a notify and a title |
+| `scenarios/slow-history.json` | `tools.json` with `historyDelayMs` 3000: Pi takes 3 s to read the session, so a restarted chat waits on its history (flow `update`) |
 | `scenarios/long-markdown.json` | A ~6 KB streamed markdown answer (headings, lists, a code block, a table, U+2028/U+2029 inside a quote) after a thinking block |
 | `scenarios/dialogs.json` | A select (Allow/Block, 10 s timeout) guarding a bash call, a confirm (5 s timeout), an input. `/rpc-input` is an extension command that opens an input dialog outside a run |
 | `scenarios/long-dialog.json` | A select whose title is a 64-line command, as Pi extensions put it in `ctx.ui.select(title, …)` (Allow once / for the session / Block) |

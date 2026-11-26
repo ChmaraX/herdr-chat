@@ -91,6 +91,11 @@ export type ChatState = {
   conflict: Conflict | null;
   /** The branch of the folder (git.ts); null outside a repo. */
   git: GitState | null;
+  /**
+   * The agent is starting on a session whose history isn't in the timeline yet. A client
+   * that already shows the conversation (a restarted host) keeps it until this clears.
+   */
+  historyPending: boolean;
 };
 
 const URGENT = new Set<keyof ChatState>(["phase", "dialog", "dialogsPending", "queue", "error", "editorText", "handoff", "conflict"]);
@@ -229,7 +234,8 @@ export class Chat {
       model: null, thinking: null, plan: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
       statuses: [], widgets: [], title: null, editorText: null, commands: [],
       provider: this.adapter.id, providerName: this.adapter.name, capabilities: structuredClone(this.adapter.capabilities), permissionMode: null,
-      handoff: null, conflict: null, git: null,
+      // Until start() knows the session: a client may connect before it runs (main.ts listens first).
+      handoff: null, conflict: null, git: null, historyPending: true,
     };
     this.state.commands = this.menu();
     this.git = new GitWatch(opts.cwd, (git) => this.set({ git }), opts.log);
@@ -338,11 +344,15 @@ export class Chat {
     return { state: structuredClone({ ...this.state, plan: this.timeline.plan }), items: items.map(toWire), hasOlder: items.length < all.length };
   }
 
-  /** Replace the whole timeline (new session, switch, resume). */
-  private replaceTimeline(t: Timeline): void {
+  /**
+   * Replace the whole timeline (new session, switch, resume). `state`: changes that go out in
+   * the same snapshot (the end of historyPending must not arrive before the history).
+   */
+  private replaceTimeline(t: Timeline, state: Partial<ChatState> = {}): void {
     this.flush();
     const old = this.timeline;
     this.timeline = t;
+    Object.assign(this.state, state);
     t.dirty.clear();
     t.planChanged = false;
     this.state.plan = t.plan;
@@ -401,7 +411,7 @@ export class Chat {
       this.enterConflict(sessionFile!, conflict);
       return;
     }
-    this.set({ phase: "starting", error: null, sessionFile, conflict: null });
+    this.set({ phase: "starting", error: null, sessionFile, conflict: null, historyPending: sessionFile !== null });
     this.warm = warmRender().catch((e) => this.opts.log(`render warm-up failed: ${errText(e)}`)); // while the agent starts
     void this.boot(gen, sessionFile);
   }
@@ -437,7 +447,7 @@ export class Chat {
     this.releaseLock();
     if (file !== this.state.sessionFile && this.timeline.items.length) this.replaceTimeline(this.newTimeline());
     const again = this.state.phase === "conflict" && JSON.stringify(this.state.conflict) === JSON.stringify(c);
-    this.set({ phase: "conflict", conflict: c, sessionFile: file, error: null, handoff: null });
+    this.set({ phase: "conflict", conflict: c, sessionFile: file, error: null, handoff: null, historyPending: false });
     this.dropQueue();
     if (!again) this.notice("warning", `${why ? why + "\n" : ""}${this.conflictText(c)} ${this.conflictWayOut(c)}`);
     this.terminalState("idle");
@@ -558,9 +568,12 @@ export class Chat {
         if (gen !== this.generation) return;
         this.loadHistory(events);
       } catch (e) {
+        if (gen !== this.generation) return;
+        // What a client kept from before is no longer this timeline: it takes this one.
+        this.replaceTimeline(this.timeline, { historyPending: false });
         this.notice("warning", `Could not load the session history: ${errText(e)}`);
       }
-    }
+    } else if (this.state.historyPending) this.set({ historyPending: false });
     if (info.streaming && !this.runActive) {
       this.runActive = true;
       this.adapter.watchRun?.();
@@ -583,7 +596,7 @@ export class Chat {
       t.items.push(it);
       t.byId.set(it.id, it);
     }
-    this.replaceTimeline(t);
+    this.replaceTimeline(t, { historyPending: false });
   }
 
   private setLock(file: string | null): void {
@@ -604,7 +617,7 @@ export class Chat {
   }
 
   private fatal(msg: string): void {
-    this.set({ phase: "error", error: msg });
+    this.set({ phase: "error", error: msg, historyPending: false });
     this.notice("error", msg);
   }
 
@@ -628,7 +641,7 @@ export class Chat {
     const tail = stripAnsi(ev.stderrTail).trim().split("\n").filter(Boolean).slice(-3).join("\n");
     const msg = tail ? `${why}: ${tail}` : why;
     this.opts.log(msg);
-    this.set({ phase: wasStarting || ev.spawnError ? "error" : "exited", error: msg });
+    this.set({ phase: wasStarting || ev.spawnError ? "error" : "exited", error: msg, historyPending: false });
     this.dropQueue();
     this.onTerminalState("error", why);
     this.notice("error", `${msg}\nSend a message or use /reload to restart ${this.agent} on this session.`);

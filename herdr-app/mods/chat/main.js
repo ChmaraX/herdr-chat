@@ -344,6 +344,7 @@ export default class HerdrChat extends View {
     // background tab must never pull the person over to it.
     const shown = Boolean(me) && focused()?.tab === me.tab;
     if (!this.sub) {
+      this.keepPin();
       if (this.healHost(cx)) changed = true;
       if (this.updateTick(cx)) changed = true;
       this.keepHostHidden(me, cx);
@@ -454,6 +455,23 @@ export default class HerdrChat extends View {
     const kill = () => run("terminal.kill", { terminal: term.address });
     if (this.conn.status === "connected") this.req("shutdown", {}, cx, { timeout: 5000 }).catch(kill);
     else kill();
+  }
+
+  // The chat is in the agents list as its host's terminal, and a pin is the terminal's: it would
+  // end with it. So the chat remembers its host's pin and gives it to the next host, however the
+  // old one ended (an update, healHost, a crash).
+  keepPin() {
+    const term = this.conn.hostTerminal();
+    const a = term && agents().find((x) => x.address === term.address);
+    if (!a) return;
+    const p = this.pin;
+    if (p && p.terminal !== a.address && p.pinned && !a.pinned) {
+      this.log(`host ${a.address} replaced ${p.terminal}: pinned as it was`);
+      run("terminal.pin", { terminal: a.address, pinned: true });
+      this.pin = { terminal: a.address, pinned: true };
+      return;
+    }
+    if (!p || p.terminal !== a.address || p.pinned !== a.pinned) this.pin = { terminal: a.address, pinned: a.pinned };
   }
 
   // A replacement host is on its way (replaceHost): the old one's bye and welcome are ours.
@@ -2055,7 +2073,7 @@ export default class HerdrChat extends View {
         ...(it.kind === "tool" ? { name: it.name, title: it.title, images: it.images ?? [] } : {}),
         ...(it.kind === "assistant" ? { len: it.text.length, stopReason: it.stopReason ?? null } : {}),
         ...(it.kind === "notice" ? { level: it.level, text: (it.text ?? "").slice(0, 200), source: it.source ?? null } : {}) })),
-      hasOlder: this.store.hasOlder, loadingOlder: this.loadingOlder || Boolean(this.olderWanted),
+      hasOlder: this.store.hasOlder, held: this.store.held, loadingOlder: this.loadingOlder || Boolean(this.olderWanted),
       expanded: [...this.expanded], full: [...this.full.keys()],
       sticky: this.timeline.sticky, top: Math.round(this.timeline.top), viewH: this.timeline.viewH, scale: uiScale(), rowsAt: this.timeline.rowsAt(), shown: this.timeline.shown,
       composer: { text: this.composer.value, pills: this.composer.tokens().map((x) => ({ ...x.range, id: x.token.id, label: x.token.label ?? null })), cursor: this.composer.cursor, message: this.composer.message(), chips: this.composer.chips.map((c) => c.path), pending: this.composer.chips.filter((c) => c.pending).length, chipImages: this.composer.chips.map((c) => homeRel(c.path, appHome())), chipSizes: this.composer.chips.map((c) => c.size), focused: this.composer.focused, context: this.composer.context(), history: this.composer.history ? this.composer.history.i : null },
@@ -2068,7 +2086,7 @@ export default class HerdrChat extends View {
       placeFrom: this.placeFrom, placeError: this.placeError ?? null, healed: this.healed ?? 0,
       hostHidden: this.hide?.hidden ?? null, hostNodePane: this.hide?.pane ?? null, hostNodeTab: this.hide?.tab ?? null, hideWrites: this.hide?.writes.length ?? 0, hideWaits: this.hide?.waits ?? 0, hidePhased: this.phased ?? 0, hideUnphased: this.unphased ?? 0,
       hideError: this.hide?.error ?? null, widths: this.widths ?? [],
-      hostAgent: ((a) => (a ? { pane: a.pane, tab: a.tab, status: a.status } : null))(host && agents().find((x) => x.address === host.address)),
+      hostAgent: ((a) => (a ? { pane: a.pane, tab: a.tab, status: a.status, pinned: a.pinned } : null))(host && agents().find((x) => x.address === host.address)),
       windowActive: Boolean(appWindow()?.active), tabStatus: spaces().flatMap((sp) => sp.tabs).find((x) => x.id === me?.tab)?.status ?? null, fallback: this.fallback, redirects: this.redirects ?? 0, redirectsFromRender: this.redirectsFromRender ?? 0, seenSent: this.seenSent ?? null,
       hostTab: host?.labels?.["herdr.tab"] ?? null, tabPanes: panes().filter((p) => p.tab === me?.tab).map((p) => ({ pane: p.pane, terminal: p.terminal, mod: p.mod ?? null })),
       shortcuts: this.keysReady ? shortcuts() : null, keyErrors: keyErrors, lastShortcut: this.lastShortcut ?? null, lastNewChat: this.lastNewChat ?? null,

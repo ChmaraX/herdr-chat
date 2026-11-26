@@ -19,17 +19,26 @@ export class Store {
     this.version = 0; // bumps on every change
     this.snapshots = 0;
     this.loaded = false;
+    // The conversation from before a host restart, shown until the new host has the history (`held`).
+    this.held = false;
   }
 
   reindex() {
     this.index = new Map(this.items.map((it, i) => [it.id, i]));
   }
 
+  // A host that is still loading the session's history (state.historyPending) sends an empty
+  // timeline. A conversation already shown stays until the history arrives: a restarted host
+  // never blanks the chat. Its items' ids are its own (a new host counts from 1), so while held,
+  // only its state applies.
   snapshot(rec) {
     this.state = { ...EMPTY_STATE, ...(rec.state ?? {}) };
-    this.items = rec.items ?? [];
-    this.hasOlder = Boolean(rec.hasOlder);
     this.seq = rec.seq ?? null;
+    this.held = Boolean(this.state.historyPending) && this.items.some((it) => it.kind !== "notice");
+    if (!this.held) {
+      this.items = rec.items ?? [];
+      this.hasOlder = Boolean(rec.hasOlder);
+    }
     this.reindex();
     this.snapshots++;
     this.loaded = true;
@@ -44,6 +53,10 @@ export class Store {
       const next = { ...this.state };
       for (const [k, v] of Object.entries(rec.state)) next[k] = v;
       this.state = next;
+    }
+    if (this.held) {
+      this.version++;
+      return true;
     }
     for (const it of rec.upsert ?? []) {
       const i = this.index.get(it.id);

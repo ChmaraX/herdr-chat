@@ -38,10 +38,15 @@ if want update; then
   sleep 1
 
   # A: idle with a conversation. B: working (a bash that runs until stopped). S: a sub-agent's chat.
-  A=$(open_chat upd-idle); CHAT=$A; ready
+  # A's Pi takes 3 s to read its history (slow-history.json), as a long session's does.
+  A=$(open_chat upd-idle slow-history); CHAT=$A; ready
   send_text "quick: hello before the update"
   expect '[ "$(phase)" = idle ]' "A: the first turn ended" 15
   A_SESSION=$(reg "$A" sessionFile); A_PID=$(reg "$A" pid); A_USERS=$(count_kind user)
+  # The person pinned A in the agents list: the pin is its host terminal's.
+  A_OLD_HOST=$(reg "$A" terminal)
+  do_ terminal.pin --terminal "$A_OLD_HOST" --pinned true
+  expect '[ "$(d "d[\"hostAgent\"][\"pinned\"]")" = true ]' "A: pinned in the agents list" 10
   B=$(open_chat upd-busy abort); CHAT=$B; ready
   B_SESSION=$(reg "$B" sessionFile)
   RUN=$(hc run --bg --json --parent "$SHELL_T" --name upd-sub --cwd "$PROJ" -- env FAKE_PI_SCENARIO="$SCEN/abort.json" "$REPO/bin/herdr-chat-subagent" --provider pi 2>>"$LOG") || fail "hc run the sub-agent"
@@ -74,14 +79,34 @@ if want update; then
   shot update-1b-typed-in-terminal 0.3
   screen "$SHELL_T" | grep -q '^typed-in-terminal' && ok "the keys went to the terminal, not the question" || fail "the terminal didn't get the typed line"
   overlay_open new-chat && [ "$(reg "$A" pid)" = "$A_PID" ] && ok "unanswered: the question is open and A's host still runs" || fail "the question was answered before the person did (open: $(overlay_count new-chat), A pid $(reg "$A" pid))"
+  # Every debug dump of A from the answer on, until its new host has the history: what the person
+  # saw of the conversation during the restart (the artifact: update-restart-frames.tsv).
+  FRAMES="$ART/update-restart-frames.tsv"
+  printf 'ms\twrites\tconnection\tphase\theld\tusers\n' >"$FRAMES"
+  ( last=; end=$((SECONDS + 40)); while [ $SECONDS -lt $end ]; do
+      f=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("\t".join(str(x) for x in [d["at"], d["writes"], d["connection"]["status"], d["phase"], d.get("held"), len([i for i in d["items"] if i["kind"] == "user"])]))' "$STATE/debug/$A.json" 2>/dev/null) || continue
+      [ "$f" = "$last" ] || { echo "$f" >>"$FRAMES"; last=$f; }
+      sleep 0.05
+    done ) &
+  FRAMES_PID=$!
   do_ new-chat.update:restart
   expect '! overlay_open new-chat' "Restart closes the question" 5
 
   step "update: an idle chat restarts now, on the same session; a working one waits; the sub-agent never"
   CHAT=$A
+  expect '[ "$(reg "$A" pid)" != "$A_PID" ] && [ "$(d "d[\"held\"]")" = true ]' "A: the new host is reading the history; the chat keeps showing the conversation" 30
+  [ "$(count_kind user)" = "$A_USERS" ] && ok "A: all $A_USERS messages on screen while the history loads" || fail "A: $(count_kind user) messages while the history loads, want $A_USERS"
+  show_tab "$A"; shot update-2a-history-loading 0.2
   expect '[ "$(reg "$A" pid)" != "$A_PID" ] && [ "$(dbg "$A" "d[\"update\"][\"outdated\"]")" = false ] && connected' "A: a new host, on the new build" 30
   [ "$(reg "$A" sessionFile)" = "$A_SESSION" ] && ok "A: the same session" || fail "A's session changed: $(reg "$A" sessionFile)"
-  expect '[ "$(count_kind user)" = "$A_USERS" ]' "A: the conversation is still there ($A_USERS messages)" 10
+  expect '[ "$(count_kind user)" = "$A_USERS" ] && [ "$(d "d[\"held\"]")" = false ]' "A: the conversation is still there ($A_USERS messages), now the new host's" 10
+  kill "$FRAMES_PID" 2>/dev/null || true; wait "$FRAMES_PID" 2>/dev/null || true
+  BLANK=$(awk -F'\t' -v n="$A_USERS" 'NR > 1 && $6 != n' "$FRAMES" | wc -l | tr -d ' ')
+  [ "$BLANK" = 0 ] && [ "$(wc -l <"$FRAMES" | tr -d ' ')" -gt 3 ] && ok "A: every frame of the restart showed all $A_USERS messages ($(($(wc -l <"$FRAMES") - 1)) frames, update-restart-frames.tsv)" ||
+    fail "A: $BLANK frames of the restart showed fewer messages (update-restart-frames.tsv)"
+  A_NEW_HOST=$(reg "$A" terminal)
+  [ "$A_NEW_HOST" != "$A_OLD_HOST" ] && ok "A: a new host terminal ($A_NEW_HOST)" || fail "A: the same host terminal after a restart"
+  expect '[ "$(d "d[\"hostAgent\"][\"pinned\"]")" = true ]' "A: still pinned (the new host has the old one's pin)" 10
   expect '[ "$(d "d[\"flash\"]")" = "Restarted on herdr-chat 0.3.0" ]' "A: says it restarted on 0.3.0" 10
   [ "$(d 'd["byeAt"]')" = null ] && ok "A: not shown as closed by another chat" || fail "A byeAt $(d 'd["byeAt"]')"
   A_TAB=$(d 'd["place"]["tab"]'); A_HOST=$(d 'd["host"]["address"]')

@@ -233,6 +233,9 @@ A chat whose host started before an install runs older code (protocol.md v3.5).
 | A host from before 0.3 hangs on its way out (it had that bug) | not covered: the chat kills a host terminal that's still live 5 s after its shutdown |
 | A chat restarts without the person's answer | E2E `update`: A's host pid unchanged until Restart |
 | A restart loses the conversation | E2E `update`: the same session file and the same messages after the restart |
+| A restart blanks the chat while the new host reads the history (an empty snapshot first) | `resume.test.ts` "a restarted host that is still reading the history": pending snapshots are marked, the first unmarked one has it all; E2E `update`: A's Pi takes 3 s to read its history, and every debug dump from Restart to the new host shows all its messages (`update-restart-frames.tsv`) |
+| A long session's history (over 8 MiB) doesn't load after a restart | `resume.test.ts` "a session whose history is over 8 MiB": an 11 MiB session, every turn back, no warning |
+| A restart unpins the chat in the agents list (the pin was the old host terminal's) | E2E `update`: A pinned, restarted on a new host terminal, still pinned |
 | A working chat is cut off mid-turn | E2E `update`: B keeps its old host while working, restarts once stopped |
 | A sub-agent's host is restarted (its parent loses it) | E2E `update`: the sub-agent's pid and terminal unchanged |
 | A chat waiting on its own sub-agents restarts, and their reports go to a dead terminal | not covered (quiet() requires no live child of the host's terminal) |
