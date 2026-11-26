@@ -588,6 +588,7 @@ Which steers can be taken back, per provider (`ProviderAdapter.canRemoveQueued` 
 | Pi | `clear_queue`, then the others re-sent as steers, in order | every entry of Pi's queue is the host's (it has their text and images) |
 | Claude Code | `control cancel_async_message {message_uuid}` | until the CLI dequeues it (`cancelled: false` → "Too late") |
 | Codex | no: `turn/steer` has no way back | never; only a follow-up the adapter holds (sent while compacting or between turns) |
+| Antigravity | takes no steers (`capabilities.steer: false`): every message sent mid-run is a held follow-up, `queue_move` to steer is refused | always, as a held follow-up |
 
 Held follow-ups can always be taken back.
 
@@ -608,9 +609,9 @@ finds and treats it ([research/subagent-chat.md](research/subagent-chat.md)).
 
 ### The host as a sub-agent: `herdr-chat-host run`
 
-`bin/herdr-chat-subagent [--provider pi|claude|codex] [--session <f>] [--cwd <d>] [-- <agent args>]`
+`bin/herdr-chat-subagent [--provider pi|claude|codex|agy] [--session <f>] [--cwd <d>] [-- <agent args>]`
 (= `herdr-chat-host run …`) is what a parent agent's `hc run` starts, directly or
-through the hc templates `pi-chat`, `claude-chat`, `codex-chat`. It `serve`s with:
+through the hc templates `pi-chat`, `claude-chat`, `codex-chat`, `agy-chat`. It `serve`s with:
 
 - `--chat c-<8 hex>`: a fresh id each time (`--chat` is refused: a known id resumes that chat's session);
 - `--state-dir ${HERDR_APP_HOME:-~/.config/herdr-app}/data/herdr-chat`, where the mod reads the registry;

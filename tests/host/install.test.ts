@@ -311,7 +311,7 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   mkdirSync(bin);
   const realApp = execFileSync("sh", ["-c", "command -v herdr-app"], { encoding: "utf8" }).trim();
   const appAs = (v: string) => { const f = join(bin, `herdr-app-${v}`); writeFileSync(f, `#!/bin/sh\n[ "$1" = --version ] && { echo 'herdr-app ${v}'; exit 0; }\nexec '${realApp}' "$@"\n`, { mode: 0o755 }); return f; };
-  for (const a of ["pi", "claude", "codex"]) writeFileSync(join(bin, a), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  for (const a of ["pi", "claude", "codex", "agy"]) writeFileSync(join(bin, a), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   const env = { ...process.env, PATH: `${bin}:${process.env.PATH}`, HERDR_APP_BIN: appAs("9.0.0"), HOME: join(d, "home"), HERDR_APP_HOME: app, XDG_CONFIG_HOME: join(d, "config"), XDG_DATA_HOME: join(d, "data"), PI_CODING_AGENT_DIR: join(d, "pi"), CLAUDE_CONFIG_DIR: "", CODEX_HOME: "" };
   const sh = (...a: string[]) => {
     const r = spawnSync(join(ROOT, "install.sh"), a, { encoding: "utf8", env });
@@ -336,16 +336,16 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   assert.ok(!existsSync(join(d, "pi", "AGENTS.md")) && readFileSync(join(d, "home", ".codex", "AGENTS.md"), "utf8") === "codex rules\n", "no notes");
 
   const out = sh();
-  for (const p of ["pi", "claude", "codex"]) assert.ok(existsSync(join(tpl, `${p}-chat.md`)), `${p}-chat template`);
+  for (const p of ["pi", "claude", "codex", "agy"]) assert.ok(existsSync(join(tpl, `${p}-chat.md`)), `${p}-chat template`);
   // Each agent install found, by path (a core terminal lacks the login PATH).
   const cfg = JSON.parse(readFileSync(join(app, "mods", "chat", "config.json"), "utf8"));
-  for (const p of ["pi", "claude", "codex"]) assert.equal(cfg[p], join(bin, p));
+  for (const p of ["pi", "claude", "codex", "agy"]) assert.equal(cfg[p], join(bin, p));
   assert.match(readFileSync(join(d, "pi", "AGENTS.md"), "utf8"), NOTE);
   assert.match(readFileSync(join(d, "home", ".codex", "AGENTS.md"), "utf8"), /^codex rules\n\n<!-- herdr-chat:subagents begin -->/);
   assert.match(out, /Claude Code: no .* \(not installed\)/);
   // The summary names what changed: the notes (Pi's and Codex's, not Claude Code's), the templates, the extension.
   assert.match(out, /^ {2}notes {6}\S*\/pi\/AGENTS\.md, ~\/\.codex\/AGENTS\.md$/m);
-  assert.match(out, /^ {2}templates  pi-chat claude-chat codex-chat in /m);
+  assert.match(out, /^ {2}templates  pi-chat claude-chat codex-chat agy-chat in /m);
   assert.match(out, /^ {2}extension  \S*\/pi\/extensions\/herdr-chat-lock\.ts /m);
   assert.ok(!existsSync(join(d, "home", ".claude")));
   assert.ok(JSON.parse(read(app, "mine")).floating.some((f: any) => f.content?.mod === "new-chat"), "new-chat's copy in the layout");
@@ -357,6 +357,7 @@ test("install.sh: --no-subagents writes no templates and no notes; a plain insta
   assert.ok(!existsSync(join(d, "pi", "AGENTS.md")));
   assert.equal(readFileSync(join(d, "home", ".codex", "AGENTS.md"), "utf8"), "codex rules\n");
   assert.ok(!existsSync(join(tpl, "pi-chat.md")));
+  assert.ok(!existsSync(join(tpl, "agy-chat.md")));
 });
 
 // --- slots another plugin holds: install/layout.ts ----------------------------------------
