@@ -7,7 +7,7 @@ import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, TextView } from "gpui-base";
 import { alpha, icon } from "./util.js";
 import { SPACE } from "./space.js";
-import { toolIcon, toolTitle } from "./cards.js";
+import { commandLine, toolIcon, toolTitle } from "./cards.js";
 import { diffView } from "./rich.js";
 import { QuestionsForm } from "./questions.js";
 
@@ -32,6 +32,7 @@ export class DialogCard {
     this.form = null;
     this.id = dialog?.id ?? null;
     this.sel = 0;
+    this.commandShown = null;
     // A permission's reason goes with its first deny (Esc and Enter in the field
     // pick it): the field asks that choice's question and names it.
     const deny = dialog?.method === "permission" ? dialog.choices?.find((x) => x.kind === "deny") : null;
@@ -143,11 +144,21 @@ export class DialogCard {
     const tl = d.tool;
     const choices = d.choices ?? [];
     const hasDeny = choices.some((x) => x.kind === "deny");
-    const head = tl ? h_flex().h(34).px(10).gap(8).items_center().rounded(10).border_1().border_color(t.border).bg(t.surface)
+    const permId = `perm-${d.id}`;
+    const hasCmd = tl?.detail?.type === "bash" && Boolean(tl.detail.command);
+    // The header shows the command's first line only: a multi-line one opens by default, so no line
+    // is approved unseen (the toggle then closes it); a one-line one opens on a click.
+    const open = hasCmd && /\n/.test(tl.detail.command) !== c.expanded.has(permId);
+    const head = tl ? h_flex().id(`dlg-head-${d.id}`).h(34).px(10).gap(8).items_center().rounded(10).border_1().border_color(t.border).bg(t.surface)
+      .when(hasCmd, (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)).on_click((_e, cx) => c.toggle(permId, cx)))
       .child(icon(toolIcon(tl.detail), 13).text_color(t.dim))
-      .child(toolTitle({ ...tl, id: `perm-${d.id}` }, tl.detail ?? { type: "generic", tool: tl.name }, c)) : null;
+      .child(toolTitle({ ...tl, id: permId }, tl.detail ?? { type: "generic", tool: tl.name }, c)) : null;
     // An edit to approve: its change, as an edit card shows it.
-    const diff = tl?.detail?.diffLines?.length ? div().id(`dlg-diff-${d.id}`).max_h(240).overflow_y_scroll().child(diffView(`perm-${d.id}`, tl.detail.diffLines, c)) : null;
+    const diff = tl?.detail?.diffLines?.length ? div().id(`dlg-diff-${d.id}`).max_h(240).overflow_y_scroll().child(diffView(permId, tl.detail.diffLines, c)) : null;
+    // A bash command: the header truncates it; click it to read it whole (wrapped, scrolling when long).
+    const cmd = open ? div().id(`dlg-cmd-${d.id}`).max_h(200).overflow_y_scroll().px(10).py(6).rounded(8).bg(t.background)
+      .child(commandLine(tl.detail.command, c)) : null;
+    this.commandShown = Boolean(cmd); // (the debug dump)
     const args = tl && !tl.detail && tl.args && tl.args !== "{}" ? div().px(10).py(6).rounded(8).bg(t.background).font_family(c.mono).text_size(11.5)
       .text_color(t.dim).max_h(120).overflow_hidden().child(tl.args) : null;
     const button = (ch, i) => {
@@ -169,6 +180,7 @@ export class DialogCard {
     }
     return this.frame(d, pending, t, answer, "shield", hasDeny ? "deny" : "cancel")
       .children(head ? [head] : [])
+      .children(cmd ? [cmd] : [])
       .children(diff ? [diff] : [])
       // A plan to approve (Claude's ExitPlanMode) is markdown: render it as such, scrolling when long.
       .when(Boolean(d.message), (e) => e.child(/\n|^#|\*\*/.test(d.message)
