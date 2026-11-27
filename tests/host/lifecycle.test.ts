@@ -61,10 +61,10 @@ test("an autonomous run: adopted, labelled by its cause, retry and compaction in
   const h = await startHost({ name: "autonomous", scenario: "autonomous.json", speed: 1 });
   try {
     const c = h.client;
-    await c.waitFor((x) => x.state.phase === "working", 5000, "run started on its own");
-    await c.waitFor((x) => x.items.some((i) => i.kind === "notice" && i.source === "retry"), 3000, "retry notice");
-    await c.waitFor((x) => x.state.phase === "compacting", 3000, "compacting inside the run");
-    await c.waitFor(idle, 5000, "settled");
+    // The run starts 300 ms after Pi and is short: on a loaded machine it can be over before the
+    // client connects (its first snapshot already idle). So the passing phases aren't waited for;
+    // the run is checked by what it leaves: its items, and the host's statuses (from its start).
+    await c.waitFor((x) => idle(x) && x.items.some((i) => i.kind === "notice" && i.source === "compaction"), 10_000, "the run settled, compaction inside it");
     const kinds = c.items.map((i) => `${i.kind}:${i.source ?? i.customType ?? ""}`);
     assert.deepEqual(kinds, ["notice:host", "custom:subagent-notify", "notice:retry", "assistant:", "notice:compaction"]);
     const [cause, custom, retry, answer, compaction] = c.items;
