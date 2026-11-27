@@ -28,10 +28,10 @@ import { Renderer, diffLines, warmRender } from "./render.ts";
 import { presentTool, prettyArgs } from "./tools.ts";
 import { AgentError } from "./providers/types.ts";
 import type {
-  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, ForkPoint,
+  ProviderAdapter, AdapterHost, NormalizedEvent, EventOf, Capabilities, Ask, AskAnswer, ModelInfo, PermissionChoice, Question, AgentModel, ForkPoint, UsageLimit,
 } from "./providers/types.ts";
 
-export type { ModelInfo, Capabilities };
+export type { ModelInfo, Capabilities, UsageLimit };
 
 export const MAX_SNAPSHOT_ITEMS = 200;
 const MAX_SNAPSHOT_BYTES = 6 * 1024 * 1024;
@@ -75,6 +75,8 @@ export type ChatState = {
   /** The agent's current plan (Timeline.plan), shown above the composer; null: none. */
   plan: Plan | null;
   usage: { contextTokens: number | null; contextWindow: number | null; percent: number | null; cost: number | null } | null;
+  /** The account's usage limits (Claude Code's and Codex's subscription windows), as last reported; null: none yet. */
+  limits: UsageLimit[] | null;
   queue: Queue;
   dialog: Dialog | null;
   dialogsPending: number;
@@ -231,7 +233,7 @@ export class Chat {
     this.catalog = new SessionCatalog(opts.adapter.sessions, opts.cwd, () => this.state.sessionFile);
     this.state = {
       phase: "starting", error: null, cwd: opts.cwd, sessionFile: opts.session, sessionName: null, agentVersion: null,
-      model: null, thinking: null, plan: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
+      model: null, thinking: null, plan: null, usage: null, limits: null, queue: { steering: [], followUp: [] }, dialog: null, dialogsPending: 0,
       statuses: [], widgets: [], title: null, editorText: null, commands: [],
       provider: this.adapter.id, providerName: this.adapter.name, capabilities: structuredClone(this.adapter.capabilities), permissionMode: null,
       // Until start() knows the session: a client may connect before it runs (main.ts listens first).
@@ -411,7 +413,8 @@ export class Chat {
       this.enterConflict(sessionFile!, conflict);
       return;
     }
-    this.set({ phase: "starting", error: null, sessionFile, conflict: null, historyPending: sessionFile !== null });
+    // limits: the agent may come back on another account (/login), so it reports them again.
+    this.set({ phase: "starting", error: null, sessionFile, conflict: null, historyPending: sessionFile !== null, limits: null });
     this.warm = warmRender().catch((e) => this.opts.log(`render warm-up failed: ${errText(e)}`)); // while the agent starts
     void this.boot(gen, sessionFile);
   }
@@ -724,6 +727,10 @@ export class Chat {
         if (ev.text !== null) this.statusMap.set(ev.key, toSpans(ev.text.replace(/\n/g, " ")));
         else this.statusMap.delete(ev.key);
         this.set({ statuses: [...this.statusMap].map(([k, spans]) => ({ key: k, spans })) });
+        return;
+      case "limits":
+        // The account's, not the session's: kept across a session change, like the statuses.
+        this.set({ limits: ev.limits.length ? ev.limits : null });
         return;
       case "widget":
         if (ev.lines) this.widgetMap.set(ev.key, { placement: ev.placement, lines: toSpanLines(ev.lines.slice(0, 200)) });

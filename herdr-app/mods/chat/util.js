@@ -157,6 +157,17 @@ export function relTime(ts, now = Date.now()) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${hm}`;
 }
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// When a usage limit starts over: "14:32" today, "Fri 10:00" in the next six days, else "3 Dec 10:00"
+// (a time already past included: a weekday would read as the next one).
+export function resetTime(ts, now = Date.now()) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (d.toDateString() === new Date(now).toDateString()) return hm;
+  return ts > now && ts - now < 6 * 86400000 ? `${DAYS[d.getDay()]} ${hm}` : `${d.getDate()} ${MONTHS[d.getMonth()]} ${hm}`;
+}
 
 export function absTime(ts) {
   if (!ts) return "";

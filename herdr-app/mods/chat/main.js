@@ -112,6 +112,7 @@ export default class HerdrChat extends View {
     this.widthPt = 0; // the chat's width as reported (window pt); `width` is in layout px
     this.homeDir = home();
     this.prefs = loadPrefs();
+    this.costHidden = false; // settings.json `"cost": false`, read once (a new chat picks up a change)
     this.place = null; // {pane, tab, space}: this chat's own pane, from the layout document (place.js)
     this.placeFrom = null; // "doc" | "guess" (no document to read)
     this.hide = null; // the host's pane in the layout document: {terminal, pane, hidden, …} (keepHostHidden)
@@ -127,6 +128,12 @@ export default class HerdrChat extends View {
       await loadShortcuts();
       keepKeys(cx);
       this.keysReady = true;
+      this.debug.mark();
+      cx.notify();
+    });
+    cx.spawn(async (cx) => {
+      if ((await readConfig()).showCost) return;
+      this.costHidden = true;
       this.debug.mark();
       cx.notify();
     });
@@ -1289,6 +1296,11 @@ export default class HerdrChat extends View {
     return this.store.state.capabilities ?? null;
   }
 
+  // Whether the cost shows (the footer's and each run's): the agent reports one and settings.json doesn't hide it.
+  showCost() {
+    return this.caps()?.cost !== false && !this.costHidden;
+  }
+
   thinkingLevels() {
     return this.caps()?.thinkingLevels ?? [];
   }
@@ -2216,7 +2228,7 @@ export default class HerdrChat extends View {
       setHover: (id, on, cx) => this.setHover(id, on, cx), svgHover: this.svgHover ?? null,
       setSvgHover: (key, on, cx) => this.setSvgHover(key, on, cx), groupOpen: (id) => this.groups.get(id),
       groupAnim: (id) => this.groupAnims.get(id) ?? null, groupMeasured: (id, h, cx) => this.groupMeasured(id, h, cx),
-      modelName: (m) => this.modelName(m), showCost: this.caps()?.cost !== false,
+      modelName: (m) => this.modelName(m), showCost: this.showCost(),
       children: this.children, color: (fg) => (fg?.startsWith("#") ? fg : theme()[fg] ?? null),
     };
   }

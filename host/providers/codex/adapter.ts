@@ -24,7 +24,7 @@ import { agentEnv } from "../env.ts";
 import type { McpFailure } from "../mcp.ts";
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, Ask,
-  ModelInfo, AgentCommand, AgentModel, SessionInfo, SessionScope, SessionSource, UsageInfo, Prompt, Disposition, SkillLead, PermissionMode, PermissionChoice, Question, ForkPoint,
+  ModelInfo, AgentCommand, AgentModel, SessionInfo, SessionScope, SessionSource, UsageInfo, UsageLimit, Prompt, Disposition, SkillLead, PermissionMode, PermissionChoice, Question, ForkPoint,
 } from "../types.ts";
 
 type Rec = Record<string, any>;
@@ -78,6 +78,29 @@ function num(v: unknown): number | undefined {
 }
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** A rate-limit window's length as the chat shows it: "5h", "week", "3d". */
+function windowLabel(mins: number | undefined, id: string): string {
+  if (!mins || mins <= 0) return id;
+  if (mins < 24 * 60) return `${Math.round(mins / 60)}h`;
+  return mins === 7 * 24 * 60 ? "week" : `${Math.round(mins / (24 * 60))}d`;
+}
+
+/**
+ * account/rateLimits/updated's windows (`primary`, `secondary`) as usage limits; `resetsAt` is
+ * epoch seconds. Only the account's own bucket (`limitId` "codex", or none): null for another
+ * (a per-model one), which mustn't replace the account's numbers under the same names.
+ */
+export function codexLimits(rl: Rec): UsageLimit[] | null {
+  if (rl.limitId != null && rl.limitId !== "codex") return null;
+  return (["primary", "secondary"] as const).flatMap((id) => {
+    const w: Rec | null | undefined = rl[id];
+    const used = num(w?.usedPercent);
+    if (!w || used === undefined) return [];
+    const resetsAt = num(w.resetsAt);
+    return [{ id, label: windowLabel(num(w.windowDurationMins), id), usedPercent: used, resetsAt: resetsAt === undefined ? null : resetsAt * 1000 }];
+  });
 }
 
 const UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\.jsonl)?$/i;
@@ -521,10 +544,8 @@ export class CodexAdapter implements ProviderAdapter {
         return;
       }
       case "account/rateLimits/updated": {
-        const rl = p.rateLimits ?? {};
-        const part = (w: Rec | null | undefined) => (w && typeof w.usedPercent === "number" ? `${w.windowDurationMins && w.windowDurationMins <= 600 ? `${Math.round(w.windowDurationMins / 60)}h` : "week"} ${Math.round(w.usedPercent)}%` : null);
-        const text = [part(rl.primary), part(rl.secondary)].filter(Boolean).join(" · ");
-        if (text) this.emit({ type: "status", key: "codex-limits", text: `limits ${text}` });
+        const limits = codexLimits(p.rateLimits ?? {});
+        if (limits?.length) this.emit({ type: "limits", limits });
         return;
       }
     }

@@ -24,7 +24,7 @@ composer becomes a single rounded card:
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-- **Left:** the model chip (picker), the thinking chip (picker), and the context meter: a small ring or bar with the %. The tooltip gives tokens/window and the session cost.
+- **Left:** the model chip (picker), the thinking chip (picker), the permission-mode chip, and the context meter: a small ring or bar with the %. The tooltip gives tokens/window and the session cost (settings.json `"cost": false` hides it). After it, the account's usage limits as far as they fit (`5h 12% · week 57%`, protocol.md v3.11).
 - **Right:** extension status (see 4), then the primary button: send, or ■ stop while working.
 - **The header goes away.** The chat title lives in the Herdr tab. The TUI and Transcript actions move into a small `⋯` menu in the composer footer (or a subtle top-right overlay icon). Herdr already draws a pane header.
 - **Image chips:** a pasted or dropped image shows as a 64×48 thumbnail with a ✕ in its corner. The box is fixed, so the composer keeps its height while the image loads, and a dropped image fills it with an image icon until the host has copied the file. Hovering shows the file name; a click enlarges it in the viewer. The thumbnail is the same as a sent message's (`util.js` `thumbnail`), from the chat's copy of the file (protocol.md "Attachments"). A file the app can't show (an older host) is a chip with an image icon and the file name (`util.js` `fileChip`, as on a sent message). A file the host refuses makes no chip: the hint line shows why.

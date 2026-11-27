@@ -1,17 +1,30 @@
 // What sits around the composer (visual-v2.md §1, §4): the footer row's
-// controls (model and thinking chips, the context meter, extension status
-// chips with their "+N" popover), the widget trays, the queue
+// controls (model and thinking chips, the context meter, the usage limits,
+// extension status chips with their "+N" popover), the widget trays, the queue
 // lanes, the plan strip, and the empty state's title.
 // Extension-agnostic: statuses and widgets are shown by key, as sent.
 
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover } from "gpui-base";
-import { MOD, alpha, count, icon, money, providerIcon, spans, spansText, unwrapHc } from "./util.js";
+import { MOD, alpha, count, icon, money, providerIcon, resetTime, spans, spansText, unwrapHc } from "./util.js";
 import { withKey } from "./shortcuts.js";
 import { planProgress, planSteps } from "./cards.js";
 
 const STATUS_MAX = 28;
 const STATUS_W = (text) => Math.min(STATUS_MAX, [...text].length) * 6.3 + 18;
+
+// The usage limits that fit in `room` px: the first two ("5h 12% · week 57%"), else the most
+// used alone, else none. {shown, text, w} or null.
+function fitLimits(limits, room) {
+  if (!limits.length) return null;
+  const most = limits.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a));
+  for (const shown of [limits.slice(0, 2), [most]]) {
+    const text = shown.map((l) => `${l.label} ${Math.round(l.usedPercent)}%`).join(" · ");
+    const w = [...text].length * 6.3 + 18;
+    if (w <= room) return { shown, text, w };
+  }
+  return null;
+}
 
 function ring(pct, t) {
   const p = Math.max(0, Math.min(100, Math.round((pct ?? 0) / 5) * 5));
@@ -38,6 +51,7 @@ function surface(t) {
 //   xs (< 200 px, a ~240 px column): icons only (labels in the tooltips), every status in "+N";
 //   sm (< 300 px): the model's short name, the level, a mode icon, no chevrons, every status in "+N";
 //   md (< 520 px): shorter names, no cost; statuses as they fit;  full: everything.
+// The usage limits show from md up.
 export function footerTier(width) {
   return width < 200 ? "xs" : width < 300 ? "sm" : width < 520 ? "md" : "full";
 }
@@ -78,22 +92,37 @@ export function footerControls(v, t, { width }) {
     drawn.push("permission");
   }
   const u = s.usage;
-  const cost = caps?.cost === false || tier !== "full" ? null : u?.cost ?? null;
+  const showCost = v.showCost();
+  const cost = !showCost || tier !== "full" ? null : u?.cost ?? null;
   if (u && (u.percent != null || cost != null)) {
     const win = u.contextWindow ?? s.model?.contextWindow ?? null;
     const tip = [
       u.percent != null ? `${Math.round(u.percent)}% of the context window` : null,
       u.contextTokens != null ? `${count(u.contextTokens)}${win ? ` / ${count(win)}` : ""} tokens` : null,
-      (caps?.cost === false ? null : u?.cost ?? null) != null ? `${money(u.cost)} this session` : null,
+      (showCost ? u?.cost ?? null : null) != null ? `${money(u.cost)} this session` : null,
     ].filter(Boolean).join(" · ");
     left.push(chipEl("chip-context", t, { tip }).when(tiny, (e) => e.px(6))
       .when(u.percent != null, (e) => e.child(ring(u.percent, t)).when(!small, (x) => x.child(div().text_size(11.5).child(`${Math.round(u.percent)}%`))))
       .when(cost != null, (e) => e.child(div().text_size(11.5).text_color(t.dim).child(money(cost)))));
     drawn.push("context", ...(cost != null ? ["cost"] : []));
   }
+  const chipsW = 20 + Math.min(name.length * 6.8, tier === "md" ? 120 : 180) + 46 + (thinkingChip ? 80 : 0) + (modes.length ? (tier === "md" ? 80 : 100) : 0) + (u ? (cost != null ? 90 : 50) : 0);
+  // The account's usage limits (Claude Code's and Codex's subscription windows), those not reset
+  // yet: as many as fit after the chips before them (fitLimits), every one with when it starts
+  // over in the tooltip. Coloured by the most used one shown, as the ring is.
+  const now = Date.now();
+  const limits = small ? [] : (s.limits ?? []).filter((l) => !l.resetsAt || l.resetsAt > now);
+  const fit = fitLimits(limits, width - chipsW - 12);
+  if (fit) {
+    const top = Math.max(...fit.shown.map((l) => l.usedPercent));
+    const tip = limits.map((l) => `${l.label}: ${Math.round(l.usedPercent)}% used${l.resetsAt ? `, resets ${resetTime(l.resetsAt, now)}` : ""}`).join(" · ");
+    left.push(chipEl("chip-limits", t, { tip: `Usage limits · ${tip}` }).text_size(11.5)
+      .text_color(top > 90 ? t.ansi1 : top > 75 ? t.blocked : t.dim).child(fit.text));
+    drawn.push("limits");
+  }
   v.footerChips = drawn;
   // Statuses: as many chips as fit, then "+N".
-  const leftW = 20 + Math.min(name.length * 6.8, tier === "md" ? 120 : 180) + 46 + (thinkingChip ? 80 : 0) + (modes.length ? (tier === "md" ? 80 : 100) : 0) + (u ? (cost != null ? 90 : 50) : 0);
+  const leftW = chipsW + (fit ? fit.w : 0);
   let room = tier === "xs" || tier === "sm" ? 0 : Math.max(0, width - leftW - 40);
   const list = caps?.extensionUi === false ? [] : v.visibleStatuses();
   const shown = [];

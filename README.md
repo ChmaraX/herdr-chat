@@ -32,6 +32,10 @@ https://github.com/user-attachments/assets/cefe4c53-19f6-4c3b-8188-f8480f4c2816
   under the composer or by key.
 - **The branch** - under the composer, a click copies it. It follows
   switches made anywhere, the agent's own included.
+- **Usage limits** - your Claude Code or Codex subscription's windows under
+  the composer (`5h 12% · week 57%`), with when each starts over in the
+  tooltip. They come with the agent's responses, so a new chat shows them
+  after its first answer.
 - **Slash commands and skills** - your commands, prompt templates and
   skills, plus the built-ins (`/model`, `/compact`, `/resume`, `/fork`,
   `/tui`…). A skill becomes a pill in your message.
@@ -135,7 +139,8 @@ it; every key is optional):
   "pi":     { "command": "/path/to/pi", "args": ["--model", "anthropic/claude-sonnet-4-5"] },
   "claude": { "env": { "CLAUDE_CONFIG_DIR": "/path/to/config" } },
   "codex":  { "tui": ["my-wrapper", "codex"] },
-  "updates": { "check": false }
+  "updates": { "check": false },
+  "cost": false
 }
 ```
 
@@ -143,7 +148,9 @@ it; every key is optional):
 found), `args` (added to the agent's), `env`, and `tui` (the program `/tui`
 runs). A new chat picks up a change. `updates.check: false` stops the daily
 look for a new release (a release install only); `updates.feed` points it at
-another URL with GitHub's release JSON.
+another URL with GitHub's release JSON. `cost: false` hides the cost, both
+next to the context meter and under each answer (the context and tokens
+stay).
 
 ## Limitations
 
