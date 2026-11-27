@@ -27,7 +27,7 @@ const REPLAY = argv.includes("--replay-user-messages");
 const TURN_START_MS = scenario.turnStartMs ?? 600;
 const STATES = process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS === "1" && scenario.sessionStates !== false;
 const resumeId = flag("--resume");
-const sessionId = resumeId && !argv.includes("--fork-session") ? resumeId : flag("--session-id") ?? randomUUID();
+let sessionId = resumeId && !argv.includes("--fork-session") ? resumeId : flag("--session-id") ?? randomUUID();
 // Without --model, the CLI starts on its configured model: settings' env.ANTHROPIC_MODEL, the process env, then
 // settings' model. Settings: the user's, then the project's (.claude/settings.json in the cwd) over them.
 const readSettings = (file) => {
@@ -73,7 +73,7 @@ try {
   realCwd = realpathSync(realCwd);
 } catch {}
 const projectDir = join(configDir, "projects", realCwd.replace(/[^A-Za-z0-9]/g, "-"));
-const transcript = join(projectDir, `${sessionId}.jsonl`);
+let transcript = join(projectDir, `${sessionId}.jsonl`);
 let lastUuid = null;
 if (resumeId && !existsSync(join(projectDir, `${resumeId}.jsonl`)) && !replayPath) {
   process.stderr.write(`No conversation found with session ID: ${resumeId}\n`);
@@ -456,6 +456,25 @@ async function localCommand(prompt, ctx) {
     disk({ type: "user", isCompactSummary: true, message: { role: "user", content: `This session is being continued from a previous conversation.${rest ? " Instructions: " + rest : ""}` } });
     if (REPLAY) out({ type: "user", message: { role: "user", content: "<local-command-stdout>Compacted </local-command-stdout>" }, ...base(), parent_tool_use_id: null, isReplay: true });
     result(ctx, { num_turns: 0, result: "", stop_reason: null, local_command: "compact" });
+    return true;
+  }
+  if (name === "clear") {
+    // In process, as the real CLI: a reset, then a new session (new id and transcript) announced by init.
+    await sleep(scenario.clearMs ?? 200);
+    const next = randomUUID();
+    out({ type: "conversation_reset", new_conversation_id: next, uuid: next, session_id: sessionId });
+    sessionId = randomUUID();
+    transcript = join(projectDir, `${sessionId}.jsonl`);
+    lastUuid = null;
+    contextTokens = 20000;
+    cost = 0;
+    // The CLI starts the new transcript with the command itself.
+    const cmd = "<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>";
+    disk({ type: "user", message: { role: "user", content: "<local-command-caveat>The command below was run directly in Claude Code, not sent to you as a request.</local-command-caveat>" }, isMeta: true });
+    disk({ type: "user", message: { role: "user", content: cmd } });
+    disk({ type: "system", subtype: "local_command", content: "<local-command-stdout></local-command-stdout>", level: "info" });
+    out({ type: "system", subtype: "init", ...initFields(), ...base() });
+    result(ctx, { num_turns: 0, result: "", stop_reason: null, local_command: "clear" });
     return true;
   }
   if (name === "context" || name === "cost") {

@@ -87,6 +87,8 @@ export function promptText(r: Rec): string | null {
     if (!text && !c.some((b: Rec) => b?.type === "image")) return null;
   } else return null;
   const cmd = /^<command-name>\/?([^<]*)<\/command-name>[\s\S]*?(?:<command-args>([\s\S]*?)<\/command-args>)?/.exec(text.trim());
+  // A /clear isn't a prompt: the CLI writes it at the top of the transcript it starts, as that session's birth mark.
+  if (cmd && cmd[1]!.trim() === "clear") return null;
   if (cmd) return `/${cmd[1]!.trim()}${cmd[2]?.trim() ? " " + cmd[2].trim() : ""}`;
   if (/^<local-command-(stdout|stderr|caveat)>/.test(text.trim())) return null;
   if (/^\[Request interrupted by user/.test(text.trim())) return null;
