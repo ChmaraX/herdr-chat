@@ -89,10 +89,13 @@ if want update; then
       sleep 0.05
     done ) &
   FRAMES_PID=$!
+  # The person is looking at A when they answer; B (working) and the sub-agent are elsewhere.
+  show_tab "$A"
+  B_PID=$(reg "$B" pid)
   do_ new-chat.update:restart
   expect '! overlay_open new-chat' "Restart closes the question" 5
 
-  step "update: an idle chat restarts now, on the same session; a working one waits; the sub-agent never"
+  step "update: the chat on screen restarts now, on the same session; one in the background on opening; the sub-agent never"
   CHAT=$A
   expect '[ "$(reg "$A" pid)" != "$A_PID" ] && [ "$(d "d[\"held\"]")" = true ]' "A: the new host is reading the history; the chat keeps showing the conversation" 30
   [ "$(count_kind user)" = "$A_USERS" ] && ok "A: all $A_USERS messages on screen while the history loads" || fail "A: $(count_kind user) messages while the history loads, want $A_USERS"
@@ -112,11 +115,15 @@ if want update; then
   A_TAB=$(d 'd["place"]["tab"]'); A_HOST=$(d 'd["host"]["address"]')
   expect '[ "$(tab_panes "$A_TAB" | wc -l | tr -d " ")" = 2 ] && hidden_in "$A_TAB" "$A_HOST"' "A's tab: the chat and its new host, hidden (no pane left from the old one)" 15
   CHAT=$B
-  [ "$(phase)" = working ] && [ "$(dbg "$B" 'd["update"]["outdated"]')" = true ] && [ "$(dbg "$B" 'd["update"]["wanted"]')" = true ] &&
-    ok "B: still working on its old host, the restart waits for the turn" || fail "B: phase $(phase), update $(dbg "$B" 'd["update"]')"
-  show_tab "$B"; shot update-2-waiting 0.5
-  cmd click:stop
-  expect '[ "$(dbg "$B" "d[\"update\"][\"outdated\"]")" = false ] && connected' "B: restarted once its turn stopped" 30
+  # B, in the background, finishes its turn: quiet now, but nobody is looking, so it keeps its host.
+  [ "$(phase)" = working ] && ok "B: working in the background when Restart was answered" || fail "B: phase $(phase) at the answer"
+  "$REPO/bin/herdr-chat-host" op --chat "$B" --state-dir "$STATE" abort >>"$LOG" 2>&1 || fail "abort B's run from its host"
+  expect '[ "$(phase)" = idle ]' "B: its turn stopped (in the background)" 15
+  sleep 4
+  [ "$(reg "$B" pid)" = "$B_PID" ] && [ "$(dbg "$B" 'd["update"]["outdated"]')" = true ] &&
+    ok "B: quiet in the background, still on its old host (no agent started for a chat nobody looks at)" || fail "B: restarted in the background (pid $B_PID -> $(reg "$B" pid))"
+  show_tab "$B"; shot update-2-background-outdated 0.3
+  expect '[ "$(reg "$B" pid)" != "$B_PID" ] && [ "$(dbg "$B" "d[\"update\"][\"outdated\"]")" = false ] && connected' "B: restarted once opened" 30
   [ "$(reg "$B" sessionFile)" = "$B_SESSION" ] && ok "B: the same session" || fail "B's session changed"
   [ "$(reg "$SUBCHAT" pid)" = "$SUB_PID" ] && [ "$(term_field "$SUB" 't["state"]')" = live ] && ok "the sub-agent's host is untouched (its parent's)" || fail "the sub-agent was restarted"
   A_PID=$(reg "$A" pid); sleep 3
