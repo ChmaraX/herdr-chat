@@ -231,6 +231,7 @@ A chat whose host started before an install runs older code (protocol.md v3.5).
 | The welcome, the registry and `herdr-chat-host build` disagree, so the install's build never matches a host's and every chat looks outdated | `update.test.ts` "the build"; `install-e2e.sh`: config.json's build is the installed host's |
 | A restart's shutdown hangs on a client that never closes its side, so the new host never starts | `update.test.ts` "shutdown ends the host even when a client never closes its side" |
 | A host from before 0.3 hangs on its way out (it had that bug) | not covered: the chat kills a host terminal that's still live 5 s after its shutdown |
+| The release lookup never sees a release: GitHub's API refuses a request without a User-Agent (403) and the failure passes for being offline | E2E `update-release`: the feed (`release-feed.py`) answers as GitHub does, 403 without a User-Agent; the lookup must get the release |
 | A chat restarts without the person's answer | E2E `update`: A's host pid unchanged until Restart |
 | Every chat restarts at once after an update: every agent starts together, the machine stalls, Pi is late ("taking a long time to start") and the app freezes | E2E `update`: after Update, the chat on screen restarts; B, quiet in the background, keeps its old host until it's opened |
 | A restart loses the conversation | E2E `update`: the same session file and the same messages after the restart |

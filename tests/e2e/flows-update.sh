@@ -156,7 +156,8 @@ if want update; then
 fi
 
 # --- flow `update-release`: a newer release, asked once, installed from the question -------------
-# The feed is a local file server (settings.json "updates.feed"); the update command
+# The feed is a local server that answers as GitHub's API does (release-feed.py: no User-Agent,
+# a 403), at settings.json "updates.feed"; the update command
 # (config.json "update", the one-liner in a release) is a stand-in that does what
 # the install does: a host with new code in config.json, new mod files.
 if want update-release; then
@@ -165,7 +166,7 @@ if want update-release; then
   FEED="$BASE/feed"; mkdir -p "$FEED"
   printf '{"tag_name": "v0.9.0", "html_url": "https://github.com/ChmaraX/herdr-chat/releases/tag/v0.9.0"}' >"$FEED/latest.json"
   PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
-  (cd "$FEED" && exec python3 -m http.server "$PORT" --bind 127.0.0.1) >>"$LOG" 2>&1 &
+  python3 "$E2E/release-feed.py" "$PORT" "$FEED" >>"$LOG" 2>&1 &
   FEED_PID=$!
   python3 - "$STATE/settings.json" "http://127.0.0.1:$PORT/latest.json" <<'PY'
 import json, sys
@@ -198,6 +199,8 @@ SH
   OLD_PID=$(reg "$CHAT" pid)
   do_ new-chat.update-check
   expect 'overlay_open new-chat' "0.9.0 is offered (the feed's latest, newer than 0.8.0)" 10
+  [ "$(python3 -c 'import json,sys; print(json.loads(open(sys.argv[1]).read().splitlines()[-1])["status"])' "$FEED/requests.jsonl")" = 200 ] &&
+    ok "the lookup sends a User-Agent, as GitHub's API requires" || fail "the feed refused the lookup: $(tail -1 "$FEED/requests.jsonl")"
   shot update-release-1-offer 0.5
   do_ new-chat.update:update
   sleep 7 # the floating block sees the end (every 3 s), the dialog follows (every 1 s)
