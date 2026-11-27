@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/ChmaraX/herdr-chat/compare/v0.7.0...v0.7.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **update:** the release lookup sends a User-Agent, so updates are offered ([#69](https://github.com/ChmaraX/herdr-chat/issues/69)) ([a08e293](https://github.com/ChmaraX/herdr-chat/commit/a08e2938b4b35766d1651604e904e0a45414e2e0))
+
 ## [0.7.0](https://github.com/ChmaraX/herdr-chat/compare/v0.6.0...v0.7.0) (2026-11-27)
 
 
