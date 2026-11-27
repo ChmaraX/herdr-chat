@@ -179,7 +179,7 @@ the others get `resolved` (sample 16).
 | `steer` | **yes**: `turn/steer` (lands at the next sampling step) |
 | `thinkingLevels` | per model from `model/list` (`low…max/ultra`), no `off`; visibility through `summary` |
 | `permissions` + `permissionModes` | **yes**: approval cards for command, patch, permissions, questions, MCP; modes = presets over `approvalPolicy` × `sandbox` × `approvalsReviewer`, plus collaboration mode Plan/Default |
-| `extensionUi` | **no** (only hook, MCP-startup and rate-limit statuses) |
+| `extensionUi` | **no** (only hook and MCP-startup statuses; rate limits are `state.limits`, protocol.md v3.11) |
 | `compact`, `rename`, `fork` | **yes, yes, yes** (plus `revert`, `review`, `goal`) |
 | `images` in prompts | **yes** (`localImage {path}`, `image {url}`) when the model lists `image` |
 | `slash` | **no agent list**: host built-ins + `skills/list` + `~/.codex/prompts` |

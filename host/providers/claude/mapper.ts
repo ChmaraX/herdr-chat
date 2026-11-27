@@ -1,7 +1,7 @@
 // Claude Code stream-json records → normalized events. No I/O: the adapter
 // feeds it records (and tells it what it sent) and forwards what comes out.
 // Control requests and responses are the adapter's.
-import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, StopReason, Usage } from "../types.ts";
+import type { NormalizedEvent, EventOf, AssistantBlock, ImageBlock, StopReason, Usage, UsageLimit } from "../types.ts";
 import { ClaudePlans } from "./plans.ts";
 
 type Rec = Record<string, any>;
@@ -23,6 +23,29 @@ export function usageOf(u: Rec | undefined): Usage | undefined {
   if (!u || typeof u !== "object") return undefined;
   const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
   return { input: n(u.input_tokens), output: n(u.output_tokens), cacheRead: n(u.cache_read_input_tokens), cacheWrite: n(u.cache_creation_input_tokens), cost: null };
+}
+
+// The subscription windows Claude Code reports (rate_limit_info.unifiedWindows), in the order shown.
+const LIMIT_LABELS: Record<string, string> = { five_hour: "5h", seven_day: "week", seven_day_overage_included: "week (extra)" };
+
+/**
+ * A rate_limit_event's windows as usage limits: every window it tracks, each
+ * time any of them moves. `utilization` is a fraction of the window (above 1
+ * past the cap), `resetsAt` epoch seconds. Null when the record carries no
+ * windows (API-key, Bedrock and Vertex sessions; Claude Code before
+ * unifiedWindows): nothing to replace the last report with.
+ */
+export function limitsOf(info: Rec): UsageLimit[] | null {
+  const windows: Rec | undefined = info.unifiedWindows;
+  if (!windows || typeof windows !== "object") return null;
+  const known = Object.keys(LIMIT_LABELS);
+  const ids = [...known.filter((id) => id in windows), ...Object.keys(windows).filter((id) => !known.includes(id)).sort()];
+  return ids.flatMap((id) => {
+    const w: Rec | undefined = windows[id];
+    if (!w || typeof w.utilization !== "number" || !Number.isFinite(w.utilization)) return [];
+    const resetsAt = typeof w.resetsAt === "number" && Number.isFinite(w.resetsAt) ? w.resetsAt * 1000 : null;
+    return [{ id, label: LIMIT_LABELS[id] ?? id.replace(/_/g, " "), usedPercent: Math.round(w.utilization * 1000) / 10, resetsAt }];
+  });
 }
 
 export function imagesOf(content: unknown): ImageBlock[] {
@@ -183,9 +206,11 @@ export class ClaudeMapper {
       }
       case "rate_limit_event": {
         const info: Rec = rec.rate_limit_info ?? {};
-        if (!info.status || info.status === "allowed" || info.status === "allowed_warning") return [];
+        const limits = limitsOf(info);
+        const out: NormalizedEvent[] = limits ? [{ type: "limits", limits }] : [];
+        if (!info.status || info.status === "allowed" || info.status === "allowed_warning") return out;
         const when = typeof info.resetsAt === "number" ? ` until ${new Date(info.resetsAt * 1000).toLocaleTimeString()}` : "";
-        return [{ type: "notice", level: "warning", source: "host", text: `Claude Code is rate limited (${info.rateLimitType ?? "limit"})${when}.`, once: "run" }];
+        return [...out, { type: "notice", level: "warning", source: "host", text: `Claude Code is rate limited (${info.rateLimitType ?? "limit"})${when}.`, once: "run" }];
       }
     }
     return [];

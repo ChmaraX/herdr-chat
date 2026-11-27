@@ -5,7 +5,7 @@ import { typedText } from "./util.js";
 
 export const EMPTY_STATE = {
   phase: "starting", error: null, cwd: "", sessionFile: null, sessionName: null, agentVersion: null,
-  model: null, thinking: null, plan: null, usage: null, queue: { steering: [], followUp: [] }, dialog: null,
+  model: null, thinking: null, plan: null, usage: null, limits: null, queue: { steering: [], followUp: [] }, dialog: null,
   dialogsPending: 0, statuses: [], widgets: [], title: null, editorText: null, commands: [],
 };
 

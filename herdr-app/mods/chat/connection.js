@@ -34,7 +34,8 @@ export async function readConfig() {
       tui: list(a.tui),
     };
   };
-  return { host: cfg.host ?? null, node: cfg.node ?? null, hc: cfg.hc ?? null, version: cfg.version ?? null, build: cfg.build ?? null, installedAt: cfg.installedAt ?? null, agent };
+  // `"cost": false` hides the cost: the footer's and each run's (README "Configuration").
+  return { host: cfg.host ?? null, node: cfg.node ?? null, hc: cfg.hc ?? null, version: cfg.version ?? null, build: cfg.build ?? null, installedAt: cfg.installedAt ?? null, showCost: mine.cost !== false, agent };
 }
 
 export async function readRegistry(chat) {

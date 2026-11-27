@@ -118,6 +118,8 @@ test("claude fixture v2.jsonl (session-state events, uuids): a steer folded mid-
     await c.waitFor(idle, 10_000);
     let items = await turn(h, "Think briefly, then reply with exactly the word: hi");
     assert.equal(items.at(-1).text, "hi");
+    // The recording's rate_limit_event (Claude Code 2.1, a subscription with only the weekly window).
+    assert.deepEqual(h.client.state.limits, [{ id: "seven_day", label: "week", usedPercent: 53, resetsAt: 1793854800000 }]);
     items = await turn(h, "Use the Bash tool to run exactly: echo one");
     assert.ok(items.some((i) => i.kind === "thinking" && /echo command/.test(i.text)), "summarized thinking");
     assert.deepEqual(items.filter((i) => i.kind === "tool").map((t) => [t.title, t.status, t.detail.exitCode]), [["$ echo one", "done", 0]]);

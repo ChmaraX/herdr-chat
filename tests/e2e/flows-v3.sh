@@ -419,6 +419,24 @@ if want v3 || want claude; then
 
   step "claude: a finished plan, then the next message"
   plan_done strip-claude-done
+
+  step "claude: settings.json \"cost\": false hides the cost in a new chat; the usage limits show after an answer"
+  python3 - "$STATE/settings.json" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["cost"] = False; json.dump(s, open(p, "w"), indent=1)
+EOF
+  CHAT=$(open_chat_p claude claude e2e)
+  ready
+  send_text "usage limits please"
+  expect '[ "$(phase)" = idle ] && [ "$(d "d[\"items\"][-1].get(\"len\")")" = 16 ]' "the answer (\"Limits reported.\")" 15
+  if needs_frames "the footer's limits, no cost (drawn)"; then
+    expect '[ "$(d "\"limits\" in d[\"footerChips\"] and \"cost\" not in d[\"footerChips\"]")" = true ]' "the footer shows the limits and no cost ($(d 'd["footerChips"]'))" 5
+  fi
+  shot v3-7-claude-limits-no-cost 0.4
+  python3 - "$STATE/settings.json" <<'EOF'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s.pop("cost", None); json.dump(s, open(p, "w"), indent=1)
+EOF
 fi
 
 # --- Codex (real host, fake-codex) ---------------------------------------------------------
