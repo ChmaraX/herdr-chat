@@ -39,7 +39,7 @@ import { Timeline } from "./timeline.js";
 import { lineOf, planProgress, row, samePlan } from "./cards.js";
 import { buildRows, cardLive, defaultOpen, groupCards } from "./rows.js";
 import { space } from "./space.js";
-import { branchChip, emptyState, footerControls, planStrip, queueChips, queueLabels, widgetTray } from "./chrome.js";
+import { backgroundChip, branchChip, emptyState, footerControls, planStrip, queueChips, queueLabels, widgetTray } from "./chrome.js";
 import { openFile } from "./files.js";
 import { Composer } from "./composer.js";
 import { Picker, menuView, slashItems, wheel as wheelMenu } from "./menus.js";
@@ -112,6 +112,7 @@ export default class HerdrChat extends View {
     this.widthPt = 0; // the chat's width as reported (window pt); `width` is in layout px
     this.homeDir = home();
     this.prefs = loadPrefs();
+    this.costHidden = false; // settings.json `"cost": false`, read once (a new chat picks up a change)
     this.place = null; // {pane, tab, space}: this chat's own pane, from the layout document (place.js)
     this.placeFrom = null; // "doc" | "guess" (no document to read)
     this.hide = null; // the host's pane in the layout document: {terminal, pane, hidden, …} (keepHostHidden)
@@ -127,6 +128,12 @@ export default class HerdrChat extends View {
       await loadShortcuts();
       keepKeys(cx);
       this.keysReady = true;
+      this.debug.mark();
+      cx.notify();
+    });
+    cx.spawn(async (cx) => {
+      if ((await readConfig()).showCost) return;
+      this.costHidden = true;
       this.debug.mark();
       cx.notify();
     });
@@ -397,9 +404,10 @@ export default class HerdrChat extends View {
     if (this.conn.status === "connected" && this.store.loaded) this.syncTheme(cx);
     if (this.svgWanted?.size) this.loadSizes(cx);
     if (Date.now() - (this.sweptAt ?? 0) > 30000) this.sweepOrphans(cx);
-    // Elapsed seconds (thinking, the activity line) while Pi works: data, once a second.
+    // Elapsed seconds (thinking, the activity line) while Pi works, and the background
+    // tasks' clock while any runs (backgroundChip): data, once a second.
     const sec = Math.floor(Date.now() / 1000);
-    if ((this.store.working() || this.store.state.dialog) && sec !== this.lastSec) { this.lastSec = sec; changed = true; }
+    if ((this.store.working() || this.store.state.dialog || this.store.state.background?.length) && sec !== this.lastSec) { this.lastSec = sec; changed = true; }
     if (this.copiedAt.size) for (const [k, at] of this.copiedAt) if (Date.now() - at > 1500) {
       this.copiedAt.delete(k);
       changed = true;
@@ -834,6 +842,8 @@ export default class HerdrChat extends View {
     // The strip's steps stay open while the same plan is on, not for the next one.
     if (!samePlan(this.planShown, s.plan)) this.planOpen = false;
     this.planShown = s.plan;
+    // The background list closes with its last task, not to open again with the next one.
+    if (!s.background?.length) this.backgroundOpen = false;
   }
 
   // ---- ops ------------------------------------------------------------------------
@@ -1289,6 +1299,11 @@ export default class HerdrChat extends View {
     return this.store.state.capabilities ?? null;
   }
 
+  // Whether the cost shows (the footer's and each run's): the agent reports one and settings.json doesn't hide it.
+  showCost() {
+    return this.caps()?.cost !== false && !this.costHidden;
+  }
+
   thinkingLevels() {
     return this.caps()?.thinkingLevels ?? [];
   }
@@ -1523,6 +1538,13 @@ export default class HerdrChat extends View {
     cx.notify();
   }
 
+  // The background chip's list (chrome.js backgroundChip), opened and closed by its trigger.
+  setBackgroundOpen(open, cx) {
+    this.backgroundOpen = open;
+    this.debug.mark();
+    cx.notify();
+  }
+
   // The status chips' popover (chrome.js), opened and closed by its trigger.
   setStatusesOpen(open, cx) {
     this.statusesOpen = open;
@@ -1653,6 +1675,7 @@ export default class HerdrChat extends View {
       case "conflict:go": return this.goToConflict(cx);
       case "conflict:take": return this.fire("take_over", {}, cx);
       case "statuses": return this.setStatusesOpen(!this.statusesOpen, cx);
+      case "background": return this.setBackgroundOpen(!this.backgroundOpen, cx);
       case "update:restart": this.updater.want(); break;
       case "branch": {
         const what = this.store.state.git?.name;
@@ -2063,6 +2086,7 @@ export default class HerdrChat extends View {
       capabilities: s.capabilities ?? null, permissionMode: s.permissionMode ?? null,
       phase: s.phase, error: s.error, model: s.model ? `${s.model.provider}/${s.model.id}` : null, thinking: s.thinking,
       sessionFile: s.sessionFile, sessionName: s.sessionName, usage: s.usage, queue: s.queue,
+      background: (s.background ?? []).map((b) => [b.kind, b.label]), backgroundOpen: Boolean(this.backgroundOpen),
       plan: s.plan?.steps?.length ? { ...planProgress(s.plan), steps: s.plan.steps.map((x) => [x.text, x.status]), open: Boolean(this.planOpen) } : null,
       dialog: s.dialog ? { id: s.dialog.id, method: s.dialog.method, title: s.dialog.title, value: this.dialog.field ? this.dialog.value() : null, commandShown: this.dialog.commandShown ?? null,
         ...this.dialog.form?.debugState() } : null,
@@ -2216,7 +2240,7 @@ export default class HerdrChat extends View {
       setHover: (id, on, cx) => this.setHover(id, on, cx), svgHover: this.svgHover ?? null,
       setSvgHover: (key, on, cx) => this.setSvgHover(key, on, cx), groupOpen: (id) => this.groups.get(id),
       groupAnim: (id) => this.groupAnims.get(id) ?? null, groupMeasured: (id, h, cx) => this.groupMeasured(id, h, cx),
-      modelName: (m) => this.modelName(m), showCost: this.caps()?.cost !== false,
+      modelName: (m) => this.modelName(m), showCost: this.showCost(),
       children: this.children, color: (fg) => (fg?.startsWith("#") ? fg : theme()[fg] ?? null),
     };
   }
@@ -2285,10 +2309,10 @@ export default class HerdrChat extends View {
       .children([widgetTray(this, above, t), queueChips(this, s, t), planStrip(this, s, t)].filter(Boolean))
       .child(composer)
       .children([widgetTray(this, below, t)].filter(Boolean))
-      // The hint line, and the branch at its right end.
+      // The hint line, then what runs in the background and the branch at its right end.
       .child(h_flex().h(16).px(6).gap(10).items_center()
         .child(div().flex_1().min_w(0).text_size(11).truncate().text_color(this.flashText ? t.blocked : t.dim).child(hintText ?? ""))
-        .children([branchChip(this, t, { width: this.colW() })].filter(Boolean)));
+        .children([backgroundChip(this, t, { width: this.colW() }), branchChip(this, t, { width: this.colW() })].filter(Boolean)));
     let root = v_flex().id("herdr-chat").key_context("HerdrChat").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .on_size_change((sz, cx) => { if (Math.abs(sz.width - this.widthPt) > 0.5) { this.widthPt = sz.width; this.sized(this.width); cx.notify(); } })
       .on_drop((e, cx) => this.drop(e.paths ?? [], cx))

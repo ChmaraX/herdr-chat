@@ -1,17 +1,31 @@
 // What sits around the composer (visual-v2.md §1, §4): the footer row's
-// controls (model and thinking chips, the context meter, extension status
-// chips with their "+N" popover), the widget trays, the queue
-// lanes, the plan strip, and the empty state's title.
+// controls (model and thinking chips, the context meter, the usage limits,
+// extension status chips with their "+N" popover), the widget trays, the queue
+// lanes, the plan strip, what runs in the background (under the composer), and
+// the empty state's title.
 // Extension-agnostic: statuses and widgets are shown by key, as sent.
 
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover } from "gpui-base";
-import { MOD, alpha, count, icon, money, providerIcon, spans, spansText, unwrapHc } from "./util.js";
+import { MOD, alpha, count, elapsed, icon, money, providerIcon, resetTime, spans, spansText, spinner, unwrapHc } from "./util.js";
 import { withKey } from "./shortcuts.js";
 import { planProgress, planSteps } from "./cards.js";
 
 const STATUS_MAX = 28;
 const STATUS_W = (text) => Math.min(STATUS_MAX, [...text].length) * 6.3 + 18;
+
+// The usage limits that fit in `room` px: the first two ("5h 12% · week 57%"), else the most
+// used alone, else none. {shown, text, w} or null.
+function fitLimits(limits, room) {
+  if (!limits.length) return null;
+  const most = limits.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a));
+  for (const shown of [limits.slice(0, 2), [most]]) {
+    const text = shown.map((l) => `${l.label} ${Math.round(l.usedPercent)}%`).join(" · ");
+    const w = [...text].length * 6.3 + 18;
+    if (w <= room) return { shown, text, w };
+  }
+  return null;
+}
 
 function ring(pct, t) {
   const p = Math.max(0, Math.min(100, Math.round((pct ?? 0) / 5) * 5));
@@ -38,6 +52,7 @@ function surface(t) {
 //   xs (< 200 px, a ~240 px column): icons only (labels in the tooltips), every status in "+N";
 //   sm (< 300 px): the model's short name, the level, a mode icon, no chevrons, every status in "+N";
 //   md (< 520 px): shorter names, no cost; statuses as they fit;  full: everything.
+// The usage limits show from md up.
 export function footerTier(width) {
   return width < 200 ? "xs" : width < 300 ? "sm" : width < 520 ? "md" : "full";
 }
@@ -78,22 +93,37 @@ export function footerControls(v, t, { width }) {
     drawn.push("permission");
   }
   const u = s.usage;
-  const cost = caps?.cost === false || tier !== "full" ? null : u?.cost ?? null;
+  const showCost = v.showCost();
+  const cost = !showCost || tier !== "full" ? null : u?.cost ?? null;
   if (u && (u.percent != null || cost != null)) {
     const win = u.contextWindow ?? s.model?.contextWindow ?? null;
     const tip = [
       u.percent != null ? `${Math.round(u.percent)}% of the context window` : null,
       u.contextTokens != null ? `${count(u.contextTokens)}${win ? ` / ${count(win)}` : ""} tokens` : null,
-      (caps?.cost === false ? null : u?.cost ?? null) != null ? `${money(u.cost)} this session` : null,
+      (showCost ? u?.cost ?? null : null) != null ? `${money(u.cost)} this session` : null,
     ].filter(Boolean).join(" · ");
     left.push(chipEl("chip-context", t, { tip }).when(tiny, (e) => e.px(6))
       .when(u.percent != null, (e) => e.child(ring(u.percent, t)).when(!small, (x) => x.child(div().text_size(11.5).child(`${Math.round(u.percent)}%`))))
       .when(cost != null, (e) => e.child(div().text_size(11.5).text_color(t.dim).child(money(cost)))));
     drawn.push("context", ...(cost != null ? ["cost"] : []));
   }
+  const chipsW = 20 + Math.min(name.length * 6.8, tier === "md" ? 120 : 180) + 46 + (thinkingChip ? 80 : 0) + (modes.length ? (tier === "md" ? 80 : 100) : 0) + (u ? (cost != null ? 90 : 50) : 0);
+  // The account's usage limits (Claude Code's and Codex's subscription windows), those not reset
+  // yet: as many as fit after the chips before them (fitLimits), every one with when it starts
+  // over in the tooltip. Coloured by the most used one shown, as the ring is.
+  const now = Date.now();
+  const limits = small ? [] : (s.limits ?? []).filter((l) => !l.resetsAt || l.resetsAt > now);
+  const fit = fitLimits(limits, width - chipsW - 12);
+  if (fit) {
+    const top = Math.max(...fit.shown.map((l) => l.usedPercent));
+    const tip = limits.map((l) => `${l.label}: ${Math.round(l.usedPercent)}% used${l.resetsAt ? `, resets ${resetTime(l.resetsAt, now)}` : ""}`).join(" · ");
+    left.push(chipEl("chip-limits", t, { tip: `Usage limits · ${tip}` }).text_size(11.5)
+      .text_color(top > 90 ? t.ansi1 : top > 75 ? t.blocked : t.dim).child(fit.text));
+    drawn.push("limits");
+  }
   v.footerChips = drawn;
   // Statuses: as many chips as fit, then "+N".
-  const leftW = 20 + Math.min(name.length * 6.8, tier === "md" ? 120 : 180) + 46 + (thinkingChip ? 80 : 0) + (modes.length ? (tier === "md" ? 80 : 100) : 0) + (u ? (cost != null ? 90 : 50) : 0);
+  const leftW = chipsW + (fit ? fit.w : 0);
   let room = tier === "xs" || tier === "sm" ? 0 : Math.max(0, width - leftW - 40);
   const list = caps?.extensionUi === false ? [] : v.visibleStatuses();
   const shown = [];
@@ -238,6 +268,46 @@ export function queueChips(v, s, t) {
   const follow = lane("followUp", q.followUp, q.followUpIds, q.followUpRemovable, q.followUpFrom, t.ansi3, "clock", "Follow-up: after this run");
   if (!steer && !follow) return null;
   return v_flex().w_full().gap(6).children([steer, follow].filter(Boolean));
+}
+
+// What the agent left running in the background (protocol v3.12, state.background):
+// a Bash with run_in_background, a Monitor, a background subagent. A chip in the
+// line under the composer, left of the branch, so a chat whose run is over still
+// says its agent has work going without taking room from the timeline: one task as
+// "◌ Bash  what it does  1m 05s", several as "◌ 3 running in the background  4m 10s"
+// (the oldest one's clock). A click lists each above it (backgroundPopover).
+// Redrawn once a second while any runs (main.js tick).
+export function backgroundChip(v, t, { width }) {
+  const list = v.store.state.background ?? [];
+  if (!list.length) return null;
+  const now = Date.now();
+  const one = list.length === 1 ? list[0] : null;
+  const oldest = Math.min(...list.map((b) => b.startedAt));
+  const chip = h_flex().id("background").flex_none().max_w(Math.max(120, Math.round(width * 0.5))).min_w(0).h(16).px(4).gap(6)
+    .items_center().rounded(4).text_size(11).cursor_pointer()
+    .when(Boolean(v.backgroundOpen), (e) => e.bg(t.hover)).hover((st) => st.bg(t.hover))
+    .tooltip(v.backgroundOpen ? "Hide the list" : "What runs in the background")
+    .child(spinner(10))
+    .children(one
+      ? [div().flex_none().text_color(t.dim).child(one.kind), div().min_w(0).truncate().text_color(t.muted).child(one.label)]
+      : [div().min_w(0).truncate().text_color(t.muted).child(`${list.length} running in the background`)])
+    .child(div().flex_none().text_color(t.dim).child(elapsed(now - oldest)));
+  return Popover.new("background-list").anchor("bottom_right").open(Boolean(v.backgroundOpen))
+    .on_open_change((open, cx) => v.setBackgroundOpen(open, cx))
+    .trigger(chip)
+    .content(backgroundPopover(list, now, t));
+}
+
+// Every background task: what runs it, what it does (whole), and for how long.
+function backgroundPopover(list, now, t) {
+  return surface(t).w(380).max_h(360)
+    .child(div().px(8).pt(4).pb(2).text_size(11).text_color(t.dim).child("Running in the background"))
+    .children(list.map((b) => h_flex().id(`background-${b.id}`).min_h(30).px(8).py(4).gap(10).items_start().rounded(7)
+      .child(div().mt(2).child(spinner(11)))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(div().text_size(11).text_color(t.dim).child(b.kind))
+        .child(div().text_size(12).text_color(t.foreground).child(b.label)))
+      .child(div().flex_none().mt(1).text_size(11).text_color(t.dim).child(elapsed(now - b.startedAt)))));
 }
 
 // The plan strip, right above the composer: "2/5", a progress bar and the

@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { ClaudeProcess } from "./process.ts";
 import type { ClaudeRecord } from "./process.ts";
 import { ClaudeMapper } from "./mapper.ts";
+import { ClaudeBackground } from "./background.ts";
 import { mcpFailureNotice } from "../mcp.ts";
 import { agentEnv } from "../env.ts";
 import type { Priority } from "./mapper.ts";
@@ -14,6 +15,7 @@ import { sessionPath, sessionIdOf, sessionFiles, describeSession, liveHolder, re
 import type {
   ProviderAdapter, AdapterHost, AdapterOptions, Capabilities, StartInfo, NormalizedEvent, AskAnswer, ImageBlock, ModelInfo,
   AgentCommand, AgentModel, SessionSource, UsageInfo, Prompt, Disposition, PermissionMode, PermissionChoice, ForkPoint, Question,
+  BackgroundTask,
 } from "../types.ts";
 import { CLAUDE_TOOLS } from "./tools.ts";
 import { asSent } from "./skills.ts";
@@ -82,6 +84,8 @@ export class ClaudeAdapter implements ProviderAdapter {
   private tasks = new Map<string, { callId: string; name: string; timer: NodeJS.Timeout }>();
   /** The polled output a Bash card shows, by call id, until the tool ends. */
   private liveOutput = new Map<string, string>();
+  /** What Claude Code left running in the background (state.background); the mapper is replaced at each start. */
+  private background = new ClaudeBackground((callId) => this.mapper.toolNames.get(callId));
   private lastRecordAt = Date.now();
   private watchdog: NodeJS.Timeout | null = null;
   private settleTimer: NodeJS.Timeout | null = null;
@@ -267,6 +271,8 @@ export class ClaudeAdapter implements ProviderAdapter {
   private stopTimers(): void {
     for (const t of this.tasks.values()) clearInterval(t.timer);
     this.tasks.clear();
+    // The process is gone (an exit, a restart for /new or /resume): its background tasks with it.
+    this.emitBackground(this.background.reset());
     this.liveOutput.clear();
     for (const t of [this.watchdog, this.settleTimer, this.interruptTimer]) if (t) clearTimeout(t);
     this.watchdog = this.settleTimer = this.interruptTimer = null;
@@ -377,7 +383,11 @@ export class ClaudeAdapter implements ProviderAdapter {
         if (failed.length) this.emit({ type: "notice", level: "warning", source: "notify", text: mcpFailureNotice(failed.map((m: Rec) => ({ name: m.name, auth: m.status === "needs-auth", detail: m.status === "needs-auth" ? "needs OAuth sign-in" : "failed to connect" })), "run /mcp in /tui") });
         return;
       }
+      case "background_tasks_changed":
+        this.emitBackground(this.background.onSystem(rec));
+        return;
       case "task_started":
+        this.emitBackground(this.background.onSystem(rec));
         if (rec.task_type === "local_bash" && typeof rec.tool_use_id === "string" && typeof rec.task_id === "string") this.pollTask(rec.task_id, rec.tool_use_id);
         return;
       case "task_notification":
@@ -391,6 +401,10 @@ export class ClaudeAdapter implements ProviderAdapter {
         return;
       }
     }
+  }
+
+  private emitBackground(tasks: BackgroundTask[] | null): void {
+    if (tasks) this.emit({ type: "background", tasks });
   }
 
   /** No bash output streams; a foreground Bash over ~3 s becomes a task whose output we poll. */

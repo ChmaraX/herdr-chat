@@ -228,10 +228,13 @@ function closeMessage(stop) {
   cost += 0.001;
   contextTokens += 500;
 }
+// The last tool_use's id: an `emit` step's "{lastToolId}" (a task_started for that call).
+let lastToolId = null;
 async function toolUseBlock(name, input) {
   const m = openMessage();
   const index = m.index++;
   const id = `toolu_fake${(++msgIndex).toString().padStart(4, "0")}`;
+  lastToolId = id;
   out({ type: "stream_event", event: { type: "content_block_start", index, content_block: { type: "tool_use", id, name, input: {} } }, parent_tool_use_id: null, ...base() });
   const json = JSON.stringify(input);
   for (const p of json.match(/[\s\S]{1,16}/g) ?? []) {
@@ -552,7 +555,7 @@ async function turnBody(first, ctx) {
       else if (step.retry) {
         out({ type: "system", subtype: "api_retry", attempt: step.retry.attempt ?? 1, max_retries: step.retry.max ?? 10, retry_delay_ms: step.retry.delayMs ?? 500, error_status: 529, error: step.retry.error ?? "overloaded", ...base() });
         await sleep(step.retry.delayMs ?? 500);
-      } else if (step.emit) out({ ...step.emit, ...base() });
+      } else if (step.emit) out({ ...JSON.parse(JSON.stringify(step.emit).replaceAll('"{lastToolId}"', JSON.stringify(lastToolId))), ...base() });
       else if (step.notice) out({ type: "system", subtype: "notification", key: "n", text: step.notice, priority: step.priority ?? "low", ...base() });
       else if (step.rateLimit) out({ type: "rate_limit_event", rate_limit_info: { status: step.rateLimit, rateLimitType: "five_hour", resetsAt: Math.floor(Date.now() / 1000) + 3600 }, ...base() });
       else if (step.apiError) {

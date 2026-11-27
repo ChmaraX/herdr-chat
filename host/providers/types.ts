@@ -200,6 +200,10 @@ export type NormalizedEvent = Common &
     | { type: "editor_text"; text: string | null }
     /** `once: "run"`: at most one such notice per run. */
     | { type: "notice"; level: NoticeItem["level"]; source: NoticeItem["source"]; text: string; once?: "run" }
+    /** The account's usage limits, all of them as reported now (replaces the last report; [] = none). */
+    | { type: "limits"; limits: UsageLimit[] }
+    /** What the agent left running in the background, all of it as listed now (replaces the last list; [] = nothing). */
+    | { type: "background"; tasks: BackgroundTask[] }
 
     // ---- session
     /** Omitted fields are unchanged. `file` is what the session lock and hand-off use. */
@@ -253,6 +257,20 @@ export type SessionSource =
   | { kind: "files"; files(current: string | null, scope: SessionScope): string[]; describe(path: string): SessionInfo | null }
   | { kind: "agent"; list(scope: SessionScope): Promise<SessionInfo[]> };
 export type UsageInfo = { contextTokens: number | null; contextWindow: number | null; percent: number | null; cost: number | null };
+/**
+ * One of the account's usage limits (a subscription's rate-limit window), as
+ * the agent last reported it. `label` is what the chat shows ("5h", "week").
+ * `usedPercent` can pass 100 (usage that legitimately ran past the cap).
+ * `resetsAt`: when the window starts over (ms since the epoch), null when unknown.
+ */
+export type UsageLimit = { id: string; label: string; usedPercent: number; resetsAt: number | null };
+/**
+ * Work the agent left running after its tool call returned (Claude Code: a
+ * Bash with run_in_background, a Monitor, a background subagent). `kind` is
+ * what runs it ("Bash", "Monitor", "Explore agent"), `label` what it does,
+ * `startedAt` when the host first saw it (ms since the epoch).
+ */
+export type BackgroundTask = { id: string; kind: string; label: string; startedAt: number };
 
 /** Errors from commands. `agentExited`: the agent went away before answering (the exit is reported separately). */
 export class AgentError extends Error {

@@ -11,7 +11,8 @@
 //       "args": ["--model", "…"],               after the agent's own arguments
 //       "env": {"KEY": "value"},                this agent's environment
 //       "tui": ["wrapper", "agent"]             the program /tui runs (its arguments kept)
-//     }
+//     },
+//     "cost": false                              the mod only: hide the cost (connection.js readConfig)
 //   }
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

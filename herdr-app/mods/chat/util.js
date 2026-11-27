@@ -123,6 +123,14 @@ export function codeLine(list, t, base) {
 
 export const spansText = (list) => (list ?? []).map((s) => s.text ?? "").join("");
 
+// A running clock: "8s", "4m 05s", "2h 14m" (whole seconds, no tenths, so it ticks evenly).
+export function elapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+
 export function duration(ms) {
   if (ms == null) return "";
   if (ms < 1000) return `${Math.round(ms)}ms`;
@@ -157,6 +165,17 @@ export function relTime(ts, now = Date.now()) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${hm}`;
 }
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+// When a usage limit starts over: "14:32" today, "Fri 10:00" in the next six days, else "3 Dec 10:00"
+// (a time already past included: a weekday would read as the next one).
+export function resetTime(ts, now = Date.now()) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  if (d.toDateString() === new Date(now).toDateString()) return hm;
+  return ts > now && ts - now < 6 * 86400000 ? `${DAYS[d.getDay()]} ${hm}` : `${d.getDate()} ${MONTHS[d.getMonth()]} ${hm}`;
+}
 
 export function absTime(ts) {
   if (!ts) return "";
