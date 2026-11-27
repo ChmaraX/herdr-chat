@@ -20,6 +20,7 @@ import { alpha, baseName, fileChip, icon, thumbnail } from "./util.js";
 import { follow } from "./menus.js";
 import { keyHint } from "./shortcuts.js";
 import { PLATFORM } from "./platform.js";
+import { exec } from "herdr";
 
 const CONTEXTS = ["HerdrChatMenu", "HerdrChatEmpty", "HerdrChatComposer", "HerdrChatAsk", "HerdrChatQuestions"];
 const CARDS = ["HerdrChatAsk", "HerdrChatQuestions"];
@@ -88,12 +89,23 @@ export class Composer {
     this.menu = null; // {kind: "slash"|"files", query, items, sel, start}
     this.history = null; // {list, i, text}
     this.focused = false;
+    // macOS's "Add period with double-space" (System Settings → Keyboard → Text Input), which
+    // the system's own text fields do and this one doesn't: on unless the person turned it off.
+    this.periodOn = PLATFORM.mac;
+    this.spaceAt = null; // where a space typed after a word left the cursor, for a second one
+    if (PLATFORM.mac) cx.spawn(async () => {
+      try {
+        const r = await exec("defaults", ["read", "-g", "NSAutomaticPeriodSubstitutionEnabled"]);
+        if (r.code === 0 && r.stdout.trim() === "0") this.periodOn = false;
+      } catch { /* unreadable: macOS's default, on */ }
+    });
     this.ta.on("change", (_e, cx) => {
       const before = this.value;
       this.value = this.ta.value();
       this.cursor = editEnd(before, this.value);
       if (this.history && this.value !== this.history.text) this.history = null;
       this.pillTyped(before);
+      this.periodTyped(before);
       onChange?.(cx);
     });
     this.ta.on("focus", (_e, cx) => { this.focused = true; cx.notify(); });
@@ -175,6 +187,27 @@ export class Composer {
     this.ta.replace_with_token(skillToken(s));
     this.ta.set_selected_range({ start: this.cursor, end: this.cursor });
     this.value = this.ta.value();
+  }
+
+  // macOS's double-space period: a word, then two spaces typed one right after the other,
+  // reads "word. ". Only right after that first space, so a space typed into a double space
+  // that is already there changes nothing.
+  periodTyped(before) {
+    if (!this.periodOn) return;
+    const at = this.cursor;
+    const typedSpace = this.value.length === before.length + 1 && this.value[at - 1] === " ";
+    if (!typedSpace) { this.spaceAt = null; return; }
+    const word = (c) => c != null && /[\p{L}\p{N}]/u.test(c);
+    if (this.spaceAt === at - 1 && this.value[at - 2] === " " && word(this.value[at - 3])) {
+      this.spaceAt = null;
+      this.ta.set_selected_range({ start: at - 2, end: at - 1 });
+      this.ta.replace(".");
+      this.ta.set_selected_range({ start: at, end: at });
+      this.value = this.ta.value();
+      this.cursor = at;
+      return;
+    }
+    this.spaceAt = word(this.value[at - 2]) ? at : null;
   }
 
   // A skill picked from the menu: a pill in place of the "/query" being typed, then a space.
