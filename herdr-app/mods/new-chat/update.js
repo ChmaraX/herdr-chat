@@ -114,7 +114,11 @@ export async function checkRunning() {
   return true;
 }
 
-/** Question 1, once a day (`now`: a check the person asked for, whenever): a newer release than the installed one. */
+/**
+ * Question 1, once a day (`now`: a check the person asked for, whenever): a newer release than the
+ * installed one. The daily lookup fails quietly (offline: tomorrow). One the person asked for throws,
+ * and the caller shows why: a lookup that always fails must not pass for "no update".
+ */
 export async function checkRelease({ now = false } = {}) {
   const cfg = await config();
   const s = await prefs();
@@ -123,10 +127,13 @@ export async function checkRelease({ now = false } = {}) {
   setShared(CHECKED, Date.now());
   let rel;
   try {
-    const r = await fetch(s.feed || `https://api.github.com/repos/${REPO}/releases/latest`, { headers: { accept: "application/vnd.github+json" } });
-    if (!r.ok) return null;
+    // GitHub's API refuses a request without a User-Agent (403), and the app's fetch sends none.
+    const r = await fetch(s.feed || `https://api.github.com/repos/${REPO}/releases/latest`,
+      { headers: { accept: "application/vnd.github+json", "user-agent": `herdr-chat/${cfg.version ?? "0"}` } });
+    if (!r.ok) throw new Error(`GitHub answered ${r.status}: ${(await r.text().catch(() => "")).trim().slice(0, 160)}`);
     rel = await r.json();
-  } catch {
+  } catch (e) {
+    if (now) throw new Error(`Couldn't look up the latest release: ${e?.message ?? e}`);
     return null; // offline: tomorrow
   }
   const latest = String(rel.tag_name ?? "").replace(/^v/, "");
