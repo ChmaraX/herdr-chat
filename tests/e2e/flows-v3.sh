@@ -437,6 +437,19 @@ EOF
 import json, sys
 p = sys.argv[1]; s = json.load(open(p)); s.pop("cost", None); json.dump(s, open(p, "w"), indent=1)
 EOF
+
+  step "claude: what runs in the background shows under the composer after the run, a click lists it, and it goes when it ends"
+  bg() { d "' | '.join(f'{k}: {l}' for k, l in d['background'])"; }
+  send_text "start background tasks"
+  expect '[ "$(phase)" = idle ] && [ "$(bg)" = "Monitor: Watch the prod deploys until both are ACTIVE | Explore agent: Find where the sitemap is built" ]' "the run is over, a Monitor and an agent still run ($(bg))" 15
+  shot v3-8-claude-background 0.4
+  cmd click:background
+  need '[ "$(d "d[\"backgroundOpen\"]")" = true ]' "click:background opens the list" 5
+  shot v3-8-claude-background-list 0.4
+  cmd click:background
+  need '[ "$(d "d[\"backgroundOpen\"]")" = false ]' "another click closes it" 5
+  send_text "stop background tasks"
+  expect '[ "$(phase)" = idle ] && [ -z "$(bg)" ]' "nothing left in the background ($(bg))" 15
 fi
 
 # --- Codex (real host, fake-codex) ---------------------------------------------------------

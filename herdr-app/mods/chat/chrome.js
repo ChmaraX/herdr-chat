@@ -1,12 +1,13 @@
 // What sits around the composer (visual-v2.md §1, §4): the footer row's
 // controls (model and thinking chips, the context meter, the usage limits,
 // extension status chips with their "+N" popover), the widget trays, the queue
-// lanes, the plan strip, and the empty state's title.
+// lanes, the plan strip, what runs in the background (under the composer), and
+// the empty state's title.
 // Extension-agnostic: statuses and widgets are shown by key, as sent.
 
 import { div, svg } from "gpui-kit";
 import { v_flex, h_flex, Popover } from "gpui-base";
-import { MOD, alpha, count, icon, money, providerIcon, resetTime, spans, spansText, unwrapHc } from "./util.js";
+import { MOD, alpha, count, elapsed, icon, money, providerIcon, resetTime, spans, spansText, spinner, unwrapHc } from "./util.js";
 import { withKey } from "./shortcuts.js";
 import { planProgress, planSteps } from "./cards.js";
 
@@ -267,6 +268,46 @@ export function queueChips(v, s, t) {
   const follow = lane("followUp", q.followUp, q.followUpIds, q.followUpRemovable, q.followUpFrom, t.ansi3, "clock", "Follow-up: after this run");
   if (!steer && !follow) return null;
   return v_flex().w_full().gap(6).children([steer, follow].filter(Boolean));
+}
+
+// What the agent left running in the background (protocol v3.12, state.background):
+// a Bash with run_in_background, a Monitor, a background subagent. A chip in the
+// line under the composer, left of the branch, so a chat whose run is over still
+// says its agent has work going without taking room from the timeline: one task as
+// "◌ Bash  what it does  1m 05s", several as "◌ 3 running in the background  4m 10s"
+// (the oldest one's clock). A click lists each above it (backgroundPopover).
+// Redrawn once a second while any runs (main.js tick).
+export function backgroundChip(v, t, { width }) {
+  const list = v.store.state.background ?? [];
+  if (!list.length) return null;
+  const now = Date.now();
+  const one = list.length === 1 ? list[0] : null;
+  const oldest = Math.min(...list.map((b) => b.startedAt));
+  const chip = h_flex().id("background").flex_none().max_w(Math.max(120, Math.round(width * 0.5))).min_w(0).h(16).px(4).gap(6)
+    .items_center().rounded(4).text_size(11).cursor_pointer()
+    .when(Boolean(v.backgroundOpen), (e) => e.bg(t.hover)).hover((st) => st.bg(t.hover))
+    .tooltip(v.backgroundOpen ? "Hide the list" : "What runs in the background")
+    .child(spinner(10))
+    .children(one
+      ? [div().flex_none().text_color(t.dim).child(one.kind), div().min_w(0).truncate().text_color(t.muted).child(one.label)]
+      : [div().min_w(0).truncate().text_color(t.muted).child(`${list.length} running in the background`)])
+    .child(div().flex_none().text_color(t.dim).child(elapsed(now - oldest)));
+  return Popover.new("background-list").anchor("bottom_right").open(Boolean(v.backgroundOpen))
+    .on_open_change((open, cx) => v.setBackgroundOpen(open, cx))
+    .trigger(chip)
+    .content(backgroundPopover(list, now, t));
+}
+
+// Every background task: what runs it, what it does (whole), and for how long.
+function backgroundPopover(list, now, t) {
+  return surface(t).w(380).max_h(360)
+    .child(div().px(8).pt(4).pb(2).text_size(11).text_color(t.dim).child("Running in the background"))
+    .children(list.map((b) => h_flex().id(`background-${b.id}`).min_h(30).px(8).py(4).gap(10).items_start().rounded(7)
+      .child(div().mt(2).child(spinner(11)))
+      .child(v_flex().flex_1().min_w(0).gap(1)
+        .child(div().text_size(11).text_color(t.dim).child(b.kind))
+        .child(div().text_size(12).text_color(t.foreground).child(b.label)))
+      .child(div().flex_none().mt(1).text_size(11).text_color(t.dim).child(elapsed(now - b.startedAt)))));
 }
 
 // The plan strip, right above the composer: "2/5", a progress bar and the

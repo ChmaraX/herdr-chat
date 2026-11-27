@@ -74,6 +74,7 @@ Text can use these placeholders: `{prompt}`, `{steers}` (the steers folded in so
 - `{ "retry": { "attempt", "max", "delayMs", "error" } }`: `api_retry`.
 - `{ "notice": "…" }`, `{ "rateLimit": "rejected" }`.
 - `{ "emit": record }`: writes the record as is (with the session id and uuid), for records no other step makes.
+  - A `"{lastToolId}"` value becomes the last `tool_use`'s id (a `task_started` for that call).
 
 **Failures and other runs**
 - `{ "hang": true, "ignoreInterrupt": false }`: silence until an interrupt (or forever).

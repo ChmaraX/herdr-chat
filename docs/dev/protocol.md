@@ -152,6 +152,7 @@ type ChatState = {
   usage: { contextTokens: number | null; contextWindow: number | null; percent: number | null;
            cost: number | null } | null;
   limits: { id: string; label: string; usedPercent: number; resetsAt: number | null }[] | null;  // v3.11
+  background: { id: string; kind: string; label: string; startedAt: number }[];  // v3.12
   queue: { steering: string[]; followUp: string[] };
   dialog: Dialog | null;         // the oldest open extension dialog; answer it to see the next
   dialogsPending: number;        // open dialogs, including `dialog`
@@ -751,3 +752,21 @@ limits: { id: string;            // the agent's name for the window: "five_hour"
   - Pi and Antigravity report none.
 - **The mod.** A chip after the context meter, from the md tier up, for the windows whose `resetsAt` hasn't passed (one that has is gone at the next redraw: its number is the old window's): the first two as `5h 12% · week 57%` when they fit after the chips before it (`chrome.js` `fitLimits`), else the most used alone, else no chip. Dim, amber past 75 %, red past 90 % of the most used one shown (the ring's colours). Its tooltip lists every window with its reset. `footerChips` (the dump) has `limits` only when the chip is drawn.
 - **Hiding the cost.** The person's settings.json `"cost": false` hides the cost: the footer's chip and tooltip, and each run's footer row (`main.js` `showCost()`; `connection.js` `readConfig` reads it, once per chat). Mod only, no wire change.
+
+## v3.12: what runs in the background (additive)
+
+### ChatState
+
+```ts
+background: { id: string;          // the agent's task id
+              kind: string;        // what runs it: "Bash", "Monitor", "Explore agent", "Workflow"…
+              label: string;       // what it does (the tool call's description)
+              startedAt: number }[]  // when the host first saw it (ms since the epoch)
+// []: nothing running in the background (or the agent reports none)
+```
+
+- **Why.** A run can end with work still going: a Bash with `run_in_background`, a Monitor, a background subagent. The chat looked finished while the agent still had a loop polling a deploy, and the run its notification starts came out of nowhere.
+- **The host.** The agent's background work as it last listed it (a `background` event, the whole list each time; [] clears it). It belongs to the agent's process: a start (`Chat.start`) clears it, and so does the adapter when its process goes (an exit, the restart behind `/new` and `/resume`). It survives the end of a run, which is the point.
+  - Claude Code: every `system/background_tasks_changed` (`tasks: [{task_id, task_type, description, subagent_type?}]`), sent whole each time a background task starts or ends; a foreground Bash that turned into a task (`is_backgrounded: false`) is never in it. `kind` is the tool that started the task, which only `task_started` names (its `tool_use_id`) and which comes just after the list, so a Monitor shows as `Bash` for that moment (both are `local_bash`). A `local_agent` is `<subagent_type> agent`. `startedAt` is kept per task id across lists (`host/providers/claude/background.ts`).
+  - Pi, Codex and Antigravity report none.
+- **The mod.** A chip in the hint line under the composer, left of the branch (`chrome.js` `backgroundChip`), so it takes no room from the timeline: a spinner, then one task as its `kind` and `label`, several as "3 running in the background", then a clock (`util.js` `elapsed`: `8s`, `4m 05s`, `2h 14m`; the oldest task's) redrawn once a second while any shows (`main.js` `tick`). At most half the column wide; the hint text truncates first. A click (`click:background`) opens a popover above it listing each task whole, with its own clock; it closes with the last task. The dump has `background` (`[[kind, label], …]`) and `backgroundOpen`.

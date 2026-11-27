@@ -123,6 +123,14 @@ export function codeLine(list, t, base) {
 
 export const spansText = (list) => (list ?? []).map((s) => s.text ?? "").join("");
 
+// A running clock: "8s", "4m 05s", "2h 14m" (whole seconds, no tenths, so it ticks evenly).
+export function elapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+}
+
 export function duration(ms) {
   if (ms == null) return "";
   if (ms < 1000) return `${Math.round(ms)}ms`;

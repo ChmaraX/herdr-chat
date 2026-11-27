@@ -36,6 +36,10 @@ https://github.com/user-attachments/assets/cefe4c53-19f6-4c3b-8188-f8480f4c2816
   the composer (`5h 12% · week 57%`), with when each starts over in the
   tooltip. They come with the agent's responses, so a new chat shows them
   after its first answer.
+- **Background work** - what Claude Code left running after its run ended (a
+  Bash with `run_in_background`, a Monitor, a background subagent) shows
+  under the composer, next to the branch, with how long it has run, until it
+  ends. A click lists every task.
 - **Slash commands and skills** - your commands, prompt templates and
   skills, plus the built-ins (`/model`, `/compact`, `/resume`, `/fork`,
   `/tui`…). A skill becomes a pill in your message.

@@ -33,6 +33,89 @@
    ]
   },
   {
+   "match": "start background",
+   "once": false,
+   "steps": [
+    {
+     "tool": "Monitor",
+     "ask": false,
+     "input": {
+      "command": "until deployed; do sleep 30; done",
+      "description": "Watch the prod deploys until both are ACTIVE",
+      "timeout_ms": 600000
+     },
+     "result": {
+      "content": "Monitor started (task bla262e2d)."
+     }
+    },
+    {
+     "emit": {
+      "type": "system",
+      "subtype": "background_tasks_changed",
+      "tasks": [
+       {
+        "task_id": "bla262e2d",
+        "run_id": "r1",
+        "task_type": "local_bash",
+        "description": "Watch the prod deploys until both are ACTIVE"
+       }
+      ]
+     }
+    },
+    {
+     "emit": {
+      "type": "system",
+      "subtype": "task_started",
+      "task_id": "bla262e2d",
+      "tool_use_id": "{lastToolId}",
+      "description": "Watch the prod deploys until both are ACTIVE",
+      "is_backgrounded": true,
+      "task_type": "local_bash"
+     }
+    },
+    {
+     "emit": {
+      "type": "system",
+      "subtype": "background_tasks_changed",
+      "tasks": [
+       {
+        "task_id": "bla262e2d",
+        "run_id": "r1",
+        "task_type": "local_bash",
+        "description": "Watch the prod deploys until both are ACTIVE"
+       },
+       {
+        "task_id": "a0911dac5f01e4231",
+        "run_id": "r2",
+        "task_type": "local_agent",
+        "subagent_type": "Explore",
+        "description": "Find where the sitemap is built"
+       }
+      ]
+     }
+    },
+    {
+     "text": "Watching in the background."
+    }
+   ]
+  },
+  {
+   "match": "stop background",
+   "once": false,
+   "steps": [
+    {
+     "emit": {
+      "type": "system",
+      "subtype": "background_tasks_changed",
+      "tasks": []
+     }
+    },
+    {
+     "text": "Nothing left running."
+    }
+   ]
+  },
+  {
    "match": "slow start",
    "once": false,
    "startMs": 6000,
