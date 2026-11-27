@@ -346,7 +346,7 @@ export default class HerdrChat extends View {
     if (!this.sub) {
       this.keepPin();
       if (this.healHost(cx)) changed = true;
-      if (this.updateTick(cx)) changed = true;
+      if (this.updateTick(shown, cx)) changed = true;
       this.keepHostHidden(me, cx);
       if (this.redirectFocus(cx)) changed = true;
     }
@@ -479,11 +479,12 @@ export default class HerdrChat extends View {
     return Boolean(this.healing && !this.healing.restarted);
   }
 
-  // A host older than the install (update.js): restart it once the person asked and the chat is quiet.
-  updateTick(cx) {
+  // A host older than the install (update.js): restart it once the person asked and the chat is quiet
+  // (asked for every chat: once it's also on screen). `shown`: this chat's tab is the one showing.
+  updateTick(shown, cx) {
     if (this.conn.status !== "connected" || !this.store.loaded) return false;
     const host = this.conn.hostTerminal();
-    if (!this.updater.due({ welcome: this.conn.welcome, state: this.store.state, host, replacing: this.replacing() })) return false;
+    if (!this.updater.due({ welcome: this.conn.welcome, state: this.store.state, host, replacing: this.replacing(), shown })) return false;
     this.replaceHost(host, "update", cx);
     return true;
   }

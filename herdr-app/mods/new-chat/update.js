@@ -7,11 +7,13 @@
 //    reloads). The update is done when that terminal ends: the floating block
 //    watches it and says how it went; on success the question closes, then
 //    question 2.
-// 2. "Restart N chats on X?": after an install, chats whose host started
+// 2. "Update N chats?": after an install, chats whose host started
 //    before it and runs other code (its registry's build and start, against
-//    config.json's build and installedAt). Restart sets the shared RESTART_ALL
+//    config.json's build and installedAt). Update sets the shared RESTART_ALL
 //    key; each chat (mods/chat/update.js) restarts its host on the same
-//    session as soon as it is quiet. Later leaves a bar in each of them.
+//    session once it is quiet and on screen: the one showing now, the others
+//    as the person opens them, so agents start one at a time, never all at
+//    once. Later leaves a bar in each of them.
 //
 // The floating block (main.js Commands) checks; the question is an overlay of
 // this mod with props {role: "update", …}: a window, not a dialog. A dialog
@@ -222,9 +224,9 @@ export class UpdateQuestion {
     let title, body, buttons;
     if (p.step === "restart") {
       title = `herdr-chat ${p.version ?? ""} is installed`.trim();
-      body = [`${p.count} ${p.count === 1 ? "chat still runs" : "chats still run"} the version from before. Restart ${p.count === 1 ? "it" : "them"} to update?`,
-        "Each conversation stays where it is. A chat that's working, or waiting on sub-agents, restarts when it's done."];
-      buttons = [btn("update-later", "Later", false, "later"), btn("update-restart", p.count === 1 ? "Restart chat" : "Restart chats", true, "restart")];
+      body = [`${p.count} ${p.count === 1 ? "chat still runs" : "chats still run"} the version from before. Update ${p.count === 1 ? "it" : "them"}?`,
+        "Each chat restarts when you open it, and its conversation stays. A chat that's working, or waiting on sub-agents, restarts when it's done."];
+      buttons = [btn("update-later", "Later", false, "later"), btn("update-restart", p.count === 1 ? "Update chat" : "Update chats", true, "restart")];
     } else if (this.state === "running") {
       title = `Updating herdr-chat to ${p.version}…`;
       body = ["Your chats keep running. You'll be asked to restart them on the new version."];
